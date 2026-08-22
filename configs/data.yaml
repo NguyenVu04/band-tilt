@@ -1,0 +1,68 @@
+# Single source of truth for paths, the split scheme, and the data contract.
+#
+# Enforcement lives in src/data/schema.py: this file declares *what* is true,
+# the Python module holds the logic that checks it. If a constraint needs
+# cross-column or conditional logic, express it in schema.py rather than
+# growing this file into a rule engine.
+
+# --- Paths -----------------------------------------------------------------
+# Relative to the project root. Everything under data/ is DVC-tracked.
+raw_path: data/raw/dataset.parquet
+interim_dir: data/interim
+processed_dir: data/processed
+train_path: data/processed/train.parquet
+test_path: data/processed/test.parquet
+
+# --- Columns ---------------------------------------------------------------
+target: <target-column>
+
+# Dropped in notebook 01: identifiers and other non-predictive columns that
+# would let a model memorise records.
+drop_columns:
+  - <record-id-column>
+
+# --- Split -----------------------------------------------------------------
+# ALL split configuration lives here, including val_size. If each model config
+# declared its own validation split, models would early-stop and tune against
+# different data and their scores would no longer be comparable.
+#
+# method: group_shuffle | group_kfold | stratified | random
+#   Prefer a group-aware method whenever several records belong to the same
+#   entity (a trajectory, a device, a patient, a session). A plain random split
+#   puts sibling records on both sides of the boundary and leaks information.
+split:
+  method: group_shuffle
+  group_col: <grouping-column>
+  stratify_col: null # set for stratified methods, otherwise null
+  seed: 42
+  test_size: 0.2
+  val_size: 0.2 # fraction of the *train* split, not of the full dataset
+
+# --- Schema ----------------------------------------------------------------
+# One entry per column that must exist after loading. `min` / `max` are HARD
+# bounds only: physical limits, specification ranges, or values fixed by a
+# standard — anything knowable before seeing the data. Record the source of
+# every bound in the `source` field; it is the audit trail that proves the
+# threshold was not derived from the data.
+#
+# Never put a data-derived threshold (mean, std, quantile, IQR fence) here.
+# Statistical outlier handling belongs in a 02x notebook, fitted on train only.
+schema:
+  columns:
+    <feature-a>:
+      dtype: float64
+      min: <lower-bound>
+      max: <upper-bound>
+      nullable: false
+      source: <standard / spec / physical limit that defines this range>
+    <feature-b>:
+      dtype: category
+      allowed: [<value-1>, <value-2>]
+      nullable: true
+      source: <where the allowed set is defined>
+    <grouping-column>:
+      dtype: int64
+      nullable: false
+    <target-column>:
+      dtype: float64
+      nullable: false # records with a missing label are dropped in notebook 01

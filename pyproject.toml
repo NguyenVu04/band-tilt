@@ -1,0 +1,92 @@
+[project]
+name = "ml-project-template"
+version = "0.1.0"
+description = "Machine learning project template: leakage-safe pipeline, shared splitting and metrics, Hydra configs, DVC + MLflow, FastAPI/Streamlit serving."
+readme = "README.md"
+# Upper bound is deliberate and temporary: hydra-core 1.3.x cannot build its
+# argparse parser on Python 3.14, which breaks every @hydra.main entry point
+# (`task train`, `python -m src.data.clean`, the DVC pipeline). The Compose API
+# used by notebooks is unaffected. Lift the cap once hydra-core supports 3.14.
+requires-python = ">=3.11,<3.14"
+
+# ---------------------------------------------------------------------------
+# Dependency policy
+# ---------------------------------------------------------------------------
+# Lower bounds only, no upper caps: every new project generated from this
+# template resolves against current releases. Run `task upgrade`
+# (`uv lock --upgrade`) whenever you want to move the pins forward.
+# Raise a floor only when you actually depend on a newer API.
+# ---------------------------------------------------------------------------
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "scikit-learn>=1.5",
+    "hydra-core>=1.3",
+    "joblib>=1.4",
+]
+
+[project.optional-dependencies]
+# Serving and demo layer (app/). Kept out of the training environment so the
+# ML core never depends on a web framework.
+app = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "streamlit>=1.38",
+    "pydantic>=2.9",
+]
+# Experiment tracking. src/utils/tracking.py imports mlflow lazily, so the base
+# install works without this group.
+tracking = ["mlflow>=2.16"]
+# Data and artifact versioning.
+dvc = ["dvc>=3.55"]
+# Model libraries — install only what a given model module actually needs.
+torch = ["torch>=2.4"]
+xgboost = ["xgboost>=2.1"]
+# Plotting, used by notebooks and src/evaluation/analysis.py.
+viz = ["matplotlib>=3.9", "seaborn>=0.13"]
+# Notebook runtime.
+notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29"]
+# Development tooling.
+dev = ["pytest>=8.3", "ruff>=0.6", "pre-commit>=3.8"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "app"]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Notebooks are formatted by nbstripout + review, not by ruff; Markdown is
+# prose (PROJECT.md is a hand-written spec) and must not be reflowed.
+extend-exclude = ["notebooks", "*.md"]
+
+[tool.ruff.lint]
+# D (pydocstyle) is intentionally enabled: this template ships contracts and
+# documentation rather than implementations, and lint keeps it that way.
+select = ["E", "F", "I", "UP", "B", "D"]
+ignore = [
+    "D203", # incompatible with D211 (no blank line before class docstring)
+    "D213", # incompatible with D212 (summary on the first line)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Placeholder bodies raise NotImplementedError; unused arguments are the point.
+"src/**" = ["ARG001", "ARG002"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

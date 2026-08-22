@@ -1,0 +1,27 @@
+# Config for src/models/model_a.py — the placeholder model.
+#
+# Rename this file, `_target_`, and `artifact_path` together with the module
+# when you replace ModelA with a real model. See _template.yaml for the
+# annotated version of this layout.
+
+_target_: src.models.model_a.ModelA
+
+# Architecture / constructor arguments. Hydra passes this group — and only this
+# group — to __init__ via instantiate().
+model:
+  <hyperparameter-a>: <value>
+  <hyperparameter-b>: <value>
+
+# Tuned optimisation settings. Read inside fit(), not by the constructor.
+optim:
+  lr: 3.0e-4
+  weight_decay: 1.0e-5
+
+# Training procedure. Also read inside fit().
+train:
+  batch_size: 64
+  max_epochs: 100
+  early_stopping_patience: 10
+
+# Where save() writes the {preprocessor, model} artifact.
+artifact_path: models/model_a.pkl

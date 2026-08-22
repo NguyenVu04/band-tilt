@@ -1,0 +1,42 @@
+# DVC pipeline definition.
+#
+# Lives at the project root by DVC convention. Parameters are read directly
+# from configs/data.yaml — the same file Hydra composes — so the split scheme
+# is declared exactly once. There is deliberately no params.yaml.
+#
+# Changing any tracked parameter makes `dvc repro` rerun the affected stage and
+# everything downstream of it.
+stages:
+  clean_split:
+    cmd: python -m src.data.clean
+    deps:
+      - src/data/clean.py
+      - src/data/schema.py
+      - src/data/split.py
+      - data/raw/dataset.parquet
+    params:
+      - configs/data.yaml:
+          - split.method
+          - split.group_col
+          - split.seed
+          - split.test_size
+    outs:
+      - data/processed/train.parquet
+      - data/processed/test.parquet
+
+  # Add one stage per model as they become scripted. Notebook-driven training
+  # does not need a stage; add one when a model is promoted to the pipeline.
+  #
+  # train_model_a:
+  #   cmd: python -m src.models.train models=model_a
+  #   deps:
+  #     - src/models/model_a.py
+  #     - src/models/train.py
+  #     - data/processed/train.parquet
+  #   params:
+  #     - configs/models/model_a.yaml:
+  #         - model
+  #         - optim
+  #         - train
+  #   outs:
+  #     - models/model_a.pkl

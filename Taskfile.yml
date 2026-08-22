@@ -1,0 +1,165 @@
+# Frequently used commands for this project.
+#
+#   task            list every available task
+#   task <name>     run one
+#   task train -- models=model_a optim.lr=1e-3
+#                   everything after `--` is forwarded to the command
+#
+# Task runs commands through its own POSIX shell interpreter, so these work
+# identically on Windows, macOS and Linux. Avoid platform binaries (rm, find)
+# in new tasks — shell out to `uv run python -c ...` instead.
+version: "3"
+
+vars:
+  PKG: src
+  ARTIFACT_DIR: models
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  # --- environment ---------------------------------------------------------
+
+  setup:
+    desc: Create the environment with every extra and install git hooks
+    cmds:
+      - uv sync --all-extras
+      - uv run pre-commit install
+
+  sync:
+    desc: Install the base + dev environment (no heavy model libraries)
+    cmds:
+      - uv sync --extra dev --extra notebooks --extra viz
+
+  lock:
+    desc: Resolve dependencies and write uv.lock
+    cmds:
+      - uv lock
+
+  upgrade:
+    desc: Move every pin to the newest version allowed by pyproject.toml
+    cmds:
+      - uv lock --upgrade
+      - uv sync --all-extras
+
+  add:
+    desc: 'Add a dependency, e.g. task add -- lightgbm'
+    cmds:
+      - uv add {{.CLI_ARGS}}
+
+  add:dev:
+    desc: 'Add a dev dependency, e.g. task add:dev -- mypy'
+    cmds:
+      - uv add --optional dev {{.CLI_ARGS}}
+
+  # --- quality -------------------------------------------------------------
+
+  lint:
+    desc: Lint with ruff (includes docstring rules)
+    cmds:
+      - uv run ruff check .
+      - uv run ruff format --check .
+
+  format:
+    desc: Auto-format and auto-fix with ruff
+    cmds:
+      - uv run ruff check --fix .
+      - uv run ruff format .
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - uv run pytest {{.CLI_ARGS}}
+
+  check:
+    desc: Lint and test
+    cmds:
+      - task: lint
+      - task: test
+
+  # --- pipeline ------------------------------------------------------------
+
+  lab:
+    desc: Start JupyterLab
+    cmds:
+      - uv run jupyter lab
+
+  clean:data:
+    desc: 'Run the cleaning + split stage (notebook 01 as a script)'
+    cmds:
+      - uv run python -m {{.PKG}}.data.clean {{.CLI_ARGS}}
+
+  train:
+    desc: 'Train one model, e.g. task train -- models=model_a'
+    cmds:
+      - uv run python -m {{.PKG}}.models.train {{.CLI_ARGS}}
+
+  sweep:
+    desc: 'Hydra multirun, e.g. task sweep -- models=model_a,model_b'
+    cmds:
+      - uv run python -m {{.PKG}}.models.train --multirun {{.CLI_ARGS}}
+
+  # --- versioning and tracking ---------------------------------------------
+
+  dvc:init:
+    desc: Initialise DVC in this repository
+    cmds:
+      - uv run dvc init
+
+  dvc:repro:
+    desc: Reproduce the DVC pipeline
+    cmds:
+      - uv run dvc repro {{.CLI_ARGS}}
+
+  dvc:dag:
+    desc: Show the DVC stage graph
+    cmds:
+      - uv run dvc dag
+
+  dvc:push:
+    desc: Push tracked data and artifacts to the DVC remote
+    cmds:
+      - uv run dvc push
+
+  dvc:pull:
+    desc: Pull tracked data and artifacts from the DVC remote
+    cmds:
+      - uv run dvc pull
+
+  mlflow:
+    desc: Serve the MLflow UI on the local ./mlruns store
+    cmds:
+      - uv run mlflow ui --backend-store-uri ./mlruns
+
+  # --- serving -------------------------------------------------------------
+
+  api:
+    desc: Run the FastAPI service with reload
+    cmds:
+      - uv run uvicorn app.api.main:app --reload --port 8000
+
+  demo:
+    desc: Run the Streamlit demo
+    cmds:
+      - uv run streamlit run app/demo/streamlit_app.py
+
+  docker:build:
+    desc: Build the serving image
+    cmds:
+      - docker build -f app/Dockerfile -t ml-project-api .
+
+  docker:run:
+    desc: Run the serving image on port 8000
+    cmds:
+      - docker run --rm -p 8000:8000 ml-project-api
+
+  # --- housekeeping --------------------------------------------------------
+
+  clean:
+    desc: Remove caches and compiled files
+    cmds:
+      - uv run --no-project python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__')]"
+      - uv run --no-project python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in ['.pytest_cache', '.ruff_cache']]"

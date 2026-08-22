@@ -1,0 +1,40 @@
+# Copy this file to configs/models/<your-model>.yaml when adding a model.
+#
+# Checklist for a new model:
+#   1. cp src/models/model_a.py     src/models/<your_model>.py   (rename the class)
+#   2. cp configs/models/_template.yaml configs/models/<your_model>.yaml
+#   3. cp notebooks/02a_model_a.ipynb  notebooks/02<letter>_<your_model>.ipynb
+#   4. Add any new library to the right extra in pyproject.toml
+#   5. task train -- models=<your_model>
+#
+# The leading underscore marks this as a template. Hydra still lists it under
+# `models=`, but selecting it fails on the placeholder `_target_` below — which
+# is the intended behaviour: it is meant to be copied, not run.
+
+# Import path of the class. Hydra resolves models by _target_; there is no
+# separate registry module, on purpose — two mechanisms for one job drift apart.
+_target_: src.models.<module>.<ClassName>
+
+# --- Grouping matters ------------------------------------------------------
+# Keep these three groups separate. instantiate() passes `model:` to __init__,
+# so a training-loop setting sitting at the same level as an architecture
+# argument would be handed to the constructor and raise a TypeError.
+
+model: # -> __init__: architecture only
+  <arg>: <value>
+
+optim: # -> fit(): optimiser / tuned hyperparameters
+  lr: 1.0e-3
+  weight_decay: 0.0
+
+train: # -> fit(): training procedure
+  batch_size: 64
+  max_epochs: 100
+  early_stopping_patience: 10
+
+# Serialised {preprocessor, model} artifact. DVC-tracked, never committed.
+artifact_path: models/<your_model>.pkl
+
+# Note: do NOT add val_size or any split setting here. Validation splitting is
+# declared once in configs/data.yaml so every model tunes against the same
+# fold — otherwise the comparison in notebook 03 is meaningless.

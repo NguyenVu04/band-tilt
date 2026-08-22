@@ -1,0 +1,5 @@
+# Patterns DVC should never track or hash.
+.ipynb_checkpoints/
+__pycache__/
+.venv/
+mlruns/

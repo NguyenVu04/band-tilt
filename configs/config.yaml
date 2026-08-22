@@ -1,0 +1,33 @@
+# Hydra entrypoint. Composes the data config with exactly one model config.
+#
+# Override from the command line:
+#   python -m src.models.train models=model_a
+#   python -m src.models.train --multirun models=model_a,model_b
+#   python -m src.models.train seed=7 models.optim.lr=1e-3
+#
+# In notebooks the @hydra.main decorator does not work — use the Compose API
+# via src.config.load_config().
+
+defaults:
+  - data
+  - models: model_a
+  - _self_
+
+# Global seed. Consumed by src.utils.seed.set_seed() and by the splitter
+# defaults in data.yaml. Change it here only, never per module.
+seed: 42
+
+project_name: <project-name>
+
+mlflow:
+  tracking_uri: ./mlruns
+  experiment_name: <project-name>
+
+# Hydra's own output directories. Runs are reproducible from the config Hydra
+# saves next to each run, so keep this on.
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

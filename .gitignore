@@ -1,0 +1,41 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Environments ----------------------------------------------------------
+.venv/
+.env
+# uv.lock is deliberately NOT ignored: a project generated from this template
+# should commit its lock file. Only the template itself ships without one.
+
+# --- Notebooks -------------------------------------------------------------
+.ipynb_checkpoints/
+
+# --- Data (DVC-tracked, never committed) -----------------------------------
+# The directory negation must come first: git will not re-include a file whose
+# parent directory is excluded.
+data/**/*
+!data/**/
+!data/**/.gitkeep
+!data/**/*.dvc
+
+# --- Artifacts (DVC-tracked) -----------------------------------------------
+models/*
+!models/.gitkeep
+!models/*.dvc
+
+# --- Reports ---------------------------------------------------------------
+reports/figures/*
+!reports/figures/.gitkeep
+reports/results/*
+!reports/results/.gitkeep
+
+# --- Experiment tracking / Hydra -------------------------------------------
+mlruns/
+mlartifacts/
+outputs/
+multirun/
