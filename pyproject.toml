@@ -1,6 +1,6 @@
 [project]
-name = "ml-project-template"
-version = "0.1.0"
+name = "band-tilt"
+version = "1.0.0"
 description = "Machine learning project template: leakage-safe pipeline, shared splitting and metrics, Hydra configs, DVC + MLflow, FastAPI/Streamlit serving."
 readme = "README.md"
 # Upper bound is deliberate and temporary: hydra-core 1.3.x cannot build its
@@ -26,6 +26,14 @@ dependencies = [
     "joblib>=1.4",
 ]
 
+[tool.uv.sources]
+torch = { index = "pytorch-cu132" }
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
 [project.optional-dependencies]
 # Serving and demo layer (app/). Kept out of the training environment so the
 # ML core never depends on a web framework.
@@ -43,10 +51,12 @@ dvc = ["dvc>=3.55"]
 # Model libraries — install only what a given model module actually needs.
 torch = ["torch>=2.4"]
 xgboost = ["xgboost>=2.1"]
+# Radio-frequency ray tracing (antenna tilt / coverage simulation).
+rt = ["sionna-rt>=2.0"]
 # Plotting, used by notebooks and src/evaluation/analysis.py.
 viz = ["matplotlib>=3.9", "seaborn>=0.13"]
 # Notebook runtime.
-notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29"]
+notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29", "pip>=24.0"]
 # Development tooling.
 dev = ["pytest>=8.3", "ruff>=0.6", "pre-commit>=3.8"]
 
