@@ -1,0 +1,125 @@
+# Multi-Agent Reinforcement Learning over the absolute-tilt space
+# (PROJECT.md sections 21-24).
+#
+# BO and MARL solve the SAME problem: they read the same tilt bounds from
+# configs/radio.yaml through src/optim/space.py, and score with the same
+# src/kpi/ functions. Nothing about the problem is defined in this file — only
+# how this optimizer searches it. See docs/adr/0006.
+#
+# Built on TorchRL. Ray/RLlib is deliberately not used.
+
+_target_: src.optim.marl.train.MARLTrainer
+
+# --- Agents ----------------------------------------------------------------
+# granularity: cell | site
+#   cell  one agent per gcell; each agent outputs the tilts of its own bands
+#   site  one agent per gnodeb; each agent outputs the tilts of every cell-band
+#         it carries, so co-sited sectors are coordinated by construction
+#
+# PROJECT.md section 21 leaves this open. The trade-off is coordination against
+# action-space size: `site` coordinates sectors that physically interfere but
+# gives each agent a much larger action space.
+agents:
+  granularity: cell
+  # Share one policy network across agents, conditioned on agent identity.
+  # Parameter sharing is what makes this tractable at 26 cells; it assumes
+  # agents are behaviourally interchangeable given their observation.
+  parameter_sharing: <true|false>
+
+# --- Action space ----------------------------------------------------------
+# The action IS the absolute tilt, not a delta (PROJECT.md section 3.1, and
+# docs/adr/0001). This keeps the action space fixed at
+# [theta_min, theta_max] instead of moving with the current configuration.
+#
+# The policy must not be able to emit an out-of-bounds tilt. Squash the output
+# into the box rather than clipping after the fact: clipping puts probability
+# mass on the boundary and the gradient there is wrong.
+action:
+  squash: <tanh|sigmoid>
+  # Discretise the action into this many steps per cell-band. null keeps it
+  # continuous. Discrete actions match real RET hardware and suit value-based
+  # algorithms; continuous suits actor-critic.
+  n_bins: null
+
+# --- Observation -----------------------------------------------------------
+# The state s_i from PROJECT.md section 22. Every entry is a per-agent local
+# view; the global picture reaches the agent through the centralised critic,
+# not through its own observation.
+observation:
+  own_tilt: true
+  own_geometry: <true|false>
+  neighbor_tilts: <true|false>
+  local_kpi: <true|false>
+  local_ue_density: <true|false>
+  band_identity: <true|false>
+
+# --- Algorithm -------------------------------------------------------------
+# PROJECT.md section 30 item 10 leaves this open.
+#
+# Centralised training with decentralised execution: the critic sees the joint
+# state during training, each policy sees only its own observation at
+# execution. This is what makes a shared, non-decomposable reward learnable —
+# every agent's tilt affects every KPI, so a decentralised critic cannot assign
+# credit.
+algorithm: <mappo|maddpg|qmix|iql>
+centralized_critic: true
+
+policy:
+  hidden_sizes: [<width>, <width>]
+  activation: <activation function>
+
+optim:
+  lr: 3.0e-4
+  weight_decay: 0.0
+  max_grad_norm: <gradient clipping threshold>
+
+train:
+  total_frames: <environment steps>
+  frames_per_batch: <steps collected per update>
+  num_epochs: <optimization epochs per batch>
+  minibatch_size: 64
+  gamma: <discount factor>
+  gae_lambda: <GAE lambda>
+  clip_epsilon: <PPO clipping parameter>
+  entropy_coef: <entropy bonus>
+
+# --- Environment -----------------------------------------------------------
+# PROJECT.md section 24. Training against Sionna-RT directly is not affordable:
+# an episode is thousands of steps and each step would be a ray-tracing run.
+# The surrogate provides the reward during training; Sionna-RT validates the
+# learned policy afterwards.
+env:
+  reward_source: surrogate
+  # Steps before the episode is truncated. With absolute-tilt actions a single
+  # step already reaches any configuration, so this is about giving the agent
+  # room to refine, not to travel.
+  max_episode_steps: <steps per episode>
+  # How each episode's starting tilt is drawn: baseline | random | sampled
+  #   baseline  always the current network configuration
+  #   random    uniform in the tilt box
+  #   sampled   drawn from the surrogate dataset's configurations
+  reset_strategy: <baseline|random|sampled>
+
+# --- Reward ----------------------------------------------------------------
+# PROJECT.md section 23:
+#   r = -lambda_H*K_H - lambda_O*K_O - lambda_W*K_W - lambda_ON*K_ON
+#       + lambda_BPS*K_BPS
+#
+# The lambdas apply to NORMALIZED KPIs and must satisfy
+# lambda_H > lambda_O > lambda_W, or the reward silently contradicts the
+# priority in configs/kpi.yaml. src/optim/marl/reward.py asserts this rather
+# than trusting it.
+#
+# By default the weights are read from configs/kpi.yaml so that the MARL reward
+# and the BO scalarization cannot drift apart. Override here only to run a
+# reward-shaping experiment, and say so when reporting the result.
+reward:
+  weights: ${kpi.weights}
+  normalization: ${kpi.normalization}
+  # Reward the improvement over the previous step rather than the absolute KPI
+  # level. Absolute-level rewards are dominated by the constant part of the
+  # network's quality, which carries no learning signal.
+  potential_shaping: <true|false>
+
+# Seeds for the stability comparison in PROJECT.md section 25.3.
+seeds: ["${seed}"]

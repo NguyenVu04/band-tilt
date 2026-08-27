@@ -1,33 +1,23 @@
-"""Model-agnostic cleaning — the code behind notebook 01.
+"""MDT cleaning — PROJECT.md section 19 Step 2, and the code behind notebook 01.
 
-This module is the most rule-bound part of the project, because everything it
-does happens *before* the train/test split and therefore affects both sides.
+Every rule here is a *hard* rule: a record either violates a bound declared in
+``configs/data.yaml`` or it does not. Nothing in this module looks at the
+distribution of the data to decide what to drop.
 
-Allowed here (deterministic, model-agnostic)
---------------------------------------------
-- Schema and dtype validation
-- Duplicate record removal
-- Dropping non-predictive columns (record IDs and the like)
-- Dropping records with a missing or invalid label
-- Dropping records that violate a **hard, externally known constraint** — a
-  physical limit, a specification range, a bound fixed by a standard
+Why that line matters
+---------------------
+A statistical filter fitted on the full dataset — an IQR fence, a z-score cut, a
+quantile clip — sees the test records while deciding what counts as valid. The
+resulting model is then evaluated on data that was shaped by knowledge of
+itself, and the estimate comes out optimistic for a reason that is very hard to
+find later. Statistical outlier handling belongs downstream, fitted on the
+training split only.
 
-Forbidden here (learns from the data — belongs in a ``02x`` notebook)
----------------------------------------------------------------------
-- Imputation of missing values
-- Statistical outlier detection (IQR, z-score, isolation forest)
-- Scaling, encoding, any fitted transformation
-- Feature engineering and selection
-
-The distinction is the *origin of the threshold*, not its effect: a bound known
-before seeing the data belongs here; a bound computed from the data leaks
-test-set information into the filtering decision and belongs in ``02x``.
-
-Running as a script
--------------------
-``python -m src.data.clean`` executes the full stage — load, validate, clean,
-split, write — and is the command wired into the ``clean_split`` stage of
-``dvc.yaml``.
+Also runs as a script
+---------------------
+``python -m src.data.clean`` (or ``task clean:data``) performs cleaning and the
+split without opening a notebook, so the DVC stage and the notebook cannot
+diverge. Both call the same functions below.
 """
 
 import hydra
@@ -36,147 +26,170 @@ from omegaconf import DictConfig
 
 
 def drop_duplicates(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Remove duplicate records.
+    """Remove exactly duplicated MDT records.
 
     Args:
-        df: Frame to deduplicate.
-        cfg: Composed config, for the subset of columns that defines identity.
+        df: Raw MDT frame.
+        cfg: Composed config; uses ``cfg.data.clean.drop_duplicates``.
 
     Returns:
-        The frame without duplicates.
+        The frame with duplicate rows removed.
 
     Raises:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        Decide explicitly what "duplicate" means for this dataset: fully
-        identical rows, or rows identical on a natural key. Document the choice
-        here — it is a modelling decision disguised as cleaning.
+        Deduplicate on the full record, not on ``ue_id`` alone. One UE
+        legitimately contributes many measurements — that is what an MDT export
+        is — so deduplicating by identifier would delete most of the dataset.
+
+    Example:
+        >>> df = drop_duplicates(mdt, cfg)
     """
-    # TODO(1): define the identity subset (full row, or a natural key)
-    # TODO(2): drop and report how many records were removed
+    # TODO(1): return early when cfg.data.clean.drop_duplicates is false
+    # TODO(2): drop_duplicates across all columns, not a subset
     raise NotImplementedError("src.data.clean.drop_duplicates")
 
 
-def drop_non_predictive(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Drop columns that must never reach a model.
+def drop_invalid_rsrp(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
+    """Remove records whose RSRP is outside the reportable range.
 
     Args:
-        df: Frame to prune.
-        cfg: Composed config; uses ``cfg.drop_columns``.
+        df: MDT frame.
+        cfg: Composed config; uses ``cfg.data.schema.mdt.columns.rsrp`` bounds
+            and ``cfg.data.clean.drop_rsrp_out_of_range``.
 
     Returns:
-        The frame without the dropped columns.
+        The frame with unreportable RSRP values removed.
 
     Raises:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        Record identifiers are the usual case: they let a model memorise rows
-        and often correlate with collection order, which is leakage in
-        disguise. The grouping column is a special case — it is needed by the
-        splitter, so drop it after splitting, not here.
-    """
-    # TODO(1): drop cfg.drop_columns, tolerating already-absent columns
-    raise NotImplementedError("src.data.clean.drop_non_predictive")
+        The bounds come from 3GPP TS 38.133, not from the observed values. The
+        raw export contains ``rsrp = 0.0``, which is not a measurable RSRP and
+        is best read as a sentinel for "no report" — dropping it is a contract
+        decision, not an outlier judgement.
 
-
-def drop_invalid_labels(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Drop records whose label is missing or invalid.
-
-    Args:
-        df: Frame to filter.
-        cfg: Composed config; uses ``cfg.target``.
-
-    Returns:
-        The frame with only usable labels.
-
-    Raises:
-        NotImplementedError: Always — implement this module first.
-
-    Notes:
-        Unlabelled records cannot be trained or scored on, so dropping them is
-        model-agnostic and safe before the split. Report the count: a large
-        share of missing labels is a data-collection problem worth surfacing,
-        not something to silently discard.
-    """
-    # TODO(1): drop rows where cfg.target is null
-    # TODO(2): drop rows whose label falls outside the declared valid range/set
-    raise NotImplementedError("src.data.clean.drop_invalid_labels")
-
-
-def drop_constraint_violations(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Drop records violating hard, externally defined constraints.
-
-    Args:
-        df: Frame to filter.
-        cfg: Composed config; uses the ``min`` / ``max`` / ``allowed`` entries
-            of ``cfg.schema.columns``.
-
-    Returns:
-        The frame containing only physically valid records.
-
-    Raises:
-        NotImplementedError: Always — implement this module first.
-
-    Notes:
-        Every bound applied here must have a ``source`` recorded next to it in
-        ``configs/data.yaml``. If you cannot name the standard, specification
-        or physical law behind a threshold, it is a statistical threshold and
-        belongs in a ``02x`` notebook instead.
-    """
-    # TODO(1): build the mask from schema bounds via src.data.schema
-    # TODO(2): log the dropped count per constraint for the cleaning audit
-    raise NotImplementedError("src.data.clean.drop_constraint_violations")
-
-
-def clean(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Run the full cleaning sequence in the required order.
-
-    Args:
-        df: Raw frame.
-        cfg: Composed config.
-
-    Returns:
-        The cleaned frame, ready to split.
-
-    Raises:
-        NotImplementedError: Always — implement this module first.
-
-    Notes:
-        Order matters: validate, then deduplicate, then drop invalid labels,
-        then apply hard constraints, and only then drop non-predictive
-        columns — the identifier columns are often what deduplication needs.
+        Count what this removes and surface it. A sentinel that suddenly appears
+        in 40% of records is an upstream export bug, and a silent filter hides
+        it.
 
     Example:
-        >>> clean_df = clean(load_raw(cfg), cfg)
+        >>> df = drop_invalid_rsrp(df, cfg)
     """
-    # TODO(1): schema.validate(df, cfg)
-    # TODO(2): drop_duplicates -> drop_invalid_labels -> drop_constraint_violations
-    # TODO(3): drop_non_predictive
-    # TODO(4): schema.validate again, to prove the cleaning worked
+    # TODO(1): read min/max from cfg.data.schema.mdt.columns.rsrp
+    # TODO(2): mask records outside [min, max], plus nulls
+    # TODO(3): return the surviving records
+    raise NotImplementedError("src.data.clean.drop_invalid_rsrp")
+
+
+def drop_unknown_cells(df: pd.DataFrame, cells: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
+    """Remove MDT records measured against a cell absent from the configuration.
+
+    Args:
+        df: MDT frame.
+        cells: Cell configuration from :func:`src.data.load.load_cell_config`.
+        cfg: Composed config; uses ``cfg.data.clean.drop_unknown_cells``.
+
+    Returns:
+        The frame restricted to configured cells.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        A measurement against a cell that has no position, azimuth or tilt
+        cannot be placed in the Sionna-RT scene, so it can never be compared
+        against a simulated radio map.
+
+    Example:
+        >>> df = drop_unknown_cells(df, cells, cfg)
+    """
+    # TODO(1): anti-join df.gcell_id against cells.gcell_id
+    # TODO(2): report the distinct unknown ids, not just the row count
+    raise NotImplementedError("src.data.clean.drop_unknown_cells")
+
+
+def drop_outside_scene(df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
+    """Remove records positioned outside the simulation scene.
+
+    Args:
+        df: MDT frame.
+        cfg: Composed config; uses ``cfg.radio.grid.bounds`` when set, otherwise
+            the bounding box of ``cfg.data.scene_file``.
+
+    Returns:
+        The frame restricted to the scene extent.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        The evaluation grid only covers the scene, so a record outside it has no
+        grid cell to contribute to. The raw export reaches roughly +/-4100 m in
+        both axes while the cells sit within a far smaller area, so this is not
+        a rare edge case.
+
+        Take the bounds from the same source the radio map will use. Deriving
+        them separately here is how the UE density grid and the RSRP grid end up
+        misaligned by one cell, which is invisible until a KPI looks wrong.
+
+    Example:
+        >>> df = drop_outside_scene(df, cfg)
+    """
+    # TODO(1): resolve bounds via src.radio.scene.scene_bounds when cfg.radio.grid.bounds is null
+    # TODO(2): mask records outside [xmin, xmax] x [ymin, ymax]
+    raise NotImplementedError("src.data.clean.drop_outside_scene")
+
+
+def clean(df: pd.DataFrame, cells: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
+    """Run the full cleaning sequence in order.
+
+    Args:
+        df: Raw MDT frame.
+        cells: Cell configuration.
+        cfg: Composed config; uses ``cfg.data.clean``.
+
+    Returns:
+        The cleaned MDT frame, ready for splitting.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        Order matters for the audit, not for the result: applying the cheap
+        structural filters before the spatial one keeps the "records removed by
+        rule" table readable. Record the count before and after each step —
+        notebook 01's cleaning audit is that table, and it is the only evidence
+        that the filters did what was intended.
+
+    Example:
+        >>> clean_df = clean(mdt, cells, cfg)
+    """
+    # TODO(1): apply drop_duplicates, drop_invalid_rsrp, drop_unknown_cells, drop_outside_scene
+    # TODO(2): accumulate (rule, rows_before, rows_after) for the audit table
+    # TODO(3): re-validate with schema.validate(..., strict=True) before returning
     raise NotImplementedError("src.data.clean.clean")
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Run the cleaning and splitting stage end to end.
-
-    This is the command behind the ``clean_split`` stage in ``dvc.yaml`` and
-    behind ``task clean:data``. It is the scripted equivalent of notebook 01;
-    keep the two in step, with this module as the source of truth.
+    """Clean and split as a script, so the DVC stage matches notebook 01.
 
     Args:
-        cfg: Config composed by Hydra from ``configs/config.yaml``.
+        cfg: Composed by Hydra from ``configs/``.
 
     Raises:
         NotImplementedError: Always — implement this module first.
+
+    Example:
+        >>> # task clean:data
     """
-    # TODO(1): set_seed(cfg.seed)
-    # TODO(2): df = load_raw(cfg); df = clean(df, cfg)
-    # TODO(3): train_df, test_df = split.train_test_split(df, cfg)
-    # TODO(4): save_processed(train_df, cfg.train_path) and the test split
-    # TODO(5): print the row counts so the DVC stage log is self-documenting
+    # TODO(1): load_mdt + load_cell_config
+    # TODO(2): clean(...)
+    # TODO(3): split.train_test_split(...) and assert_no_leakage(...)
+    # TODO(4): save_processed to cfg.data.train_path and cfg.data.test_path
     raise NotImplementedError("src.data.clean.main")
 
 

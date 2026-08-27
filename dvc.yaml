@@ -1,42 +1,145 @@
-# DVC pipeline definition.
+# The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 #
-# Lives at the project root by DVC convention. Parameters are read directly
-# from configs/data.yaml — the same file Hydra composes — so the split scheme
-# is declared exactly once. There is deliberately no params.yaml.
+# The stages mirror PROJECT.md section 19 and the notebooks one-to-one, and both
+# call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Changing any tracked parameter makes `dvc repro` rerun the affected stage and
-# everything downstream of it.
+# Only the first stage is active. The rest are commented because they depend on
+# parameters PROJECT.md section 30 leaves open (band table, tilt bounds, grid
+# resolution, surrogate architecture) and on the multi-band cell configuration
+# that has not arrived yet. Uncomment each as its inputs become real.
+#
+# Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
+# so the entries are chosen to be the settings that actually invalidate a stage's
+# output — not every key in the file.
+
 stages:
+  # --- Steps 2-3: cleaning and the frozen split (notebook 01) ---------------
   clean_split:
     cmd: python -m src.data.clean
     deps:
       - src/data/clean.py
+      - src/data/load.py
       - src/data/schema.py
       - src/data/split.py
-      - data/raw/dataset.parquet
+      - data/raw/measurement_data.csv
+      - data/raw/gcell_conf.csv
     params:
       - configs/data.yaml:
-          - split.method
-          - split.group_col
-          - split.seed
-          - split.test_size
+          - clean
+          - split
+          - schema
     outs:
-      - data/processed/train.parquet
-      - data/processed/test.parquet
+      - data/processed/mdt_train.parquet
+      - data/processed/mdt_test.parquet
 
-  # Add one stage per model as they become scripted. Notebook-driven training
-  # does not need a stage; add one when a model is promoted to the pipeline.
+  # --- Step 5: radio maps and the surrogate dataset (notebook 03) -----------
+  # The expensive stage: one ray-tracing solve per sampled configuration. The
+  # ray-tracing settings and the grid geometry define the labels, so a change to
+  # either invalidates every existing sample rather than adding to it — which is
+  # exactly what DVC's params dependency expresses.
   #
-  # train_model_a:
-  #   cmd: python -m src.models.train models=model_a
+  # surrogate_dataset:
+  #   cmd: python -m src.surrogate.dataset
   #   deps:
-  #     - src/models/model_a.py
-  #     - src/models/train.py
-  #     - data/processed/train.parquet
+  #     - src/radio/
+  #     - src/kpi/
+  #     - src/surrogate/dataset.py
+  #     - data/processed/mdt_train.parquet
+  #     - data/external/simulation_map/scene.xml
   #   params:
-  #     - configs/models/model_a.yaml:
+  #     - configs/radio.yaml:
+  #         - bands
+  #         - cells
+  #         - antenna
+  #         - grid
+  #         - ray_tracing
+  #         - sampling
+  #     - configs/kpi.yaml:
+  #         - hole_dbm
+  #         - weak_dbm
+  #         - overlap_margin_db
+  #   outs:
+  #     - data/processed/surrogate_dataset.parquet
+
+  # --- Step 6: train the surrogate (notebook 04) ---------------------------
+  # surrogate_train:
+  #   cmd: python -m src.surrogate.train
+  #   deps:
+  #     - src/surrogate/
+  #     - data/processed/surrogate_dataset.parquet
+  #   params:
+  #     - configs/surrogate.yaml:
+  #         - dataset
+  #         - features
   #         - model
   #         - optim
   #         - train
   #   outs:
-  #     - models/model_a.pkl
+  #     - models/surrogate.pkl
+  #   metrics:
+  #     - reports/results/surrogate_error.json:
+  #         cache: false
+
+  # --- Section 20: Bayesian Optimization (notebook 05a) --------------------
+  # bo:
+  #   cmd: python -m src.optim.bo.run optim=bo
+  #   deps:
+  #     - src/optim/
+  #     - models/surrogate.pkl
+  #   params:
+  #     - configs/optim/bo.yaml:
+  #         - search
+  #         - surrogate_model
+  #         - acquisition
+  #         - objective
+  #         - stopping
+  #         - seeds
+  #   outs:
+  #     - reports/results/bo_theta.json:
+  #         cache: false
+
+  # --- Section 21: MARL (notebook 05b) -------------------------------------
+  # marl:
+  #   cmd: python -m src.optim.marl.train optim=marl
+  #   deps:
+  #     - src/optim/
+  #     - models/surrogate.pkl
+  #   params:
+  #     - configs/optim/marl.yaml:
+  #         - agents
+  #         - action
+  #         - observation
+  #         - algorithm
+  #         - policy
+  #         - train
+  #         - env
+  #         - reward
+  #         - seeds
+  #   outs:
+  #     - reports/results/marl_theta.json:
+  #         cache: false
+
+  # --- Sections 26-27: Sionna-RT validation and comparison (notebook 06) ---
+  # Depends on the TEST split, not the train split: UE density during
+  # optimization came from train, and the Band Priority Score weights locations
+  # by where users were measured.
+  #
+  # validate:
+  #   cmd: python -m src.evaluation.validate
+  #   deps:
+  #     - src/evaluation/
+  #     - reports/results/bo_theta.json
+  #     - reports/results/marl_theta.json
+  #     - data/processed/mdt_test.parquet
+  #     - data/external/simulation_map/scene.xml
+  #   params:
+  #     - configs/radio.yaml:
+  #         - grid
+  #         - ray_tracing
+  #     - configs/kpi.yaml:
+  #         - hole_dbm
+  #         - weak_dbm
+  #         - overlap_margin_db
+  #   metrics:
+  #     - reports/results/kpi_comparison.json:
+  #         cache: false

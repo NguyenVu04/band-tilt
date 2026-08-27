@@ -9,6 +9,15 @@ What must NOT go here
 ---------------------
 Defaults and values. Every tunable lives in ``configs/*.yaml`` so that Git
 history records what produced a result. This module only loads and checks.
+
+Why validation is worth the code
+--------------------------------
+Several config files still carry ``<placeholder>`` values, because PROJECT.md
+section 30 leaves those parameters open until they are fixed experimentally. A
+placeholder that reaches a numeric call site does not raise — it produces a
+string comparison, a silent cast, or a KPI computed against the wrong
+threshold. :func:`validate_config` is what turns that into an early, loud
+failure.
 """
 
 from pathlib import Path
@@ -29,10 +38,11 @@ def load_config(
     Args:
         config_name: Name of the root config file in ``configs/``, without the
             ``.yaml`` suffix.
-        overrides: Hydra override strings, e.g. ``["models=model_a", "seed=7"]``.
+        overrides: Hydra override strings, e.g. ``["optim=marl", "seed=7"]``.
 
     Returns:
-        The composed config.
+        The composed config, namespaced as ``cfg.data``, ``cfg.radio``,
+        ``cfg.kpi``, ``cfg.surrogate`` and ``cfg.optim``.
 
     Raises:
         NotImplementedError: Always — implement this module first.
@@ -44,9 +54,9 @@ def load_config(
         ``notebooks/`` and from ``tests/``.
 
     Example:
-        >>> cfg = load_config(overrides=["models=model_a"])
-        >>> cfg.split.test_size
-        0.2
+        >>> cfg = load_config(overrides=["optim=marl"])
+        >>> cfg.kpi.hole_dbm
+        -120.0
     """
     # TODO(1): with initialize_config_dir(str(CONFIG_DIR), version_base=None):
     # TODO(2):     cfg = compose(config_name=config_name, overrides=overrides or [])
@@ -66,13 +76,27 @@ def validate_config(cfg: DictConfig) -> None:
             inconsistent.
 
     Notes:
-        Worth checking here, because each of these fails late and confusingly:
-        the split fractions are in ``(0, 1)``; ``split.group_col`` is declared
-        in ``schema.columns`` when a group-aware method is selected;
-        ``stratify_col`` is set if and only if the method needs it; no
-        placeholder ``<...>`` values were left in the config.
+        Each of these fails late and confusingly if it is not caught here:
+
+        - Split fractions ``cfg.data.split.test_size`` / ``val_size`` in
+          ``(0, 1)``, and ``split.group_col`` declared in the MDT schema.
+        - KPI thresholds ordered ``hole_dbm < weak_dbm``. Reversed, every
+          location classifies as a hole and the optimizer chases a constant.
+        - Every band in ``cfg.radio.bands`` has ``tilt.min < tilt.max`` and a
+          strictly positive ``priority_weight`` (PROJECT.md section 14).
+        - Scalarization weights ordered ``hole > overlap > weak`` when
+          ``cfg.kpi.mode`` is ``scalarized`` (PROJECT.md section 23) — the
+          weights can otherwise contradict the stated priority without any
+          error.
+        - No value anywhere in the tree still matches ``<...>``.
+
+    Example:
+        >>> validate_config(cfg)
     """
-    # TODO(1): check split.test_size and split.val_size are in (0, 1)
-    # TODO(2): check split.group_col exists in schema.columns for group methods
-    # TODO(3): check no value still matches the "<placeholder>" pattern
+    # TODO(1): check data.split.test_size and data.split.val_size are in (0, 1)
+    # TODO(2): check data.split.group_col exists in data.schema.mdt.columns
+    # TODO(3): check kpi.hole_dbm < kpi.weak_dbm
+    # TODO(4): check every radio.bands[b] has tilt.min < tilt.max and priority_weight > 0
+    # TODO(5): if kpi.mode == "scalarized", check weights hole > overlap > weak
+    # TODO(6): walk the whole tree and reject any remaining "<placeholder>" string
     raise NotImplementedError("src.config.validate_config")

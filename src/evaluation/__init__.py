@@ -1,10 +1,22 @@
-"""Shared evaluation.
+"""Final validation, method comparison, and reporting.
 
-- ``metrics``  the single definition of each metric, used by every model
-- ``analysis`` error analysis, calibration, feature importance, comparison plots
+Modules
+-------
+- ``validate`` re-evaluate an optimized configuration with Sionna-RT
+- ``compare``  baseline vs. BO vs. MARL, on identical terms
+- ``report``   the tilt table: current, optimal, offset
+- ``metrics``  surrogate prediction error
+- ``analysis`` the spatial maps
 
-Metrics are defined here and nowhere else. A metric reimplemented inside a
-model module will differ in some detail — averaging, handling of edge cases,
-sample weighting — and the comparison table in notebook 03 will silently
-compare measurement choices instead of models.
+The one rule this package enforces
+----------------------------------
+Reported KPIs come from Sionna-RT, never from the surrogate (PROJECT.md
+section 26, docs/adr/0003). The surrogate makes the search affordable; it does
+not make the claim. Where a surrogate prediction appears in a report, it is
+labelled as such and shown beside the ground truth, because the gap between them
+is itself a result.
+
+Note the division with :mod:`src.kpi`: that package DEFINES the KPIs, this one
+validates, compares and presents them. A KPI computed here rather than there
+would be a second definition, and the comparison would stop being valid.
 """

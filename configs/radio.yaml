@@ -1,0 +1,90 @@
+# @package radio
+# The band table, the tilt search bounds, and the evaluation grid.
+#
+# This file is the only place the set of frequency bands is declared. No module
+# in src/ hardcodes the number of bands B: every one of them derives the
+# cell-band table from here via src/radio/cell_band.py. Adding a band is an
+# edit to this file. See docs/adr/0005.
+
+# --- Bands -----------------------------------------------------------------
+# PROJECT.md section 30 lists the band set, the priority weights and the tilt
+# bounds as parameters that must be fixed experimentally. They are placeholders
+# until the multi-band cell configuration lands.
+#
+# priority_weight is w_b from PROJECT.md section 14. Higher means "prefer this
+# band to dominate where UEs actually are". The conceptual ordering in the spec
+# is w_low < w_mid < w_high; only the ordering is fixed, not the values.
+#
+# tilt.min / tilt.max are theta_min and theta_max from PROJECT.md section 3.1.
+# They bound the absolute tilt, which is the optimization variable itself — so
+# these two numbers are the whole feasible set. Getting them wrong does not
+# produce an error, it produces a quietly wrong answer.
+bands:
+  <band-id>:
+    carrier_hz: <carrier frequency in Hz>
+    tx_power_dbm: <transmit power in dBm>
+    priority_weight: <w_b, positive>
+    tilt:
+      min: <theta_min in degrees>
+      max: <theta_max in degrees>
+
+# Bands carried by each cell. A mapping of gcell_id -> list of band ids
+# overrides the default for that cell; `default` applies to every other cell.
+# Once the multi-band export lands this should be derived from it instead —
+# set `from_cell_config: true` and src/radio/cell_band.py will read the band
+# column named in configs/data.yaml rather than this block.
+cells:
+  from_cell_config: false
+  default: [<band-id>]
+  overrides: {}
+
+# --- Antenna ---------------------------------------------------------------
+# Parameters required to construct the transmitter in Sionna-RT (PROJECT.md
+# section 4.2). Applied to every cell-band unless the cell configuration
+# carries a per-cell value.
+antenna:
+  pattern: <sionna antenna pattern name>
+  polarization: <sionna polarization name>
+  num_rows: <vertical elements>
+  num_cols: <horizontal elements>
+
+# --- Evaluation grid -------------------------------------------------------
+# The spatial grid G from PROJECT.md section 6. Every KPI is a sum over this
+# grid, so its resolution changes every reported number: a coarse grid hides
+# small holes, a fine one multiplies ray-tracing cost. Fix it once, before the
+# first surrogate sample is generated, and record a change as an ADR.
+grid:
+  cell_size_m: <grid resolution in metres>
+  # Height of the measurement plane above ground, metres. Matches the MDT
+  # ue_height so simulated and measured RSRP are comparable.
+  height_m: 0.5
+  # null means "use the scene bounding box". Otherwise [xmin, ymin, xmax, ymax]
+  # in the scene local coordinate frame.
+  bounds: null
+
+# --- Ray tracing -----------------------------------------------------------
+# Passed through to the Sionna-RT radio map solver by src/radio/radiomap.py.
+# These control the fidelity/cost trade-off of the ground truth itself, so a
+# change invalidates every surrogate sample generated before it.
+ray_tracing:
+  max_depth: <number of interactions>
+  samples_per_tx: <rays per transmitter>
+  diffraction: <true|false>
+  scattering: <true|false>
+
+# --- Tilt sampling ---------------------------------------------------------
+# How candidate configurations are drawn to build the surrogate dataset
+# (PROJECT.md section 19 Step 5). Used by src/radio/sampling.py.
+#
+# strategy: sobol | lhs | uniform | grid
+#   Prefer a low-discrepancy sequence (sobol, lhs) over uniform sampling: the
+#   tilt space is high-dimensional (N cells x B bands) and uniform draws leave
+#   large unexplored regions at the sample counts that are affordable here.
+sampling:
+  strategy: sobol
+  n_samples: <number of configurations to simulate>
+  # Quantise sampled tilts to the step the hardware can actually apply. null
+  # means continuous. A real RET unit moves in discrete steps, so a continuous
+  # optimum that cannot be applied is not an answer.
+  step_deg: null
+  seed: ${seed}

@@ -1,4 +1,6 @@
-# Single source of truth for paths, the split scheme, and the data contract.
+# @package data
+# Single source of truth for input paths, the MDT/cell-config data contract,
+# and the split scheme.
 #
 # Enforcement lives in src/data/schema.py: this file declares *what* is true,
 # the Python module holds the logic that checks it. If a constraint needs
@@ -7,33 +9,60 @@
 
 # --- Paths -----------------------------------------------------------------
 # Relative to the project root. Everything under data/ is DVC-tracked.
-raw_path: data/raw/dataset.parquet
+#
+# `cell_config_path` is today's single-band export: one row per gcell, with a
+# single `digital_tilt` and no band, carrier frequency or transmit power. The
+# multi-band export that PROJECT.md section 4.2 requires has not arrived yet;
+# when it does, point `cell_config_path` at it and fill in the placeholder
+# columns under `schema.cell_config` below. See docs/adr/0005.
+mdt_path: data/raw/measurement_data.csv
+cell_config_path: data/raw/gcell_conf.csv
+
+# The Sionna-RT scene (PROJECT.md section 4.1). Read by src/radio/scene.py.
+scene_dir: data/external/simulation_map
+scene_file: data/external/simulation_map/scene.xml
+
 interim_dir: data/interim
 processed_dir: data/processed
-train_path: data/processed/train.parquet
-test_path: data/processed/test.parquet
+train_path: data/processed/mdt_train.parquet
+test_path: data/processed/mdt_test.parquet
 
-# --- Columns ---------------------------------------------------------------
-target: <target-column>
-
-# Dropped in notebook 01: identifiers and other non-predictive columns that
-# would let a model memorise records.
-drop_columns:
-  - <record-id-column>
+# --- Cleaning --------------------------------------------------------------
+# PROJECT.md section 19 Step 2. Every rule here is a hard rule — a record either
+# violates a declared bound or it does not. Statistical outlier handling is a
+# modelling choice and does not belong in the cleaning stage.
+clean:
+  drop_duplicates: true
+  # Drop MDT records whose RSRP falls outside the reportable range declared in
+  # `schema.mdt.rsrp`. The raw export contains rsrp = 0.0, which is not a
+  # measurable RSRP value and is treated as a sentinel for "no report".
+  drop_rsrp_out_of_range: true
+  # Drop records whose gcell_id has no row in the cell configuration; a
+  # measurement against an unknown cell cannot be placed in the scene.
+  drop_unknown_cells: true
+  # Drop records outside the scene bounding box; they cannot be gridded.
+  drop_outside_scene: true
 
 # --- Split -----------------------------------------------------------------
-# ALL split configuration lives here, including val_size. If each model config
-# declared its own validation split, models would early-stop and tune against
-# different data and their scores would no longer be comparable.
+# ALL split configuration lives here. PROJECT.md section 19 Step 3: MDT records
+# are correlated both spatially (consecutive points on one trajectory) and
+# temporally (one UE over one session), so a plain random split puts sibling
+# observations on both sides of the boundary and leaks. See docs/adr/0007.
 #
-# method: group_shuffle | group_kfold | stratified | random
-#   Prefer a group-aware method whenever several records belong to the same
-#   entity (a trajectory, a device, a patient, a session). A plain random split
-#   puts sibling records on both sides of the boundary and leaks information.
+# method: spatial_block | temporal | group_shuffle | random
+#   spatial_block  hold out whole grid blocks — tests spatial generalisation
+#   temporal       hold out the tail of the observation window
+#   group_shuffle  hold out whole groups of `group_col`
+#   random         provided only so the leakage cost can be demonstrated;
+#                  never use it for a reported result
 split:
-  method: group_shuffle
-  group_col: <grouping-column>
-  stratify_col: null # set for stratified methods, otherwise null
+  method: spatial_block
+  group_col: ue_id
+  # Edge length in metres of one held-out block, for method: spatial_block.
+  block_size_m: 250.0
+  # Cut point for method: temporal. null means "use test_size as a fraction of
+  # the observation window, latest records held out".
+  cutoff_date: null
   seed: 42
   test_size: 0.2
   val_size: 0.2 # fraction of the *train* split, not of the full dataset
@@ -46,23 +75,106 @@ split:
 # threshold was not derived from the data.
 #
 # Never put a data-derived threshold (mean, std, quantile, IQR fence) here.
-# Statistical outlier handling belongs in a 02x notebook, fitted on train only.
 schema:
-  columns:
-    <feature-a>:
-      dtype: float64
-      min: <lower-bound>
-      max: <upper-bound>
-      nullable: false
-      source: <standard / spec / physical limit that defines this range>
-    <feature-b>:
-      dtype: category
-      allowed: [<value-1>, <value-2>]
-      nullable: true
-      source: <where the allowed set is defined>
-    <grouping-column>:
-      dtype: int64
-      nullable: false
-    <target-column>:
-      dtype: float64
-      nullable: false # records with a missing label are dropped in notebook 01
+  # MDT records — PROJECT.md section 4.3.
+  mdt:
+    columns:
+      ue_id:
+        dtype: string
+        nullable: false
+        source: MDT export; opaque identifier, never a feature
+      sim_x:
+        dtype: float64
+        nullable: false
+        source: scene local coordinate frame, metres (see scene.xml)
+      sim_y:
+        dtype: float64
+        nullable: false
+        source: scene local coordinate frame, metres (see scene.xml)
+      date:
+        dtype: datetime64[ns, UTC]
+        nullable: false
+        source: MDT export timestamp
+      rsrp:
+        dtype: float64
+        min: -156.0
+        max: -31.0
+        nullable: false
+        source: 3GPP TS 38.133 NR RSRP reporting range (RSRP_0..RSRP_127)
+      gcell_id:
+        dtype: string
+        nullable: false
+        source: joins to schema.cell_config.gcell_id
+      ue_height:
+        dtype: float64
+        min: 0.0
+        max: 200.0
+        nullable: false
+        source: UE above ground level; upper bound is the scene building height
+
+  # Cell configuration — PROJECT.md section 4.2.
+  cell_config:
+    columns:
+      gcell_id:
+        dtype: string
+        nullable: false
+        source: cell identifier; primary key
+      gnodeb_id:
+        dtype: string
+        nullable: false
+        source: site identifier; the alternative MARL agent granularity
+      sim_x:
+        dtype: float64
+        nullable: false
+        source: scene local coordinate frame, metres
+      sim_y:
+        dtype: float64
+        nullable: false
+        source: scene local coordinate frame, metres
+      antenna_height:
+        dtype: float64
+        min: 0.0
+        max: 200.0
+        nullable: false
+        source: antenna above ground level, metres
+      azimuth:
+        dtype: float64
+        min: 0.0
+        max: 360.0
+        nullable: false
+        source: compass bearing; converted by src/radio/geometry.py
+      digital_tilt:
+        dtype: float64
+        min: 0.0
+        max: 90.0
+        nullable: false
+        source: physical downtilt range; per-cell-band optimization bounds are
+          declared in configs/radio.yaml, not here
+
+      # --- Pending the multi-band export -----------------------------------
+      # These columns do not exist in data/raw/gcell_conf.csv. PROJECT.md
+      # section 4.2 requires all of them; PROJECT.md section 3 defines
+      # tilt = eTilt + mTilt, which today's single `digital_tilt` cannot
+      # express. Fill each entry in and remove this comment when the
+      # multi-band export lands. Until then src/data/schema.py must be called
+      # with strict=False for the cell configuration.
+      <band-column>:
+        dtype: string
+        nullable: false
+        source: <where the band identifier set is defined>
+      <etilt-column>:
+        dtype: float64
+        min: 0.0
+        max: 90.0
+        nullable: false
+        source: <electrical tilt, degrees>
+      <mtilt-column>:
+        dtype: float64
+        min: -90.0
+        max: 90.0
+        nullable: false
+        source: <mechanical tilt, degrees; negative is uptilt>
+      <tx-power-column>:
+        dtype: float64
+        nullable: false
+        source: <transmit power, dBm>

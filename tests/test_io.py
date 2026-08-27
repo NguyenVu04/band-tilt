@@ -1,7 +1,10 @@
 """Tests for artifact serialisation.
 
-The invariant under test is the project's serving contract: whatever is saved
-must come back able to ``transform`` and ``predict`` without refitting.
+The invariant under test: whatever is saved must come back able to
+``transform`` and ``predict`` without refitting. A surrogate reloaded without
+its feature transformer does not raise — it receives tilts on a different scale
+from the one it was trained on and mispredicts silently, which then propagates
+into an optimization result.
 """
 
 from pathlib import Path
@@ -15,43 +18,48 @@ pytestmark = pytest.mark.skip(reason="implement src/utils/io.py first")
 
 def test_artifact_round_trips(tmp_path: Path) -> None:
     """What was saved is what is loaded."""
-    payload = {"preprocessor": {"fitted": True}, "model": {"weights": [1, 2, 3]}}
-    path = io.save_artifact(payload, tmp_path / "model_a.pkl")
+    payload = {"transformer": {"fitted": True}, "model": {"weights": [1, 2, 3]}}
+    path = io.save_artifact(payload, tmp_path / "surrogate.pkl")
     assert io.load_artifact(path) == payload
 
 
-def test_save_creates_missing_directories(tmp_path: Path) -> None:
-    """Saving into a fresh directory works without a manual mkdir.
-
-    ``models/`` is gitignored, so it may well not exist on a clean clone.
-    """
-    path = io.save_artifact({"model": 1}, tmp_path / "nested" / "dir" / "model_a.pkl")
+def test_save_creates_missing_parent_directories(tmp_path: Path) -> None:
+    """Saving into a fresh run directory must not require an mkdir at the call site."""
+    path = io.save_artifact({"model": 1}, tmp_path / "nested" / "run" / "surrogate.pkl")
     assert Path(path).exists()
 
 
-def test_artifact_contains_preprocessor_and_model(tmp_path: Path) -> None:
-    """Both halves are stored together.
+def test_payload_carries_the_transformer_with_the_model(tmp_path: Path) -> None:
+    """Both halves travel together, or the reloaded surrogate mispredicts."""
+    payload = {"transformer": {"fitted": True}, "model": {"weights": [1]}}
+    loaded = io.load_artifact(io.save_artifact(payload, tmp_path / "surrogate.pkl"))
+    assert "transformer" in loaded
+    assert "model" in loaded
 
-    A model saved without its fitted preprocessing cannot be served the way it
-    was trained, and the resulting skew shows up as wrong predictions rather
-    than as an error.
+
+def test_metadata_is_readable_without_unpickling(tmp_path: Path) -> None:
+    """Provenance must be inspectable without executing the payload.
+
+    Unpickling to find out what produced an artifact means trusting it first,
+    and it fails outright when the environment no longer has the classes.
     """
-    payload = {"preprocessor": object(), "model": object()}
-    path = io.save_artifact(payload, tmp_path / "model_a.pkl")
-    loaded = io.load_artifact(path)
-    assert {"preprocessor", "model"} <= set(loaded)
+    path = io.save_artifact({"model": 1}, tmp_path / "surrogate.pkl", metadata={"seed": 42})
+    assert io.artifact_metadata(path)["seed"] == 42
 
 
-def test_metadata_is_readable(tmp_path: Path) -> None:
-    """Provenance can be read back without unpickling the model.
+def test_metadata_records_the_cell_band_ordering(tmp_path: Path) -> None:
+    """A theta vector cannot be interpreted without the column order it used.
 
-    The serving layer's health endpoint needs the version, not the weights.
+    Adding a band to ``configs/radio.yaml`` after training makes every stored
+    column index wrong, and the mismatch is invisible unless the ordering was
+    saved alongside.
     """
-    path = io.save_artifact({"model": 1}, tmp_path / "model_a.pkl", metadata={"version": "v1"})
-    assert io.artifact_metadata(path)["version"] == "v1"
+    order = ["cell_a|high", "cell_a|low", "cell_b|high", "cell_b|low"]
+    path = io.save_artifact({"model": 1}, tmp_path / "surrogate.pkl", metadata={"order": order})
+    assert io.artifact_metadata(path)["order"] == order
 
 
-def test_missing_artifact_raises_file_not_found(tmp_path: Path) -> None:
-    """A missing artifact fails with a clear error, not a pickle error."""
+def test_missing_artifact_raises(tmp_path: Path) -> None:
+    """A missing artifact fails immediately, not at first prediction."""
     with pytest.raises(FileNotFoundError):
         io.load_artifact(tmp_path / "absent.pkl")

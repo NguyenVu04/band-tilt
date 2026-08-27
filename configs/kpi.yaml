@@ -1,0 +1,88 @@
+# @package kpi
+# The five KPIs, their thresholds, and the priority that orders them.
+#
+# These thresholds are the definition of the objective. Every number below is
+# fixed by PROJECT.md sections 10-14 and is NOT a tuning knob: changing one
+# changes what "better" means, so every result produced before the change
+# becomes incomparable. A change here needs an ADR.
+#
+# src/kpi/ is the only code that reads this block. Bayesian Optimization, MARL,
+# the surrogate's training labels and the final Sionna-RT validation all call
+# the same functions, so all four are guaranteed to be scoring the same thing
+# (PROJECT.md section 25). Never re-derive a threshold at a call site.
+
+# --- Thresholds ------------------------------------------------------------
+# A location is a hole when the strongest signal from any cell-band is at or
+# below this level (PROJECT.md section 10).
+hole_dbm: -120.0
+
+# A location is weak coverage when the strongest signal is above hole_dbm and
+# at or below this level (PROJECT.md section 11). The two bands partition the
+# covered area: hole < weak < good.
+weak_dbm: -90.0
+
+# A neighbour overlaps the serving cell when the serving cell is itself covered
+# (serving RSRP > hole_dbm) and the neighbour is within this margin of it
+# (PROJECT.md section 12).
+overlap_margin_db: 6.0
+
+# --- Priority --------------------------------------------------------------
+# PROJECT.md section 17. The strict ordering is Hole > Overlap > Weak, then
+# overlap severity, then band coordination. `order` is the lexicographic
+# sequence; it is the authoritative statement of the objective.
+#
+# mode: lexicographic | scalarized
+#   lexicographic  optimise in `order`, using `tolerance` to decide when one
+#                  objective is "close enough" to move on to the next
+#   scalarized     collapse to a single number using `weights` below; required
+#                  by optimizers that cannot express a lexicographic goal
+mode: lexicographic
+
+order:
+  - hole_rate
+  - overlap_rate
+  - weak_rate
+  - mean_overlap_neighbors
+  - band_priority_score
+
+# Directions are fixed by PROJECT.md section 15 and are stated here so that no
+# call site has to remember which way each KPI points.
+direction:
+  hole_rate: minimize
+  overlap_rate: minimize
+  weak_rate: minimize
+  mean_overlap_neighbors: minimize
+  band_priority_score: maximize
+
+# Lexicographic slack: when comparing two configurations, a difference in
+# objective k smaller than tolerance[k] is treated as a tie and the comparison
+# moves to the next objective. Without slack, lexicographic ordering degenerates
+# into single-objective optimization on hole_rate, because an exact tie on a
+# continuous KPI essentially never happens.
+tolerance:
+  hole_rate: <absolute slack in percentage points>
+  overlap_rate: <absolute slack in percentage points>
+  weak_rate: <absolute slack in percentage points>
+  mean_overlap_neighbors: <absolute slack in neighbours>
+
+# --- Scalarization ---------------------------------------------------------
+# Used when mode: scalarized, and by the MARL reward (PROJECT.md section 23).
+#
+# The weights are applied to NORMALIZED KPIs, never raw ones. Hole rate and
+# mean overlap neighbours are on different scales entirely, so weighting raw
+# values silently reorders the priority — this is the specific failure
+# PROJECT.md section 23 warns about. The constraint the weights must satisfy is
+# lambda_hole > lambda_overlap > lambda_weak.
+normalization: <minmax|zscore|reference>
+
+# Reference KPI vector for normalization: reference | baseline
+#   Set to the baseline (current tilt) KPI values so that a normalized KPI of 0
+#   means "no better than the network we started with".
+reference: null
+
+weights:
+  hole_rate: <lambda_hole>
+  overlap_rate: <lambda_overlap>
+  weak_rate: <lambda_weak>
+  mean_overlap_neighbors: <lambda_overlap_neighbors>
+  band_priority_score: <lambda_bps>

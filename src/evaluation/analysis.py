@@ -1,58 +1,46 @@
-"""Error analysis, calibration, feature importance and comparison plots.
+"""Spatial maps — PROJECT.md section 27.3.
 
-:mod:`src.evaluation.metrics` answers "how good is it"; this module answers
-"where and why is it wrong". Used by ``02x`` notebooks on the validation split
-and by notebook 03 on the test split.
+A KPI table says hole rate fell from 8% to 5%. It does not say whether the
+remaining holes moved to the edge of the area or opened up in the town centre,
+and those are very different outcomes for the same number. These maps are how
+that gets seen.
 
-Every function returns a figure or a frame rather than drawing to a global
-figure, so the same call works in a notebook and in a report script.
+The recommended set, from PROJECT.md section 27.3: baseline RSRP, optimized
+RSRP, hole, weak, overlap, UE density, and dominant band.
 
-Plotting requires the ``viz`` extra: ``uv sync --extra viz``.
+Plot on the evaluation grid, not on scattered points
+----------------------------------------------------
+Every map here is a reshape of a length ``|G|`` vector back onto the grid built
+by :func:`src.data.ue_density.build_grid`. Keeping the flat index and the grid
+shape together is what makes the maps comparable to each other and to the KPIs —
+a map assembled by scattering coordinates instead can be visually convincing and
+spatially wrong.
+
+Diverging colour for differences, sequential for levels
+-------------------------------------------------------
+An RSRP map is a level: sequential colour, zero has no special meaning. A
+baseline-minus-optimized map is a difference: diverging colour centred on zero,
+so improvement and regression are distinguishable at a glance. Using a
+sequential map for a difference hides the sign, which is the only thing the
+reader is looking for.
+
+Styling comes from :mod:`src.utils.plotting`, which is already implemented.
 """
 
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from omegaconf import DictConfig
 
 
-def error_table(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    features: pd.DataFrame | None = None,
-    top_n: int = 50,
-) -> pd.DataFrame:
-    """Return the worst-predicted records for inspection.
+def rsrp_map(rsrp: np.ndarray, cfg: DictConfig, title: str = "RSRP") -> Any:
+    """Plot the strongest received signal across the area.
 
     Args:
-        y_true: Ground-truth labels.
-        y_pred: Predictions.
-        features: Optional feature frame, joined so failures can be read in
-            context.
-        top_n: How many records to return.
-
-    Returns:
-        The ``top_n`` records with the largest error, worst first.
-
-    Raises:
-        NotImplementedError: Always — implement this module first.
-
-    Notes:
-        Read the actual rows. Systematic failure modes — a sensor range, a
-        rare category, a time window — show up here long before they show up
-        in an aggregate metric.
-    """
-    # TODO(1): compute the per-record error appropriate to the task
-    # TODO(2): sort, take top_n, join the features if provided
-    raise NotImplementedError("src.evaluation.analysis.error_table")
-
-
-def residual_plot(y_true: np.ndarray, y_pred: np.ndarray) -> Any:
-    """Plot residuals against predicted values.
-
-    Args:
-        y_true: Ground-truth labels.
-        y_pred: Predictions.
+        rsrp: RSRP in dBm, shape ``(n_cell_bands, |G|)``.
+        cfg: Composed config; uses ``cfg.radio.grid`` for the grid shape.
+        title: Plot title.
 
     Returns:
         The matplotlib figure.
@@ -61,21 +49,30 @@ def residual_plot(y_true: np.ndarray, y_pred: np.ndarray) -> Any:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        Structure in the residuals — a fan shape, a curve, a plateau at the
-        range limits — means the model is missing something the features could
-        express. Regression tasks; use :func:`calibration_plot` for classifiers.
+        Plot ``R_max`` from :func:`src.kpi.serving.max_rsrp`, and mark the hole
+        and weak thresholds on the colour bar. Without them the reader cannot
+        tell an acceptable region from a failing one, which is the entire
+        question the map is being asked.
+
+        Clip the display floor rather than letting ``-inf`` set the colour
+        scale, or the whole map renders as one colour.
+
+    Example:
+        >>> fig = rsrp_map(rsrp, cfg, title="Baseline RSRP")
     """
-    # TODO(1): scatter residuals vs predictions with a zero reference line
-    raise NotImplementedError("src.evaluation.analysis.residual_plot")
+    # TODO(1): r_max = serving.max_rsrp(rsrp), reshaped to the grid
+    # TODO(2): sequential colormap from src.utils.plotting
+    # TODO(3): mark cfg.kpi.hole_dbm and cfg.kpi.weak_dbm on the colour bar
+    raise NotImplementedError("src.evaluation.analysis.rsrp_map")
 
 
-def calibration_plot(y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10) -> Any:
-    """Plot predicted probability against observed frequency.
+def coverage_map(rsrp: np.ndarray, cfg: DictConfig) -> Any:
+    """Plot hole, weak and good coverage as three categories.
 
     Args:
-        y_true: Binary ground truth.
-        y_proba: Predicted positive-class probability.
-        n_bins: Number of probability bins.
+        rsrp: RSRP in dBm, shape ``(n_cell_bands, |G|)``.
+        cfg: Composed config; uses ``cfg.kpi`` thresholds and
+            ``cfg.radio.grid``.
 
     Returns:
         The matplotlib figure.
@@ -84,48 +81,26 @@ def calibration_plot(y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10) 
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        A model can rank well (good ROC-AUC) and still be badly calibrated. If
-        downstream decisions use the probability as a probability, calibration
-        matters more than ranking.
+        Categorical, not continuous: the thresholds are the point. Hole and weak
+        partition the covered area by construction, so a pixel that appears in
+        both is a bug in :mod:`src.kpi.coverage`, and this map is where it
+        becomes visible.
+
+    Example:
+        >>> fig = coverage_map(rsrp, cfg)
     """
-    # TODO(1): bin by predicted probability, compute observed frequency per bin
-    # TODO(2): plot against the diagonal
-    raise NotImplementedError("src.evaluation.analysis.calibration_plot")
+    # TODO(1): classify each grid cell as hole, weak or good using cfg.kpi thresholds
+    # TODO(2): render as three discrete colours, not a continuous ramp
+    raise NotImplementedError("src.evaluation.analysis.coverage_map")
 
 
-def feature_importance(model: Any, X: pd.DataFrame, y: np.ndarray | None = None) -> pd.DataFrame:
-    """Rank features by their contribution to the model.
+def overlap_map(n_ov: np.ndarray, cfg: DictConfig) -> Any:
+    """Plot the number of overlapping neighbours per location.
 
     Args:
-        model: A fitted model from ``src.models``.
-        X: Features to compute importance over.
-        y: Labels, required for permutation importance.
-
-    Returns:
-        Feature name and importance, most important first.
-
-    Raises:
-        NotImplementedError: Always — implement this module first.
-
-    Notes:
-        Prefer permutation importance over built-in attributes: it is defined
-        the same way for every model type, which keeps this comparable across
-        models the way the shared metrics are. Names must come from the fitted
-        preprocessor, not from the raw frame, or encoded columns will be
-        mislabelled.
-    """
-    # TODO(1): compute permutation importance on the given split
-    # TODO(2): map back to post-preprocessing feature names
-    raise NotImplementedError("src.evaluation.analysis.feature_importance")
-
-
-def comparison_plot(results: pd.DataFrame, metric: str) -> Any:
-    """Plot one metric across all models.
-
-    Args:
-        results: Models as rows, metrics as columns — the table built in
-            notebook 03.
-        metric: Which column to plot.
+        n_ov: Neighbour count per grid cell from
+            :func:`src.kpi.coverage.overlap_neighbors`.
+        cfg: Composed config; uses ``cfg.radio.grid``.
 
     Returns:
         The matplotlib figure.
@@ -134,8 +109,106 @@ def comparison_plot(results: pd.DataFrame, metric: str) -> Any:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        Show the spread, not just the point estimate: a bar chart of single
-        numbers invites over-reading differences that are inside the noise.
+        Shows what the two overlap KPIs cannot separate on their own: whether
+        overlap is spread thinly across the area or concentrated into a few
+        severe pockets. Those call for different fixes.
+
+    Example:
+        >>> fig = overlap_map(n_ov, cfg)
     """
-    # TODO(1): sort by the metric, plot with error bars where available
-    raise NotImplementedError("src.evaluation.analysis.comparison_plot")
+    # TODO(1): reshape n_ov to the grid
+    # TODO(2): discrete colour steps — the values are small integers
+    raise NotImplementedError("src.evaluation.analysis.overlap_map")
+
+
+def ue_density_map(rho: np.ndarray, cfg: DictConfig) -> Any:
+    """Plot the UE observation density used to weight the Band Priority Score.
+
+    Args:
+        rho: UE density per grid cell from
+            :func:`src.data.ue_density.ue_density`.
+        cfg: Composed config; uses ``cfg.radio.grid``.
+
+    Returns:
+        The matplotlib figure.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        Worth publishing beside every Band Priority Score. The score inherits
+        whatever bias the MDT sampling had, and this map is the only place a
+        reader can judge how much of the score is driven by a handful of dense
+        cells.
+
+        Use a log scale unless the density is unusually flat; a few dense cells
+        otherwise flatten everything else to the background colour.
+
+    Example:
+        >>> fig = ue_density_map(rho, cfg)
+    """
+    # TODO(1): reshape rho to the grid
+    # TODO(2): log-scale the colour normalisation, handling zeros
+    raise NotImplementedError("src.evaluation.analysis.ue_density_map")
+
+
+def dominant_band_map(b_star: np.ndarray, table: pd.DataFrame, cfg: DictConfig) -> Any:
+    """Plot which band dominates at each location.
+
+    Args:
+        b_star: Dominant band index per grid cell from
+            :func:`src.kpi.serving.dominant_band`.
+        table: The cell-band table, for band labels.
+        cfg: Composed config; uses ``cfg.radio.grid``.
+
+    Returns:
+        The matplotlib figure.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        This is the visual counterpart of the Band Priority Score, and the one
+        map that shows whether multi-band coordination actually did anything.
+        Overlay the UE density contours: the score rewards high-priority bands
+        dominating where users are, and the two maps together show whether that
+        happened or whether the score improved somewhere empty.
+
+    Example:
+        >>> fig = dominant_band_map(b_star, table, cfg)
+    """
+    # TODO(1): reshape b_star to the grid
+    # TODO(2): categorical colours, labelled with band ids from the table
+    # TODO(3): overlay UE density contours
+    raise NotImplementedError("src.evaluation.analysis.dominant_band_map")
+
+
+def difference_map(before: np.ndarray, after: np.ndarray, cfg: DictConfig) -> Any:
+    """Plot the change between two configurations.
+
+    Args:
+        before: A per-grid-cell quantity for the baseline.
+        after: The same quantity for the optimized configuration.
+        cfg: Composed config; uses ``cfg.radio.grid``.
+
+    Returns:
+        The matplotlib figure.
+
+    Raises:
+        NotImplementedError: Always — implement this module first.
+
+    Notes:
+        Diverging colormap centred on zero, and centred honestly — an
+        automatically scaled colour range that puts zero off-centre makes a
+        uniformly small regression look like an improvement.
+
+        This is where an aggregate improvement is checked for a bad trade: a
+        configuration that improves the average by degrading a dense area is
+        visible here and nowhere in the KPI table.
+
+    Example:
+        >>> fig = difference_map(r_max_baseline, r_max_optimized, cfg)
+    """
+    # TODO(1): reshape both to the grid and subtract
+    # TODO(2): diverging colormap from src.utils.plotting, symmetric about zero
+    raise NotImplementedError("src.evaluation.analysis.difference_map")

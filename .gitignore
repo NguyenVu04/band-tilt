@@ -39,3 +39,17 @@ mlruns/
 mlartifacts/
 outputs/
 multirun/
+
+# --- AI agent artifacts ----------------------------------------------------
+# Generated locally per agent session; not part of the source of record. The
+# committed equivalents are PROJECT.md (the spec), docs/adr/ (the decisions)
+# and CONTRIBUTING.md (the process) — an agent instruction file restates those
+# for one tool and drifts from them silently.
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.aider*
+.github/copilot-instructions.md

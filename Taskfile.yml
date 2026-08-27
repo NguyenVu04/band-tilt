@@ -30,7 +30,7 @@ tasks:
       - uv run pre-commit install
 
   sync:
-    desc: Install the base + dev environment (no heavy model libraries)
+    desc: Install the base + dev environment (no Sionna-RT, no optimizers)
     cmds:
       - uv sync --extra dev --extra notebooks --extra viz
 
@@ -88,19 +88,39 @@ tasks:
       - uv run jupyter lab
 
   clean:data:
-    desc: 'Run the cleaning + split stage (notebook 01 as a script)'
+    desc: 'Clean the MDT export and write the frozen split (notebook 01 as a script)'
     cmds:
       - uv run python -m {{.PKG}}.data.clean {{.CLI_ARGS}}
 
-  train:
-    desc: 'Train one model, e.g. task train -- models=model_a'
+  surrogate:dataset:
+    desc: 'Generate radio maps and build D_sur (notebook 03 as a script) - EXPENSIVE'
     cmds:
-      - uv run python -m {{.PKG}}.models.train {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.surrogate.dataset {{.CLI_ARGS}}
+
+  surrogate:train:
+    desc: 'Train the KPI surrogate (notebook 04 as a script)'
+    cmds:
+      - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
+
+  bo:
+    desc: 'Run Bayesian Optimization, e.g. task bo -- optim.search.n_iter=50'
+    cmds:
+      - uv run python -m {{.PKG}}.optim.bo.run optim=bo {{.CLI_ARGS}}
+
+  marl:
+    desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=site'
+    cmds:
+      - uv run python -m {{.PKG}}.optim.marl.train optim=marl {{.CLI_ARGS}}
+
+  validate:
+    desc: 'Re-evaluate the optimized tilts with Sionna-RT and compare (notebook 06)'
+    cmds:
+      - uv run python -m {{.PKG}}.evaluation.validate {{.CLI_ARGS}}
 
   sweep:
-    desc: 'Hydra multirun, e.g. task sweep -- models=model_a,model_b'
+    desc: 'Hydra multirun, e.g. task sweep -- seed=1,2,3'
     cmds:
-      - uv run python -m {{.PKG}}.models.train --multirun {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.optim.bo.run --multirun optim=bo {{.CLI_ARGS}}
 
   # --- versioning and tracking ---------------------------------------------
 

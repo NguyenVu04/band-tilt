@@ -1,27 +1,39 @@
-# Hydra entrypoint. Composes the data config with exactly one model config.
+# Hydra entrypoint. Composes the data contract, the radio/band declaration, the
+# KPI definition, the surrogate, and exactly one optimizer.
 #
 # Override from the command line:
-#   python -m src.models.train models=model_a
-#   python -m src.models.train --multirun models=model_a,model_b
-#   python -m src.models.train seed=7 models.optim.lr=1e-3
+#   python -m src.optim.bo.run
+#   python -m src.optim.marl.train optim=marl
+#   python -m src.surrogate.train seed=7 surrogate.train.max_epochs=50
+#   python -m src.optim.bo.run --multirun seed=1,2,3
 #
 # In notebooks the @hydra.main decorator does not work — use the Compose API
 # via src.config.load_config().
+#
+# Each composed file declares its own package (`# @package <name>` header), so
+# the merged config is namespaced: cfg.data.*, cfg.radio.*, cfg.kpi.*,
+# cfg.surrogate.*, cfg.optim.*. Nothing merges into the root except the keys
+# below, which keeps a new config group from silently shadowing an existing key.
 
 defaults:
   - data
-  - models: model_a
+  - radio
+  - kpi
+  - surrogate
+  - optim: bo
   - _self_
 
-# Global seed. Consumed by src.utils.seed.set_seed() and by the splitter
-# defaults in data.yaml. Change it here only, never per module.
+# Global seed. Consumed by src.utils.seed.set_seed(), by the splitter, by the
+# tilt sampler and by both optimizers. Change it here only, never per module.
+# Reported results must state the seed set they were averaged over (PROJECT.md
+# section 25.3).
 seed: 42
 
-project_name: <project-name>
+project_name: band-tilt
 
 mlflow:
   tracking_uri: ./mlruns
-  experiment_name: <project-name>
+  experiment_name: band-tilt
 
 # Hydra's own output directories. Runs are reproducible from the config Hydra
 # saves next to each run, so keep this on.

@@ -1,0 +1,90 @@
+# @package surrogate
+# The KPI surrogate: f_sur(s, theta) -> K_hat (PROJECT.md section 18).
+#
+# The surrogate exists because a Sionna-RT evaluation is too expensive to put
+# inside an optimization loop. It is an acceleration mechanism and never the
+# reported result — every candidate that matters is re-evaluated with Sionna-RT
+# before it is believed. See docs/adr/0003.
+
+# --- Dataset ---------------------------------------------------------------
+# D_sur = {(s, theta, K)} — built by src/surrogate/dataset.py from radio maps
+# generated under configs/radio.yaml `sampling`.
+dataset:
+  path: data/processed/surrogate_dataset.parquet
+  # Hold out whole tilt configurations, never individual grid cells: grid cells
+  # from one configuration are near-duplicates of each other, so splitting
+  # within a configuration reports an error far below the real one.
+  split_on: configuration
+  test_size: 0.2
+  val_size: 0.2
+  seed: ${seed}
+
+# --- Features --------------------------------------------------------------
+# The state s from PROJECT.md section 18. src/surrogate/features.py builds the
+# tensor; this block declares what goes into it.
+features:
+  # Absolute tilt per cell-band — always present, this is theta itself.
+  tilt: true
+  # Static geometry that does not vary with theta: position, height, azimuth.
+  cell_geometry: <true|false>
+  # UE density per grid cell from src/data/ue_density.py (PROJECT.md section 7).
+  ue_density: <true|false>
+  # Band identity and its priority weight w_b.
+  band_identity: <true|false>
+  # Neighbour structure: which cells are close enough to overlap.
+  neighbor_graph: <true|false>
+
+# --- Targets ---------------------------------------------------------------
+# The surrogate predicts the full KPI vector K, not a scalarized objective:
+# scalarization weights are an optimizer choice and change between experiments,
+# and re-deriving the scalar from predicted KPIs costs nothing.
+targets:
+  - hole_rate
+  - overlap_rate
+  - weak_rate
+  - mean_overlap_neighbors
+  - band_priority_score
+
+# --- Model -----------------------------------------------------------------
+# PROJECT.md section 30 leaves the architecture open. Instantiated by Hydra's
+# _target_, so swapping architectures is a config edit.
+#
+# Whatever is chosen must expose predictive uncertainty if it is to feed the
+# Bayesian Optimization loop in configs/optim/bo.yaml — an acquisition function
+# needs a posterior, not a point estimate.
+_target_: src.surrogate.model.<ClassName>
+model:
+  <hyperparameter-a>: <value>
+  <hyperparameter-b>: <value>
+
+optim:
+  lr: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  batch_size: 64
+  max_epochs: 100
+  early_stopping_patience: 10
+
+artifact_path: models/surrogate.pkl
+
+# --- Acceptance ------------------------------------------------------------
+# PROJECT.md section 19 Step 6. The surrogate is only useful if its error is
+# small relative to the KPI differences the optimizer is trying to resolve. If
+# predicted hole rate is off by more than the improvement being claimed, the
+# optimization result is noise.
+#
+# Errors are reported per KPI, not averaged: a surrogate that is excellent on
+# weak rate and useless on hole rate is useless, because hole rate is the
+# highest-priority objective.
+acceptance:
+  max_mae:
+    hole_rate: <acceptable MAE in percentage points>
+    overlap_rate: <acceptable MAE in percentage points>
+    weak_rate: <acceptable MAE in percentage points>
+    mean_overlap_neighbors: <acceptable MAE in neighbours>
+    band_priority_score: <acceptable MAE in score units>
+  # Also report error restricted to the best-performing decile of
+  # configurations: accuracy near the optimum is what the optimizer needs, and
+  # a global average hides it.
+  report_near_optimum: true
