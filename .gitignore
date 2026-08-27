@@ -40,11 +40,20 @@ mlartifacts/
 outputs/
 multirun/
 
+# --- IDE and editor --------------------------------------------------------
+# Per-developer tool state, not project configuration. A committed editor
+# directory becomes one contributor's settings imposed on everyone else.
+.vscode/
+.idea/
+*.iml
+*.code-workspace
+*.sw[op]
+
 # --- AI agent artifacts ----------------------------------------------------
 # Generated locally per agent session; not part of the source of record. The
-# committed equivalents are PROJECT.md (the spec), docs/adr/ (the decisions)
-# and CONTRIBUTING.md (the process) — an agent instruction file restates those
-# for one tool and drifts from them silently.
+# committed equivalents are PROJECT.md (the spec) and docs/adr/ (the
+# decisions) — an agent instruction file restates those for one tool and
+# drifts from them silently.
 CLAUDE.md
 CLAUDE.local.md
 AGENTS.md

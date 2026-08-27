@@ -7,9 +7,9 @@ afterwards — a decision that turns out wrong gets a *new* record that supersed
 the old one.
 
 The point is not process. It is that in two years someone will ask why a
-coverage hole is defined at −120 dBm, why the optimizer emits absolute tilt
-rather than an offset, or why a reported KPI may not come from the surrogate —
-and the answer will otherwise have left with whoever made the call.
+coverage hole is defined at −120 dBm, why a hole outranks an overlap rather
+than being traded off against it, or why a reported KPI may not come from the
+surrogate — and the answer will otherwise have left with whoever made the call.
 
 ## Relationship to PROJECT.md
 
@@ -70,10 +70,5 @@ stay as they were written, because they are the historical account.
 | # | Title | Status | Date |
 |---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 |
-| [0001](0001-absolute-tilt-as-the-optimization-variable.md) | Absolute tilt as the optimization variable | Accepted | 2026-08-28 |
 | [0002](0002-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 |
 | [0003](0003-sionna-rt-is-ground-truth.md) | Sionna-RT is ground truth; the surrogate only accelerates | Accepted | 2026-08-28 |
-| [0004](0004-angle-convention-fixed-in-one-function.md) | Angle convention fixed in one function | Accepted | 2026-08-28 |
-| [0005](0005-cell-band-is-the-atomic-decision-unit.md) | Cell-band is the atomic decision unit | Accepted | 2026-08-28 |
-| [0006](0006-two-optimizers-one-problem-definition.md) | Two optimizers, one problem definition | Accepted | 2026-08-28 |
-| [0007](0007-leakage-safe-spatial-and-temporal-mdt-split.md) | Leakage-safe spatial and temporal MDT split | Accepted | 2026-08-28 |

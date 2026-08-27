@@ -26,7 +26,7 @@ Learning for multi-band antenna tilt coordination in 5G/6G radio access networks
 > 1. **The multi-band cell configuration has not arrived.** The available export
 >    has no band, carrier frequency, transmit power, or electrical/mechanical tilt
 >    split — so the central quantity, one tilt per `(cell, band)` pair, cannot be
->    formed from real data ([ADR 0005](docs/adr/0005-cell-band-is-the-atomic-decision-unit.md)).
+>    formed from real data.
 > 2. **The code is contract-first.** Function bodies raise `NotImplementedError`
 >    with their own dotted path; the docstrings, configs, tests and decision
 >    records were written first so the shape of the problem is settled before any
@@ -43,12 +43,10 @@ Learning for multi-band antenna tilt coordination in 5G/6G radio access networks
 - [Usage](#usage)
 - [Development](#development)
 - [Testing](#testing)
-- [Security](#security)
 - [Compliance and data handling](#compliance-and-data-handling)
 - [Versioning and reproducibility](#versioning-and-reproducibility)
 - [Governance](#governance)
 - [Roadmap](#roadmap)
-- [Contributing](#contributing)
 
 ## Overview
 
@@ -89,7 +87,7 @@ The full formulation, including the KPI mathematics, is in
 - **Minimising reconfiguration effort.** The tilt offset is derived after
   optimization for reporting only; there is no penalty on how far an antenna
   moves. The research question is which configuration is best, not how to get
-  there cheaply ([ADR 0001](docs/adr/0001-absolute-tilt-as-the-optimization-variable.md)).
+  there cheaply.
 - **Accessibility, throughput, and interference KPIs.** Excluded from the
   formulation. The available data supports neither — MDT carries RSRP and
   position, not connection outcomes, and modelling throughput would need load and
@@ -162,7 +160,7 @@ The dependency direction between these is one-way and is documented in
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Ray-traced radio maps — the ground truth for every reported KPI | **Critical** | `--extra rt`; no reported result exists without it |
 | MDT export | UE positions and RSRP; the spatial weight in KPI 5 | **Critical** | supplied externally, not in the repository |
-| Multi-band cell configuration | Band, carrier, power and tilt bounds per cell-band | **Critical** | **not yet available** — see [ADR 0005](docs/adr/0005-cell-band-is-the-atomic-decision-unit.md) |
+| Multi-band cell configuration | Band, carrier, power and tilt bounds per cell-band | **Critical** | **not yet available** |
 | [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The BO loop, GP model and acquisition functions | Degraded | `--extra bo`; MARL still runs without it |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Degraded | `--extra marl`; BO still runs without it |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc` |
@@ -333,7 +331,7 @@ order. `src/data/split.py` is the reference for the stub shape.
 | **Style and lint** | `ruff` with `E`, `F`, `I`, `UP`, `B`, `D` (Google docstrings), enforced by pre-commit and `task lint` |
 | **Commits** | [Conventional Commits](https://www.conventionalcommits.org/) |
 | **Branching** | short-lived branches off `main` |
-| **Review** | see [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Review** | self-review before merge — see [Governance](#governance) |
 
 ### Local loop
 
@@ -364,24 +362,6 @@ Two rules the tests hold to:
   that derives its expectation from the code under test asserts only that the
   implementation agrees with itself. The values documented on the `rsrp_grid`
   fixture were worked out by hand and are load-bearing.
-
-## Security
-
-To report a vulnerability, open a
-[private security advisory](https://github.com/NguyenVu04/band-tilt/security/advisories/new).
-**Do not open a public issue for a security problem.**
-
-| | |
-|---|---|
-| **Authentication / authorization** | None. There is no service and no API surface; `app/` is unwired template scaffolding. |
-| **Secrets** | `.env`, gitignored. `DVC_REMOTE_URL` is the only value that may carry a credential. No secret manager. |
-| **Data at rest** | Unencrypted local files under `data/`, DVC-tracked and never committed. Encryption depends on the DVC remote in use. |
-| **Dependency scanning** | GitHub Dependabot alerts only. No scheduled SCA. |
-| **Static analysis** | `ruff` on every commit via pre-commit. No SAST. |
-| **Data classification** | **Internal.** The MDT export contains device-level location traces — see below. |
-
-Known accepted risks: no CI, so lint and tests are enforced by pre-commit and
-review rather than by a gate; no scheduled dependency scanning.
 
 ## Compliance and data handling
 
@@ -445,7 +425,7 @@ Artifact retention follows the DVC remote's policy; none is configured yet.
 | | |
 |---|---|
 | **Maintainer** | Nguyễn Duy Vũ — sole maintainer; there is no `CODEOWNERS` file |
-| **Review requirement** | Self-review against the [CONTRIBUTING.md](CONTRIBUTING.md) checklist; one approval once there is a second contributor |
+| **Review requirement** | Self-review before merge; one approval once there is a second contributor |
 | **Merge policy** | Squash onto `main`, linear history, `task check` green |
 | **Decision records** | [`docs/adr/`](docs/adr/) |
 
@@ -465,12 +445,6 @@ significant — see [docs/adr/README.md](docs/adr/README.md).
 | Build `D_sur` and train the surrogate | the above | Not started |
 | BO and MARL studies, and the comparison | a surrogate that passes acceptance | Not started |
 | CI (`task check` on every push) | — | Not started |
-
-## Contributing
-
-Start with [CONTRIBUTING.md](CONTRIBUTING.md). Release history is in
-[CHANGELOG.md](CHANGELOG.md). The formulation is in [PROJECT.md](PROJECT.md) and
-the reasoning behind it in [docs/adr/](docs/adr/).
 
 ## License
 
