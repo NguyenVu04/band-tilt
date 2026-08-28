@@ -1,11 +1,13 @@
-"""Build and load D_sur, the surrogate training set — PROJECT.md section 18.
+"""Build and load D_sur, the surrogate training set — PROJECT.md section 11.
 
 The dataset is::
 
-    D_sur = {(s_k, theta_k, K_k)} for k = 1..N
+    D_sur = {(x_k, tilt_k, R_k)} for k = 1..N
 
-with ``s`` the network and environment state, ``theta`` an absolute tilt
-configuration, and ``K`` the five KPIs obtained from a Sionna-RT radio map.
+with ``x`` the scenario, network and MDT-derived features, ``tilt`` an absolute
+tilt configuration, and ``R`` the reference Sionna-RT radio map (PROJECT.md
+section 11.2). The target is the map itself, not the five KPIs — those are
+derived from it by :mod:`src.kpi` at scoring time.
 
 Building it is the expensive part of the project
 ------------------------------------------------
@@ -17,14 +19,21 @@ will beat a poorly-spread few thousand.
 Make the build resumable. A run that dies at sample 400 of 500 and cannot
 restart has thrown away days of compute.
 
-Split on configurations, never on grid cells
---------------------------------------------
+Split on scenarios, never on configurations or grid cells
+---------------------------------------------------------
 Grid cells from one configuration are near-duplicates of each other — they share
 the same tilts, the same geometry, and most of the same propagation paths. A
 split that puts some cells of a configuration in train and others in test
 reports an error far below the real one, and the surrogate then looks accurate
-right up to the point where an optimizer relies on it. Hold out whole
-configurations.
+right up to the point where an optimizer relies on it.
+
+Holding out whole *configurations* fixes that but is still not enough. PROJECT.md
+section 12.3 and Decision 8 require the split to be at **scenario** level: one
+scenario is one environment plus one UE mobility realisation, and every
+configuration inside it shares the same buildings, materials and trajectories.
+Splitting within a scenario leaks exactly the structure the sim-to-reality study
+of section 12 exists to measure, and the reported generalisation is then a claim
+about tilts dressed up as a claim about environments.
 """
 
 from pathlib import Path
@@ -65,10 +74,10 @@ def build(cfg: DictConfig) -> pd.DataFrame:
         >>> len(d_sur)
     """
     # TODO(1): table = cell_band.build_table(load_cell_config(cfg), cfg)
-    # TODO(2): thetas = sampling.sample_configurations(table, cfg)
+    # TODO(2): tilts = sampling.sample_configurations(table, cfg)
     # TODO(3): scene = scene.load_scene(cfg); scene.add_transmitters(...) once
     # TODO(4): rho = ue_density(load_processed(cfg, "train"), cfg) — train split only
-    # TODO(5): per theta: radiomap.evaluate -> kpi.vector.kpi_vector -> append and flush
+    # TODO(5): per tilt: radiomap.evaluate -> kpi.vector.kpi_vector -> append and flush
     # TODO(6): skip configurations already present, so the build is resumable
     raise NotImplementedError("src.surrogate.dataset.build")
 
@@ -159,7 +168,7 @@ def save(df: pd.DataFrame, path: str | Path, metadata: dict | None = None) -> No
     raise NotImplementedError("src.surrogate.dataset.save")
 
 
-def theta_matrix(df: pd.DataFrame) -> np.ndarray:
+def tilt_matrix(df: pd.DataFrame) -> np.ndarray:
     """Extract the tilt configurations from D_sur as a matrix.
 
     Args:
@@ -179,9 +188,9 @@ def theta_matrix(df: pd.DataFrame) -> np.ndarray:
         indication that it has.
 
     Example:
-        >>> theta_matrix(d_sur).shape
+        >>> tilt_matrix(d_sur).shape
         (256, 26)
     """
     # TODO(1): select the tilt columns in cell-band table order
     # TODO(2): raise when a column is missing, rather than silently reordering
-    raise NotImplementedError("src.surrogate.dataset.theta_matrix")
+    raise NotImplementedError("src.surrogate.dataset.tilt_matrix")

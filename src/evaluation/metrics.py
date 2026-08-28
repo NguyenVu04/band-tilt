@@ -8,7 +8,7 @@ about the network.
 Per KPI, never averaged
 -----------------------
 A surrogate that is excellent on weak rate and useless on hole rate is useless,
-because hole rate is the highest-priority objective (PROJECT.md section 17). A
+because hole rate is the highest-priority objective (PROJECT.md section 5). A
 mean over the five KPIs hides exactly the failure that matters, and it is
 reported in units that mean nothing.
 

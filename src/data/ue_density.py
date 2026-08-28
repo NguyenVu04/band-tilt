@@ -1,4 +1,4 @@
-"""UE spatial distribution over the evaluation grid — PROJECT.md section 7.
+"""UE spatial distribution over the evaluation grid — PROJECT.md section 9.
 
 The target area is discretised into grid cells ``g``. For each one, ``rho(g)``
 is the number of MDT observations that fall inside it. That count is the
@@ -40,7 +40,7 @@ def build_grid(cfg: DictConfig) -> pd.DataFrame:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This is the definition of ``G`` in PROJECT.md section 6. Every KPI is a
+        This is the definition of ``G`` in PROJECT.md section 10. Every KPI is a
         sum over these cells, so the resolution changes every reported number: a
         coarse grid averages small holes away, a fine one multiplies ray-tracing
         cost. Fix it once, before generating the first surrogate sample.
@@ -71,7 +71,7 @@ def ue_density(df: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
 
     Notes:
         All grid cells have equal area, so ``rho(g)`` is the raw count ``n_g``
-        and needs no area normalisation (PROJECT.md section 7).
+        and needs no area normalisation (PROJECT.md section 9).
 
         Cells with zero observations are kept as zeros, not dropped. They are
         real parts of the area that simply had no measurements, and the Band

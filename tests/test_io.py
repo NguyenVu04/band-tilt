@@ -48,7 +48,7 @@ def test_metadata_is_readable_without_unpickling(tmp_path: Path) -> None:
 
 
 def test_metadata_records_the_cell_band_ordering(tmp_path: Path) -> None:
-    """A theta vector cannot be interpreted without the column order it used.
+    """A tilt vector cannot be interpreted without the column order it used.
 
     Adding a band to ``configs/radio.yaml`` after training makes every stored
     column index wrong, and the mismatch is invisible unless the ordering was

@@ -1,4 +1,4 @@
-"""KPI 5 — the UE-weighted Band Priority Score, PROJECT.md section 14.
+"""KPI 4 — the UE-weighted Band Priority Score, PROJECT.md section 4.7.
 
 The four coverage KPIs say nothing about which band serves a location. This one
 does: it rewards configurations where high-priority bands dominate in places
@@ -49,7 +49,7 @@ def band_weights(table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
             positive.
 
     Notes:
-        PROJECT.md section 14 requires ``w_b > 0``. A zero or negative weight
+        PROJECT.md section 4.7 requires ``w_b > 0``. A zero or negative weight
         makes the score non-monotonic in band quality and the objective stops
         meaning what section 14 says it means.
 
@@ -72,7 +72,7 @@ def band_priority_score(
     rho: np.ndarray,
     weights: np.ndarray,
 ) -> float:
-    """KPI 5 — the UE-weighted Band Priority Score.
+    """KPI 4 — the UE-weighted Band Priority Score.
 
     Args:
         b_star: Dominant band index per grid cell from

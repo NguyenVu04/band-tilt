@@ -1,4 +1,4 @@
-"""Read the project's inputs and the cleaned outputs of notebook 01.
+"""Read the project's inputs and the processed outputs of the data pipeline.
 
 Every path comes from ``configs/data.yaml``. No module hardcodes a filename:
 the raw MDT export, the cell configuration and the scene are all pointed at by
@@ -73,11 +73,11 @@ def load_cell_config(cfg: DictConfig) -> pd.DataFrame:
 
     Notes:
         Today's export has one ``digital_tilt`` per cell and no band, carrier
-        frequency or transmit power. PROJECT.md section 4.2 requires all of
+        frequency or transmit power. PROJECT.md section 8 requires all of
         them, and section 3 defines ``tilt = eTilt + mTilt``, which a single
         tilt column cannot express. Until the multi-band export arrives, the
         columns marked pending in ``configs/data.yaml`` will be absent — so
-        validate this frame with ``strict=False``. See docs/adr/0005.
+        validate this frame with ``strict=False``. See PROJECT.md section 8.
 
         This function returns the configuration as exported. Turning it into the
         cell-band table the rest of the project uses is
@@ -96,7 +96,7 @@ def load_cell_config(cfg: DictConfig) -> pd.DataFrame:
 
 
 def load_processed(cfg: DictConfig, split: Split) -> pd.DataFrame:
-    """Read one side of the frozen train/test partition written by notebook 01.
+    """Read one side of the frozen train/test partition.
 
     Args:
         cfg: Composed config; uses ``cfg.data.train_path`` and
@@ -109,10 +109,10 @@ def load_processed(cfg: DictConfig, split: Split) -> pd.DataFrame:
     Raises:
         NotImplementedError: Always — implement this module first.
         ValueError: Once implemented, for an unknown ``split`` value.
-        FileNotFoundError: Once implemented, when notebook 01 has not been run.
+        FileNotFoundError: Once implemented, when the split has not been written.
 
     Notes:
-        Raise a message that names notebook 01 when the file is missing. The
+        Raise a message that names notebook 03 when the file is missing. The
         default ``FileNotFoundError`` on a parquet path sends the reader looking
         for a data problem rather than an unrun pipeline stage.
 
@@ -121,7 +121,7 @@ def load_processed(cfg: DictConfig, split: Split) -> pd.DataFrame:
     """
     # TODO(1): map split -> cfg.data.train_path / cfg.data.test_path
     # TODO(2): raise ValueError on any other value, naming the two valid ones
-    # TODO(3): on FileNotFoundError, re-raise pointing at notebook 01
+    # TODO(3): on FileNotFoundError, re-raise pointing at notebook 03
     raise NotImplementedError("src.data.load.load_processed")
 
 

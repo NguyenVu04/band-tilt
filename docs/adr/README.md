@@ -18,7 +18,7 @@ revised as the research progresses.
 
 These records are the history. Where they overlap, PROJECT.md says *what* and the
 ADR says *why*, including the alternative that was rejected and what rejecting it
-cost. PROJECT.md section 29 lists the confirmed decisions in a table; most rows
+cost. PROJECT.md section 21 lists the confirmed decisions in a table; most rows
 of that table have a record here.
 
 ## When to write one
@@ -65,10 +65,42 @@ Superseding a record means editing exactly two lines: the old record's status,
 and the new record's `Supersedes` line. The old record's Context and Decision
 stay as they were written, because they are the historical account.
 
+### Revision in place — the exception, not the practice
+
+0002 and 0003 were **revised in place** on 2026-08-28 to follow the PROJECT.md
+rewrite, at the maintainer's direction, rather than superseded by new records.
+That is a departure from the rule above and is recorded as such: each carries a
+`Revised` line in its header and a *Revision note* section stating exactly what
+changed and why. The pre-revision text is in Git history at `abcdf6c`.
+
+Prefer superseding. Revision in place loses the shape of the original argument,
+which is the thing these records exist to preserve.
+
 ## Index
 
-| # | Title | Status | Date |
-|---|---|---|---|
-| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 |
-| [0002](0002-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 |
-| [0003](0003-sionna-rt-is-ground-truth.md) | Sionna-RT is ground truth; the surrogate only accelerates | Accepted | 2026-08-28 |
+| # | Title | Status | Date | Revised |
+|---|---|---|---|---|
+| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
+| [0002](0002-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-08-28 |
+| [0003](0003-sionna-rt-is-ground-truth.md) | Sionna-RT is ground truth; the surrogate only accelerates | Accepted | 2026-08-28 | 2026-08-28 |
+
+### Records referenced but never written
+
+`configs/`, `src/`, `tests/` and `pyproject.toml` cited five records that were
+never written. Those 28 citations now point at the PROJECT.md section that
+actually carries each decision, so nothing dangles; the records themselves are
+still owed and are listed in the README.md roadmap.
+
+| Would-be # | Decision it was cited for | Cited as, now |
+|---|---|---|
+| 0001 | Absolute tilt is the decision variable; the offset is derived | PROJECT.md Decision 1 |
+| 0004 | Coordinate and angle conventions | PROJECT.md section 22.2 |
+| 0005 | Band-generic design and the multi-band cell configuration contract | PROJECT.md section 8 |
+| 0006 | Choosing TorchRL over Ray/RLlib, and the optimizer frameworks generally | PROJECT.md sections 13 and 14 |
+| 0007 | The split scheme — now scenario-level | PROJECT.md section 12.3 |
+
+0004 is the one worth writing soonest. The PROJECT.md rewrite **dropped** the
+coordinate-and-angle-conventions section entirely, so `src/radio/geometry.py` is
+now the only place the convention is stated anywhere in the project. A sign error
+there produces a plausible, entirely wrong radio map and no test that does not
+already know the answer can catch it.

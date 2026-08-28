@@ -15,15 +15,15 @@ Two schemas, one validator
 ``schema.cell_config``, because the two inputs are different shapes. Both are
 checked by the same functions; the caller says which contract applies. The cell
 configuration must currently be validated with ``strict=False`` — the
-multi-band columns PROJECT.md section 4.2 requires are declared but not yet
-present in the export (docs/adr/0005).
+multi-band columns PROJECT.md section 8 requires are declared but not yet
+present in the export (PROJECT.md section 8).
 
 What must NOT go here
 ---------------------
 Any bound derived from the data itself. Every threshold checked in this module
 must come from an external source — a standard, a specification, a physical
 limit — and that source must be recorded in ``configs/data.yaml``. A threshold
-computed from the dataset leaks test-set information into notebook 01.
+computed from the dataset leaks test-set information into the split.
 
 The RSRP bound is the worked example: ``[-156, -31]`` dBm is the 3GPP TS 38.133
 reporting range, not a quantile of the observed values. The raw export contains
@@ -73,7 +73,7 @@ def validate(
 
     Notes:
         Validation runs twice in the pipeline: on the raw frame at the start of
-        notebook 01, and on the cleaned frame just before the split. The second
+        loading, and on the cleaned frame just before the split. The second
         pass is what proves the cleaning code actually did its job.
 
         Skip any column whose declared name is still a ``<placeholder>``. Those
@@ -114,7 +114,7 @@ def find_violations(
 
     Notes:
         Used by notebook 00 to size the problem before any filtering, and by
-        notebook 01's cleaning audit to document exactly what was dropped and
+        the cleaning audit to document exactly what was dropped and
         why. Returning a frame rather than raising keeps it usable in analysis.
 
     Example:

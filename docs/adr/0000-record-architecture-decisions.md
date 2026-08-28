@@ -63,7 +63,7 @@ The criteria for significance, and the process, are in [README.md](README.md).
 ## Alternatives considered
 
 **Keep the reasoning in PROJECT.md alone.** One document, already the source of
-truth, and section 29 already lists the confirmed decisions in a table. Rejected
+truth, and section 21 already lists the confirmed decisions in a table. Rejected
 because that table records conclusions without alternatives or costs — it says
 absolute tilt is the optimization variable, not what using tilt offset would have
 cost. It is also revised in place, so it cannot carry history.

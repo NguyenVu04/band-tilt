@@ -1,28 +1,34 @@
-"""The KPI surrogate itself — f_sur: (s, theta) -> K_hat.
+"""The radio-map surrogate itself — f_sur: (x, tilt) -> R_hat.
 
-PROJECT.md section 30 item 7 leaves the architecture open, so this module
+PROJECT.md section 22.2 leaves the architecture open, so this module
 defines the interface rather than a particular model. The concrete class is
 instantiated from ``configs/surrogate.yaml`` through Hydra's ``_target_``, which
 makes swapping architectures a config edit and an ablation a sweep.
 
+It predicts a map, not five numbers
+-----------------------------------
+The output is RSRP in dBm over the whole evaluation grid, indexed
+``(cell_band, grid_cell)`` — PROJECT.md section 10 and Decision 6. The five KPIs
+are then derived from the prediction by :mod:`src.kpi`, the same code that
+derives them from a ray-traced map. One evaluator, two possible maps underneath
+it.
+
+That makes this a dense spatial prediction problem rather than a tabular
+regression, and it decouples the model from the KPI thresholds entirely: moving
+the hole threshold changes the score of a saved prediction without invalidating
+the model that produced it.
+
 The interface has one unusual requirement
 -----------------------------------------
-:meth:`Surrogate.predict` optionally returns uncertainty. Bayesian Optimization
-needs a posterior, not a point estimate — an acquisition function that cannot
-tell a confident prediction from a guess degenerates into greedy search over the
-surrogate mean, and then reliably finds the region where the surrogate is most
-wrong rather than where the network is best.
+:meth:`Surrogate.predict` optionally returns uncertainty. TuRBO fits its own
+Gaussian process over the KPIs derived from these predictions, so it does not
+strictly need a posterior from this model — but propagating map uncertainty
+through the KPI evaluator is far more informative than discarding it, because
+uncertainty concentrated near the -120 dBm threshold is exactly what makes a
+predicted hole rate untrustworthy.
 
-A model that cannot express uncertainty is still usable for MARL, whose reward
-only needs the mean. Say so in the config rather than returning a fabricated
-variance.
-
-Predicting five outputs at once
--------------------------------
-The five KPIs are computed from the same radio map and are strongly related — a
-configuration that opens a coverage hole changes overlap and weak rate together.
-A joint model can use that; five independent regressors cannot, and they can
-produce KPI combinations that no radio map could generate.
+A model that cannot express uncertainty is still usable. Say so in the config
+rather than returning a fabricated variance.
 """
 
 from pathlib import Path
@@ -82,7 +88,7 @@ class SurrogateMixin:
 
         Notes:
             Include the cell-band table ordering and the KPI names in the
-            payload. A theta vector is meaningless without the column order it
+            payload. A tilt vector is meaningless without the column order it
             was built with, and a prediction vector is meaningless without
             knowing which KPI is at which position.
 

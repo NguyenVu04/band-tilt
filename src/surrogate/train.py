@@ -1,4 +1,4 @@
-"""Fit the surrogate and report its error — PROJECT.md section 19 Step 6.
+"""Fit the surrogate and report its error — PROJECT.md section 16 Phase 5.
 
 Also runs as a script: ``python -m src.surrogate.train`` (or
 ``task surrogate:train``), so the DVC stage and notebook 04 cannot diverge.
@@ -8,10 +8,22 @@ What the error report has to answer
 Not "is the surrogate good", but "is it good enough to optimise against". Those
 are different questions and only the second one matters here.
 
+*At two levels.* The model predicts a radio map, so the training loss is
+map error in dB (PROJECT.md section 11.3) — but acceptance is decided on the
+KPIs that map produces. Report both. A small average map error can still move
+hole rate a long way, because hole rate is a hard threshold at -120 dBm and
+error concentrated at the coverage edge costs far more than the same error in
+the cell centre.
+
 *Per KPI, never averaged.* A surrogate that is excellent on weak rate and
 useless on hole rate is useless, because hole rate is the highest-priority
-objective (PROJECT.md section 17). An average over the five hides exactly the
+objective (PROJECT.md section 5). An average over the five hides exactly the
 failure that matters.
+
+*On held-out scenarios, not just held-out configurations.* Generalising to a new
+tilt vector in a scene the model has seen is a much weaker claim than
+generalising to a perturbed environment (PROJECT.md section 12), and only the
+second supports the sim-to-reality conclusion.
 
 *Near the optimum, not just globally.* The optimizer spends its time in the
 best-performing region of the tilt space. Error averaged over the whole dataset
@@ -28,7 +40,16 @@ Ranking matters more than absolute accuracy
 -------------------------------------------
 Both optimizers use the surrogate to choose between configurations. A model with
 a constant bias but the right ordering optimises perfectly; an unbiased one that
-shuffles the ranking does not. Report a rank correlation alongside the errors.
+shuffles the ranking does not. Report a rank correlation alongside the errors —
+computed on the derived KPIs, since that is what the optimizers actually compare.
+
+Freeze on acceptance
+--------------------
+Once the acceptance thresholds in ``cfg.surrogate.acceptance`` are met the model
+is frozen and used unchanged for the whole optimization phase (PROJECT.md
+section 11.4). It is not retrained on the candidates TuRBO or MARL propose;
+doing so would put a Sionna-RT solve back inside the loop, which is the expense
+the surrogate exists to avoid.
 """
 
 import hydra

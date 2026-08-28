@@ -1,31 +1,37 @@
-"""The search space Theta — the one definition both optimizers use.
+"""The search space X — the one definition both optimizers use.
 
-PROJECT.md section 16 states the feasible set exactly::
+PROJECT.md section 3.2 states the feasible set exactly::
 
-    Theta = {theta: theta_min[i, b] <= theta[i, b] <= theta_max[i, b]}
+    X = {tilt: tilt_min[i, b] <= tilt[i, b] <= tilt_max[i, b]}
 
 A box, one dimension per cell-band, with per-dimension bounds. That is the whole
 constraint set: there is no coupling between cells, no budget on total tilt
-change, and no penalty term (PROJECT.md section 3.3).
+change, and no penalty term (PROJECT.md section 2.3).
+
+TuRBO searches a *trust region* ``T_t`` inside this box rather than the box
+itself (PROJECT.md section 13.2), and MARL actions are clipped to it every step
+(section 14.3). Both still derive the box from here — the trust region is a
+subset of X, never a redefinition of it.
 
 Why this module exists at all
 -----------------------------
 It is three lines of arithmetic that could live in either optimizer. Putting it
-in both is how the comparison in PROJECT.md section 25 quietly stops being
+in both is how the comparison in PROJECT.md section 17 quietly stops being
 valid — one implementation clips, the other squashes; one works in degrees, the
 other in normalised units; the bounds diverge by a config reload. The result is
 then a comparison of two search spaces, reported as a comparison of two methods.
 
-So: BO and MARL both call this module, and neither reads ``configs/radio.yaml``
-directly. See docs/adr/0006.
+So: TuRBO and MARL both call this module, and neither reads
+``configs/radio.yaml`` directly.
 
 Absolute tilt, not offset
 -------------------------
 The coordinates of this space are absolute tilts. An offset parameterisation
 would make the bounds depend on the current configuration —
-``[theta_min - theta_current, theta_max - theta_current]`` — so the space would
+``[tilt_min - current_tilt, tilt_max - current_tilt]`` — so the space would
 change shape every time the network moved, and a policy or surrogate trained in
-one would not transfer. See docs/adr/0001 and PROJECT.md section 3.1.
+one would not transfer. PROJECT.md section 3.1 and section 25.1 are explicit
+that absolute tilt is the decision variable and the offset is derived afterwards.
 
 Normalisation
 -------------
@@ -61,7 +67,7 @@ class TiltSpace:
 
         Notes:
             Store the table itself, not just the bounds. Every result has to be
-            reported per cell-band (PROJECT.md section 27.1), and a bare vector
+            reported per cell-band (PROJECT.md section 19), and a bare vector
             of 26 numbers cannot be mapped back to cells afterwards.
         """
         # TODO(1): lower, upper = cell_band.tilt_bounds(table)
@@ -80,7 +86,7 @@ class TiltSpace:
             NotImplementedError: Always — implement this module first.
 
         Notes:
-            This is the number PROJECT.md section 25.4 asks to be varied for the
+            This is the number PROJECT.md section 17 asks to be varied for the
             scalability comparison. Standard GP-based BO degrades well before
             MARL does as it grows; record where, rather than avoiding the
             regime.
@@ -88,11 +94,11 @@ class TiltSpace:
         # TODO(1): return len(self.table)
         raise NotImplementedError("src.optim.space.TiltSpace.n_dims")
 
-    def to_unit(self, theta: np.ndarray) -> np.ndarray:
+    def to_unit(self, tilt: np.ndarray) -> np.ndarray:
         """Map absolute tilts in degrees to the unit cube.
 
         Args:
-            theta: Shape ``(n_dims,)`` or ``(n, n_dims)``, in degrees.
+            tilt: Shape ``(n_dims,)`` or ``(n, n_dims)``, in degrees.
 
         Returns:
             The same shape, each coordinate in ``[0, 1]``.
@@ -106,9 +112,9 @@ class TiltSpace:
             tilt ranges, which is the expected case.
 
         Example:
-            >>> u = space.to_unit(theta)
+            >>> u = space.to_unit(tilt)
         """
-        # TODO(1): (theta - lower) / (upper - lower), broadcasting over a batch
+        # TODO(1): (tilt - lower) / (upper - lower), broadcasting over a batch
         raise NotImplementedError("src.optim.space.TiltSpace.to_unit")
 
     def from_unit(self, u: np.ndarray) -> np.ndarray:
@@ -130,16 +136,16 @@ class TiltSpace:
             a different configuration from the one the optimizer proposed.
 
         Example:
-            >>> theta = space.from_unit(u)
+            >>> tilt = space.from_unit(u)
         """
         # TODO(1): lower + u * (upper - lower), broadcasting over a batch
         raise NotImplementedError("src.optim.space.TiltSpace.from_unit")
 
-    def clip(self, theta: np.ndarray) -> np.ndarray:
+    def clip(self, tilt: np.ndarray) -> np.ndarray:
         """Project a configuration into the feasible box.
 
         Args:
-            theta: Shape ``(n_dims,)`` or ``(n, n_dims)``, in degrees.
+            tilt: Shape ``(n_dims,)`` or ``(n, n_dims)``, in degrees.
 
         Returns:
             The same shape, with every coordinate inside its bounds.
@@ -155,13 +161,13 @@ class TiltSpace:
             :func:`src.radio.sampling.assert_within_bounds` and fix the caller.
 
         Example:
-            >>> theta = space.clip(theta)
+            >>> tilt = space.clip(tilt)
         """
         # TODO(1): np.clip against the stored bounds
         raise NotImplementedError("src.optim.space.TiltSpace.clip")
 
     def baseline(self) -> np.ndarray:
-        """The network as currently deployed, theta_current.
+        """The network as currently deployed, current_tilt.
 
         Returns:
             Absolute tilts in degrees, in table order.
@@ -174,7 +180,7 @@ class TiltSpace:
             section 27.2) and the MARL ``baseline`` reset strategy.
 
         Example:
-            >>> theta_0 = space.baseline()
+            >>> tilt_0 = space.baseline()
         """
         # TODO(1): return cell_band.current_tilt(self.table)
         raise NotImplementedError("src.optim.space.TiltSpace.baseline")

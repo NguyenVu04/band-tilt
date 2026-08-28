@@ -1,57 +1,76 @@
 # @package surrogate
-# The KPI surrogate: f_sur(s, theta) -> K_hat (PROJECT.md section 18).
+# The radio-map surrogate: f_sur(x, tilt) -> R_hat (PROJECT.md section 11).
 #
 # The surrogate exists because a Sionna-RT evaluation is too expensive to put
 # inside an optimization loop. It is an acceleration mechanism and never the
 # reported result — every candidate that matters is re-evaluated with Sionna-RT
 # before it is believed. See docs/adr/0003.
+#
+# It predicts the RADIO MAP, not the KPIs (PROJECT.md Decision 6). src/kpi/ then
+# derives the five KPIs from whatever map it is given, so there is exactly one
+# KPI implementation and it does not care whether the map was ray-traced or
+# predicted. Regressing the KPIs directly would create a second code path and
+# would tie the trained model to the current KPI thresholds.
 
 # --- Dataset ---------------------------------------------------------------
-# D_sur = {(s, theta, K)} — built by src/surrogate/dataset.py from radio maps
+# D_sur = {(x, tilt, R)} — built by src/surrogate/dataset.py from radio maps
 # generated under configs/radio.yaml `sampling`.
 dataset:
   path: data/processed/surrogate_dataset.parquet
-  # Hold out whole tilt configurations, never individual grid cells: grid cells
-  # from one configuration are near-duplicates of each other, so splitting
-  # within a configuration reports an error far below the real one.
-  split_on: configuration
+  # Split by SCENARIO, never by grid cell or by individual record (PROJECT.md
+  # section 12.3, Decision 8). A scenario is one environment plus one UE mobility
+  # realisation; samples inside it share buildings, materials and trajectories,
+  # so splitting within one leaks the very structure the sim-to-reality study in
+  # section 12 is trying to measure.
+  split_on: scenario
   test_size: 0.2
   val_size: 0.2
   seed: ${seed}
 
 # --- Features --------------------------------------------------------------
-# The state s from PROJECT.md section 18. src/surrogate/features.py builds the
-# tensor; this block declares what goes into it.
+# The feature vector x from PROJECT.md section 11.1: environment, network and
+# MDT-derived features. src/surrogate/features.py builds the tensor; this block
+# declares what goes into it.
 features:
-  # Absolute tilt per cell-band — always present, this is theta itself.
+  # Absolute tilt per cell-band — always present, this is the decision variable.
   tilt: true
-  # Static geometry that does not vary with theta: position, height, azimuth.
+  # Static geometry that does not vary with tilt: position, height, azimuth.
   cell_geometry: <true|false>
-  # UE density per grid cell from src/data/ue_density.py (PROJECT.md section 7).
+  # UE density per grid cell from src/data/ue_density.py (PROJECT.md section 9).
   ue_density: <true|false>
   # Band identity and its priority weight w_b.
   band_identity: <true|false>
   # Neighbour structure: which cells are close enough to overlap.
   neighbor_graph: <true|false>
+  # Scenario-level environment descriptors — building footprints, materials.
+  # These are what make the sim-to-reality study of section 12 possible: a
+  # surrogate that never sees the environment cannot generalise across
+  # perturbed scenarios, it can only memorise the one it trained on.
+  scene_features: <true|false>
 
-# --- Targets ---------------------------------------------------------------
-# The surrogate predicts the full KPI vector K, not a scalarized objective:
-# scalarization weights are an optimizer choice and change between experiments,
-# and re-deriving the scalar from predicted KPIs costs nothing.
-targets:
-  - hole_rate
-  - overlap_rate
-  - weak_rate
-  - mean_overlap_neighbors
-  - band_priority_score
+# --- Target ----------------------------------------------------------------
+# The surrogate predicts the RSRP radio map R over the evaluation grid, indexed
+# (cell_band, grid_cell) — PROJECT.md section 10 and Decision 6. The five KPIs
+# are derived from the prediction by src/kpi/, not regressed.
+target:
+  kind: radio_map
+  # dBm, matching the Sionna-RT reference exactly. Never predict a normalised
+  # quantity without recording the inverse transform here: the KPI thresholds
+  # are absolute dBm levels and a scale error moves every one of them.
+  units: dbm
+  # Shape is (n_cell_bands, |G|) per sample, both fixed by configs/radio.yaml.
+  shape_from: [radio.bands, radio.cells, radio.grid]
 
 # --- Model -----------------------------------------------------------------
-# PROJECT.md section 30 leaves the architecture open. Instantiated by Hydra's
+# PROJECT.md section 22.2 leaves the architecture open. Instantiated by Hydra's
 # _target_, so swapping architectures is a config edit.
 #
-# Whatever is chosen must expose predictive uncertainty if it is to feed the
-# Bayesian Optimization loop in configs/optim/bo.yaml — an acquisition function
-# needs a posterior, not a point estimate.
+# The output is a map, not five numbers, so this is a dense spatial prediction
+# problem — the natural architectures are encoder/decoder rather than tabular
+# regressors. Whatever is chosen, TuRBO fits its own GP over the KPIs derived
+# from the prediction (configs/optim/bo.yaml), so the surrogate itself is not
+# required to expose a posterior; if it does, record how the uncertainty is
+# propagated through the KPI evaluator rather than discarding it silently.
 _target_: src.surrogate.model.<ClassName>
 model:
   <hyperparameter-a>: <value>
@@ -69,22 +88,45 @@ train:
 artifact_path: models/surrogate.pkl
 
 # --- Acceptance ------------------------------------------------------------
-# PROJECT.md section 19 Step 6. The surrogate is only useful if its error is
-# small relative to the KPI differences the optimizer is trying to resolve. If
-# predicted hole rate is off by more than the improvement being claimed, the
-# optimization result is noise.
+# PROJECT.md section 16 Phase 5 and section 11.4. The surrogate is only useful if
+# its error is small relative to the KPI differences the optimizer is trying to
+# resolve. If predicted hole rate is off by more than the improvement being
+# claimed, the optimization result is noise.
 #
-# Errors are reported per KPI, not averaged: a surrogate that is excellent on
-# weak rate and useless on hole rate is useless, because hole rate is the
-# highest-priority objective.
+# Acceptance has TWO layers, because the surrogate now predicts a map and the
+# KPIs are derived from it:
+#
+#   1. radio-map error, in dB, against the Sionna-RT reference (section 11.3);
+#   2. the error this produces in each derived KPI, in that KPI's own units.
+#
+# Layer 2 is the one that decides acceptance. A small average map error can still
+# move hole rate a long way, because hole rate is a hard threshold at -120 dBm:
+# error concentrated at the coverage edge costs far more than the same error in
+# the cell centre. Report both, and never substitute layer 1 for layer 2.
 acceptance:
+  # Layer 1 — radio-map prediction error over all (cell_band, grid_cell) entries.
+  radio_map:
+    max_rmse_db: <acceptable RMSE in dB>
+    max_mae_db: <acceptable MAE in dB>
+    # Error restricted to locations near the hole and weak thresholds, where a
+    # dB of error flips a classification rather than shifting a value.
+    max_mae_db_near_threshold: <acceptable MAE in dB>
+  # Layer 2 — error in the KPIs derived from the predicted map by src/kpi/.
+  # Reported per KPI, never averaged: a surrogate that is excellent on weak rate
+  # and useless on hole rate is useless, because hole rate is the
+  # highest-priority objective.
   max_mae:
     hole_rate: <acceptable MAE in percentage points>
     overlap_rate: <acceptable MAE in percentage points>
-    weak_rate: <acceptable MAE in percentage points>
     mean_overlap_neighbors: <acceptable MAE in neighbours>
     band_priority_score: <acceptable MAE in score units>
+    weak_rate: <acceptable MAE in percentage points>
   # Also report error restricted to the best-performing decile of
   # configurations: accuracy near the optimum is what the optimizer needs, and
   # a global average hides it.
   report_near_optimum: true
+  # And on held-out PERTURBED scenarios, not just held-out configurations of the
+  # training scenario (PROJECT.md section 12). Generalising across tilts is a
+  # weaker claim than generalising across environments, and only the second one
+  # supports the sim-to-reality conclusion.
+  report_held_out_scenarios: true

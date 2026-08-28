@@ -87,8 +87,13 @@ tasks:
     cmds:
       - uv run jupyter lab
 
+  scene:build:
+    desc: 'Fetch OSM and build the SUMO network + polygons (needs SUMO_HOME; notebook 01)'
+    cmds:
+      - uv run python scripts/build_scene.py {{.CLI_ARGS}}
+
   clean:data:
-    desc: 'Clean the MDT export and write the frozen split (notebook 01 as a script)'
+    desc: 'LEGACY - clean the retired operator MDT export (no notebook; see CLAUDE.md)'
     cmds:
       - uv run python -m {{.PKG}}.data.clean {{.CLI_ARGS}}
 
@@ -98,12 +103,12 @@ tasks:
       - uv run python -m {{.PKG}}.surrogate.dataset {{.CLI_ARGS}}
 
   surrogate:train:
-    desc: 'Train the KPI surrogate (notebook 04 as a script)'
+    desc: 'Train the radio-map surrogate (notebook 04 as a script)'
     cmds:
       - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
 
   bo:
-    desc: 'Run Bayesian Optimization, e.g. task bo -- optim.search.n_iter=50'
+    desc: 'Run TuRBO, e.g. task bo -- optim.search.n_iter=50'
     cmds:
       - uv run python -m {{.PKG}}.optim.bo.run optim=bo {{.CLI_ARGS}}
 

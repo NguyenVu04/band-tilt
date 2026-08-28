@@ -1,13 +1,13 @@
 """Tests for the angle convention — small, and worth more than they look.
 
-PROJECT.md section 5 fixes the conversion between the radio convention and the
+PROJECT.md section 22.2 fixes the conversion between the radio convention and the
 Sionna-RT simulation convention. A sign error in it does not raise. It produces
 a complete, plausible radio map with every beam pointing at the sky, KPIs that
 are internally consistent, and an optimizer that converges confidently on the
 wrong answer.
 
 These assertions are the only thing standing between that and a result nobody
-can reproduce. See docs/adr/0004.
+can reproduce. See PROJECT.md section 22.2.
 
 Every expected value below is computed by hand from the spec, not from the
 implementation.
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skip(reason="implement src/radio/geometry.py first")
 
 
 def test_absolute_tilt_is_the_sum_of_electrical_and_mechanical() -> None:
-    """PROJECT.md section 4.2: ``tilt = eTilt + mTilt``.
+    """PROJECT.md section 8: ``tilt = eTilt + mTilt``.
 
     The sum, not either component, is the optimization variable.
     """
@@ -63,26 +63,26 @@ def test_zero_tilt_is_zero_pitch() -> None:
 
 def test_orientations_have_one_row_per_cell_band(cell_bands: pd.DataFrame) -> None:
     """The orientation array is ``(n_cell_bands, 3)`` — yaw, pitch, roll."""
-    theta = np.full(len(cell_bands), 6.0)
-    assert geometry.orientations(cell_bands, theta).shape == (len(cell_bands), 3)
+    tilt = np.full(len(cell_bands), 6.0)
+    assert geometry.orientations(cell_bands, tilt).shape == (len(cell_bands), 3)
 
 
 def test_orientations_follow_cell_band_table_order(cell_bands: pd.DataFrame) -> None:
     """Row ``i`` of the orientation array belongs to row ``i`` of the table.
 
-    Every theta vector in the project is indexed by position in the cell-band
+    Every tilt vector in the project is indexed by position in the cell-band
     table. A reordering here assigns tilts to the wrong antennas and produces a
     radio map for a network that does not exist.
     """
-    theta = np.arange(len(cell_bands), dtype=float)
-    orient = geometry.orientations(cell_bands, theta)
+    tilt = np.arange(len(cell_bands), dtype=float)
+    orient = geometry.orientations(cell_bands, tilt)
     expected_yaw = geometry.azimuth_to_yaw(cell_bands["azimuth"].to_numpy())
     assert orient[:, 0] == pytest.approx(expected_yaw)
-    assert orient[:, 1] == pytest.approx(geometry.tilt_to_pitch(theta))
+    assert orient[:, 1] == pytest.approx(geometry.tilt_to_pitch(tilt))
 
 
-def test_orientations_reject_a_mismatched_theta(cell_bands: pd.DataFrame) -> None:
-    """A theta vector of the wrong length must fail loudly, not broadcast.
+def test_orientations_reject_a_mismatched_tilt(cell_bands: pd.DataFrame) -> None:
+    """A tilt vector of the wrong length must fail loudly, not broadcast.
 
     It is the symptom of a band added to ``configs/radio.yaml`` after something
     downstream was built, and NumPy will happily broadcast a length-1 vector

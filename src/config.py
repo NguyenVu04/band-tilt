@@ -83,11 +83,15 @@ def validate_config(cfg: DictConfig) -> None:
         - KPI thresholds ordered ``hole_dbm < weak_dbm``. Reversed, every
           location classifies as a hole and the optimizer chases a constant.
         - Every band in ``cfg.radio.bands`` has ``tilt.min < tilt.max`` and a
-          strictly positive ``priority_weight`` (PROJECT.md section 14).
-        - Scalarization weights ordered ``hole > overlap > weak`` when
-          ``cfg.kpi.mode`` is ``scalarized`` (PROJECT.md section 23) — the
-          weights can otherwise contradict the stated priority without any
-          error.
+          strictly positive ``priority_weight`` (PROJECT.md section 4.7).
+        - ``cfg.kpi.order`` equals :data:`src.kpi.vector.KPI_NAMES`. The
+          config declares the priority and the module indexes by position, so a
+          divergence silently scores every candidate against the wrong
+          objective (PROJECT.md section 5).
+        - Scalarization weights ordered ``hole > overlap > overlap_neighbors >
+          bps > weak`` when ``cfg.kpi.mode`` is ``scalarized`` (PROJECT.md
+          section 25.3) — the weights can otherwise contradict the stated
+          priority without any error.
         - No value anywhere in the tree still matches ``<...>``.
 
     Example:
@@ -97,6 +101,7 @@ def validate_config(cfg: DictConfig) -> None:
     # TODO(2): check data.split.group_col exists in data.schema.mdt.columns
     # TODO(3): check kpi.hole_dbm < kpi.weak_dbm
     # TODO(4): check every radio.bands[b] has tilt.min < tilt.max and priority_weight > 0
-    # TODO(5): if kpi.mode == "scalarized", check weights hole > overlap > weak
-    # TODO(6): walk the whole tree and reject any remaining "<placeholder>" string
+    # TODO(5): check tuple(kpi.order) == src.kpi.vector.KPI_NAMES
+    # TODO(6): if kpi.mode == "scalarized", check weights follow kpi.order
+    # TODO(7): walk the whole tree and reject any remaining "<placeholder>" string
     raise NotImplementedError("src.config.validate_config")

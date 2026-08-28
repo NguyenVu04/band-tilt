@@ -64,7 +64,7 @@ rt = ["sionna-rt>=2.0"]
 # Bayesian Optimization over the absolute-tilt space (src/optim/bo/).
 bo = ["ax-platform>=0.4", "botorch>=0.12", "gpytorch>=1.13"]
 # Multi-Agent RL over the same space (src/optim/marl/). Ray/RLlib is
-# deliberately not used — see docs/adr/0006.
+# deliberately not used — see PROJECT.md sections 13 and 14.
 marl = ["torchrl>=0.6", "tensordict>=0.6", "gymnasium>=1.0"]
 # Plotting, used by notebooks and src/evaluation/analysis.py.
 viz = ["matplotlib>=3.9", "seaborn>=0.13"]

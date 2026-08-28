@@ -6,11 +6,11 @@ module builds the table of those pairs and pins down their order.
 
 Row order is the contract
 -------------------------
-Every theta vector in this project — the BO search space, a MARL action, a
+Every tilt vector in this project — the BO search space, a MARL action, a
 surrogate feature row, a reported result — is indexed by position in this table.
 So the order must be deterministic and stable: sort explicitly, and never rely
 on the order a CSV happened to arrive in or on a groupby that preserves it by
-accident. Two runs that build the table differently will produce theta vectors
+accident. Two runs that build the table differently will produce tilt vectors
 that mean different things while comparing as equal.
 
 Where the bands come from
@@ -19,7 +19,7 @@ Today's export has no band column, so the pairs are formed by applying the band
 declaration in ``configs/radio.yaml`` to each configured cell. When the
 multi-band export arrives, set ``cfg.radio.cells.from_cell_config`` and the
 table is read from the data instead. Nothing downstream changes: no module
-hardcodes the number of bands. See docs/adr/0005.
+hardcodes the number of bands. See PROJECT.md section 8.
 """
 
 import numpy as np
@@ -46,7 +46,7 @@ def build_table(cells: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
 
     Notes:
         The returned index is the canonical ordering of the decision vector.
-        Write it down with any result that is saved, so a theta vector can be
+        Write it down with any result that is saved, so a tilt vector can be
         interpreted later.
 
     Example:
@@ -61,7 +61,7 @@ def build_table(cells: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
 
 
 def current_tilt(table: pd.DataFrame) -> np.ndarray:
-    """Extract the network as deployed, theta_current.
+    """Extract the network as deployed, current_tilt.
 
     Args:
         table: The cell-band table from :func:`build_table`.
@@ -74,12 +74,12 @@ def current_tilt(table: pd.DataFrame) -> np.ndarray:
 
     Notes:
         This vector is the baseline every reported result is measured against
-        (PROJECT.md section 27.2), and the starting point for the MARL reset
+        (PROJECT.md section 20), and the starting point for the MARL reset
         strategy ``baseline``. It is also the only input to the tilt offset in
         :func:`tilt_offset`.
 
     Example:
-        >>> theta_0 = current_tilt(table)
+        >>> tilt_0 = current_tilt(table)
     """
     # TODO(1): read the absolute tilt column produced by build_table
     # TODO(2): return as a float array in table order
@@ -111,16 +111,16 @@ def tilt_bounds(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     raise NotImplementedError("src.radio.cell_band.tilt_bounds")
 
 
-def tilt_offset(theta: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
+def tilt_offset(tilt: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
     """Derive the tilt change from the current configuration, for reporting only.
 
     Args:
-        theta: An absolute tilt configuration, ordered to match ``table``.
+        tilt: An absolute tilt configuration, ordered to match ``table``.
         table: The cell-band table from :func:`build_table`.
 
     Returns:
         One row per cell-band with current tilt, optimal tilt and the offset —
-        the table specified in PROJECT.md section 27.1.
+        the table specified in PROJECT.md section 19.
 
     Raises:
         NotImplementedError: Always — implement this module first.
@@ -129,14 +129,14 @@ def tilt_offset(theta: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
         The offset is computed AFTER optimization and never enters it. It is not
         a decision variable, not a KPI, and carries no penalty: PROJECT.md
         sections 3.2 and 3.3 are explicit that the research question is network
-        quality, not minimal reconfiguration. See docs/adr/0001.
+        quality, not minimal reconfiguration. See PROJECT.md Decision 1.
 
         If a deployment later caps how far a tilt may move in one step, that is
         an operational constraint on the feasible set — express it by narrowing
         the bounds in ``configs/radio.yaml``, not by penalising the objective.
 
     Example:
-        >>> report = tilt_offset(theta_star, table)
+        >>> report = tilt_offset(optimized_tilt, table)
         >>> report.columns.tolist()
         ['gcell_id', 'band', 'current_tilt', 'optimal_tilt', 'tilt_offset']
     """

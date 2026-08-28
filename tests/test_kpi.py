@@ -47,7 +47,7 @@ def test_weak_rate_matches_hand_computed_value(rsrp_grid: np.ndarray, cfg: DictC
 def test_hole_and_weak_are_disjoint(rsrp_grid: np.ndarray, cfg: DictConfig) -> None:
     """A location cannot be both a hole and weak coverage.
 
-    PROJECT.md sections 10 and 11 define half-open bands that partition the
+    PROJECT.md section 4.2 and 4.3 define half-open bands that partition the
     grid. An inclusive boundary on both sides double-counts the threshold value,
     which shows up as the two rates summing past 100.
     """
@@ -58,7 +58,7 @@ def test_hole_and_weak_are_disjoint(rsrp_grid: np.ndarray, cfg: DictConfig) -> N
 def test_hole_threshold_is_inclusive(cfg: DictConfig) -> None:
     """RSRP exactly at ``hole_dbm`` is a hole, not weak coverage.
 
-    PROJECT.md section 10 defines the condition as ``R_max <= -120``. Off-by-one
+    PROJECT.md section 4.2 defines the condition as ``R_max <= -120``. Off-by-one
     at the boundary silently moves locations between the two highest-priority
     KPIs.
     """
@@ -82,7 +82,7 @@ def test_mean_overlap_neighbors_matches_hand_computed_value(
     """One overlapping cell has one neighbour and one has two, so the mean is 1.5.
 
     The denominator is the number of overlapping locations, not the grid size
-    (PROJECT.md section 13). Dividing by the grid instead gives 0.6 here, and
+    (PROJECT.md section 4.6). Dividing by the grid instead gives 0.6 here, and
     makes this KPI a rescaled overlap rate carrying no extra information.
     """
     per_cell = serving.cell_rsrp(rsrp_grid, cell_bands, cfg)
@@ -130,7 +130,7 @@ def test_mean_overlap_neighbors_returns_zero_when_nothing_overlaps(cfg: DictConf
 def test_dominant_band_is_the_strongest_pair_not_the_strongest_cell(
     rsrp_grid: np.ndarray, cell_bands: pd.DataFrame
 ) -> None:
-    """PROJECT.md section 8.2 takes the argmax over cell-band pairs directly.
+    """PROJECT.md section 4.7 takes the argmax over cell-band pairs directly.
 
     Grid cells 1 and 4 are dominated by a low band while their serving cell's
     strongest carrier differs, so implementing this via the serving cell gives
@@ -177,7 +177,7 @@ def test_band_priority_score_ignores_empty_grid_cells(
 
 
 def test_zero_weight_is_rejected(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
-    """PROJECT.md section 14 requires strictly positive band weights.
+    """PROJECT.md section 4.7 requires strictly positive band weights.
 
     A zero or negative weight makes the score non-monotonic in band quality, so
     the objective stops meaning what the spec says it means.
@@ -206,7 +206,7 @@ def test_kpi_vector_returns_every_named_kpi(
 def test_lexicographic_prefers_lower_hole_rate_despite_worse_everything_else(
     cfg: DictConfig,
 ) -> None:
-    """Hole rate outranks every other objective — PROJECT.md section 17.
+    """Hole rate outranks every other objective — PROJECT.md section 5.
 
     This is the assertion that pins down the whole priority. A weighted sum can
     always be made to lose it by trading enough of the other four.
@@ -233,7 +233,7 @@ def test_lexicographic_falls_through_to_overlap_within_tolerance(cfg: DictConfig
 def test_scalarize_rejects_weights_that_contradict_the_priority(cfg: DictConfig) -> None:
     """``lambda_H > lambda_O > lambda_W`` is checked, not assumed.
 
-    PROJECT.md section 23: weights that violate the ordering produce an
+    PROJECT.md section 14.5: weights that violate the ordering produce an
     objective which silently contradicts the stated priority while every
     individual KPI still looks correct.
     """

@@ -17,7 +17,7 @@ implementation that might disagree for its own reasons.
 
 Count the expensive evaluations
 -------------------------------
-PROJECT.md section 25.2 compares BO and MARL on the number of Sionna-RT
+PROJECT.md section 17 compares BO and MARL on the number of Sionna-RT
 evaluations each consumed. That count is a headline result, so it is tracked
 here rather than estimated afterwards — an estimate reconstructed from logs is
 exactly the number a reader will question.
@@ -62,11 +62,11 @@ class Objective:
         # TODO(3): defer scene construction until the first sionna evaluation
         raise NotImplementedError("src.optim.objective.Objective.__init__")
 
-    def kpis(self, theta: np.ndarray, *, source: str | None = None) -> dict:
+    def kpis(self, tilt: np.ndarray, *, source: str | None = None) -> dict:
         """Evaluate one configuration and return its five KPIs.
 
         Args:
-            theta: Absolute tilts in degrees, in cell-band table order.
+            tilt: Absolute tilts in degrees, in cell-band table order.
             source: Override the configured source for this call — used to
                 validate a surrogate-selected candidate against Sionna-RT.
 
@@ -78,27 +78,27 @@ class Objective:
 
         Notes:
             Validate the configuration before evaluating it. An out-of-bounds
-            theta produces a perfectly plausible KPI vector for a network that
+            tilt produces a perfectly plausible KPI vector for a network that
             cannot be built, and nothing downstream will notice.
 
             Increment the Sionna-RT counter here, not at the call site — a
             counter maintained by callers is one that eventually misses a path.
 
         Example:
-            >>> k = objective.kpis(theta)
-            >>> k_true = objective.kpis(theta, source="sionna")
+            >>> k = objective.kpis(tilt)
+            >>> k_true = objective.kpis(tilt, source="sionna")
         """
-        # TODO(1): sampling.assert_within_bounds(theta, self.space.table)
+        # TODO(1): sampling.assert_within_bounds(tilt, self.space.table)
         # TODO(2): surrogate -> features.transform then predict, mapped to KPI names
         # TODO(3): sionna    -> radiomap.evaluate then kpi.vector.kpi_vector
         # TODO(4): increment the evaluation counter for the source actually used
         raise NotImplementedError("src.optim.objective.Objective.kpis")
 
-    def scalar(self, theta: np.ndarray) -> float:
+    def scalar(self, tilt: np.ndarray) -> float:
         """Evaluate one configuration as a single number to maximise.
 
         Args:
-            theta: Absolute tilts in degrees.
+            tilt: Absolute tilts in degrees.
 
         Returns:
             The scalarized objective. Larger is better, so a minimising
@@ -115,9 +115,9 @@ class Objective:
             find.
 
         Example:
-            >>> objective.scalar(theta)
+            >>> objective.scalar(tilt)
         """
-        # TODO(1): kpis(theta) then kpi.vector.scalarize
+        # TODO(1): kpis(tilt) then kpi.vector.scalarize
         raise NotImplementedError("src.optim.objective.Objective.scalar")
 
     def best(self, candidates: np.ndarray) -> np.ndarray:
@@ -139,7 +139,7 @@ class Objective:
             gives an order that depends on the input order.
 
         Example:
-            >>> theta_star = objective.best(candidates)
+            >>> optimized_tilt = objective.best(candidates)
         """
         # TODO(1): evaluate every candidate
         # TODO(2): single pass, keeping the incumbent under lexicographic_better
@@ -156,7 +156,7 @@ class Objective:
             NotImplementedError: Always — implement this module first.
 
         Notes:
-            A headline result for PROJECT.md section 25.2, not diagnostics.
+            A headline result for PROJECT.md section 17, not diagnostics.
             Report it beside every optimization outcome.
         """
         # TODO(1): return the counter

@@ -1,4 +1,4 @@
-"""Strongest signal, serving cell, and dominant cell-band — PROJECT.md section 8.
+"""Strongest signal, serving cell, and dominant cell-band — PROJECT.md section 4.1.
 
 Three related quantities, each feeding a different KPI, and each defined over a
 different axis of the RSRP array. Keeping them straight matters because they
@@ -15,7 +15,7 @@ look interchangeable and are not.
 
 The open question, stated plainly
 ---------------------------------
-PROJECT.md section 30 item 5 lists the cell-level aggregation rule across bands
+PROJECT.md section 22.2 lists the cell-level aggregation rule across bands
 as still to be determined. It is the difference between "a cell is as strong as
 its best band" and "a cell combines its bands", and it changes the overlap KPI
 directly. This module takes the rule from ``cfg.kpi`` rather than assuming one,
@@ -101,8 +101,8 @@ def serving_cell(per_cell: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``s(x) = argmax over i of R_i(x)`` from PROJECT.md section 8.1.
-        Accessibility plays no part in this selection — PROJECT.md section 3.4
+        ``s(x) = argmax over i of R_i(x)`` from PROJECT.md section 4.1.
+        Accessibility plays no part in this selection — PROJECT.md section 2.3
         excludes it from the formulation entirely. See docs/adr/0002.
 
         Locations with no coverage still return an index, because ``argmax`` of
@@ -130,7 +130,7 @@ def dominant_band(rsrp: np.ndarray, table: pd.DataFrame) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        PROJECT.md section 8.2 defines the dominant band directly as the band of
+        PROJECT.md section 4.7 defines the dominant band directly as the band of
         ``argmax over (i, b) of R_ib(g)`` — the single strongest pair, with no
         cell-level aggregation in between. This is deliberately a different rule
         from :func:`serving_cell`, so do not implement one in terms of the

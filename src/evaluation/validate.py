@@ -1,8 +1,8 @@
-"""Re-evaluate an optimized configuration with Sionna-RT — PROJECT.md section 26.
+"""Re-evaluate an optimized configuration with Sionna-RT — PROJECT.md section 16 Phase 7.
 
 The validation flow::
 
-    theta*  ->  Sionna-RT  ->  ground-truth radio map  ->  five KPIs
+    tilt*  ->  Sionna-RT  ->  ground-truth radio map  ->  five KPIs
                                                        ->  compare with surrogate
 
 This is where a result becomes a claim
@@ -32,11 +32,11 @@ import numpy as np
 from omegaconf import DictConfig
 
 
-def validate(theta: np.ndarray, cfg: DictConfig, predicted: dict | None = None) -> dict:
+def validate(tilt: np.ndarray, cfg: DictConfig, predicted: dict | None = None) -> dict:
     """Evaluate a configuration with Sionna-RT and compare against the prediction.
 
     Args:
-        theta: The configuration to validate, in degrees, in cell-band table
+        tilt: The configuration to validate, in degrees, in cell-band table
             order.
         cfg: Composed config.
         predicted: The surrogate KPI prediction for this configuration, when
@@ -50,7 +50,7 @@ def validate(theta: np.ndarray, cfg: DictConfig, predicted: dict | None = None) 
 
     Notes:
         Assert the configuration is within bounds before spending a solve on it.
-        A theta that drifted out of the feasible box during optimization
+        A tilt that drifted out of the feasible box during optimization
         produces a perfectly good radio map for a network that cannot be
         deployed.
 
@@ -59,7 +59,7 @@ def validate(theta: np.ndarray, cfg: DictConfig, predicted: dict | None = None) 
         of how good the ground-truth number looks on its own.
 
     Example:
-        >>> result = validate(theta_star, cfg, predicted=bo_prediction)
+        >>> result = validate(optimized_tilt, cfg, predicted=bo_prediction)
         >>> result["ground_truth"]["hole_rate"]
     """
     # TODO(1): assert_within_bounds against the cell-band table
@@ -69,11 +69,11 @@ def validate(theta: np.ndarray, cfg: DictConfig, predicted: dict | None = None) 
     raise NotImplementedError("src.evaluation.validate.validate")
 
 
-def validate_many(thetas: dict, cfg: DictConfig) -> Any:
+def validate_many(tilts: dict, cfg: DictConfig) -> Any:
     """Validate several configurations under one scene load.
 
     Args:
-        thetas: A mapping from method name (``"baseline"``, ``"bo"``,
+        tilts: A mapping from method name (``"baseline"``, ``"bo"``,
             ``"marl"``) to its configuration.
         cfg: Composed config.
 
@@ -85,7 +85,7 @@ def validate_many(thetas: dict, cfg: DictConfig) -> Any:
 
     Notes:
         Always include the baseline. Every reported improvement is stated
-        relative to the current network (PROJECT.md section 27.2), and a
+        relative to the current network (PROJECT.md section 20), and a
         baseline evaluated in a different run, against a different scene build
         or a different grid, is not a valid reference.
 
@@ -97,6 +97,6 @@ def validate_many(thetas: dict, cfg: DictConfig) -> Any:
         >>> results = validate_many({"baseline": t0, "bo": t_bo, "marl": t_marl}, cfg)
     """
     # TODO(1): load the scene and attach transmitters once
-    # TODO(2): raise when "baseline" is absent from thetas
+    # TODO(2): raise when "baseline" is absent from tilts
     # TODO(3): evaluate each configuration against the identical grid and density
     raise NotImplementedError("src.evaluation.validate.validate_many")

@@ -4,10 +4,24 @@ Every notebook, script and test obtains its splits from this module, using the
 scheme and seed declared in ``configs/data.yaml``. Nothing else in the project
 may split data.
 
-Why MDT cannot be split randomly
+Split by scenario
+-----------------
+PROJECT.md section 12.3 and Decision 8 require the boundary to fall between
+**scenarios**, not between records. A scenario is one environment — buildings,
+dimensions, materials — together with one UE mobility realisation from SUMO.
+Everything generated inside a scenario shares those, so any split that cuts
+through one leaks them.
+
+That matters more here than ordinary leakage would, because the question this
+project asks of its held-out data is a sim-to-reality question (section 12):
+does the surrogate, and the configuration it led to, survive an environment it
+was not fitted on? A record-level split cannot answer that at all — it measures
+interpolation within one scene and reports it as generalisation.
+
+Why record-level splitting fails
 --------------------------------
 MDT records are correlated along two axes at once, and a random split ignores
-both (PROJECT.md section 19 Step 3):
+both (PROJECT.md section 25.5):
 
 *Spatially.* Consecutive points on one trajectory are metres apart. Two
 neighbouring points see almost the same propagation environment, so a random
@@ -18,15 +32,17 @@ scored on something it has effectively already seen.
 network configuration is constant within that burst, so the split leaks the
 configuration as much as the position.
 
-The available methods trade off which generalisation is being measured:
-``spatial_block`` holds out whole regions and answers whether results transfer
-to places with no measurements; ``temporal`` holds out the tail of the
-observation window and answers whether they still hold next week. They are
-different questions and they give different numbers — say which one a reported
-result used.
+Holding out whole spatial blocks or the tail of the observation window fixes the
+near-twin problem but not the scenario problem: both still hold out parts of a
+single environment. They remain useful as diagnostics of spatial and temporal
+transfer within a scenario, and they are not what a reported result is split on.
 
 ``random`` is provided only so that the size of the leakage can be demonstrated
 against a defensible baseline. It must never back a reported result.
+
+**Not yet reconciled with the code below.** The methods this module declares are
+the record-level ones; scenario-level splitting needs a scenario identifier that
+the pipeline does not yet produce. Tracked in CLAUDE.md under *Known gaps*.
 """
 
 import pandas as pd
@@ -34,7 +50,7 @@ from omegaconf import DictConfig
 
 
 def train_test_split(df: pd.DataFrame, cfg: DictConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split cleaned MDT into the train and test sets. Called once, in notebook 01.
+    """Split MDT into the train and test sets. Called once, in notebook 03.
 
     Args:
         df: Cleaned MDT frame.

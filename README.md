@@ -1,7 +1,8 @@
 # band-tilt
 
-Research code comparing Bayesian Optimization and Multi-Agent Reinforcement
-Learning for multi-band antenna tilt coordination in 5G/6G radio access networks.
+Research code comparing trust-region Bayesian Optimization (TuRBO) and
+Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
+5G/6G radio access networks.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](pyproject.toml)
@@ -20,17 +21,25 @@ Learning for multi-band antenna tilt coordination in 5G/6G radio access networks
 | **Decisions** | [docs/adr/](docs/adr/) |
 
 > [!IMPORTANT]
-> **This repository does not yet run end to end.** Two things stand in the way,
-> both deliberate and both documented:
+> **This repository does not yet run end to end.** Three things stand in the way,
+> all deliberate and all documented:
 >
 > 1. **The multi-band cell configuration has not arrived.** The available export
 >    has no band, carrier frequency, transmit power, or electrical/mechanical tilt
 >    split — so the central quantity, one tilt per `(cell, band)` pair, cannot be
 >    formed from real data.
-> 2. **The code is contract-first.** Function bodies raise `NotImplementedError`
+> 2. **UE mobility generation is unbuilt.** The specification generates UE
+>    trajectories with SUMO and derives synthetic MDT from them; there is no
+>    `src/mobility/` package, no SUMO dependency and no configuration for it.
+> 3. **The code is contract-first.** Function bodies raise `NotImplementedError`
 >    with their own dotted path; the docstrings, configs, tests and decision
 >    records were written first so the shape of the problem is settled before any
 >    implementation. See [Implementation status](#implementation-status).
+>
+> [PROJECT.md](PROJECT.md) was **rewritten on 2026-08-28**. The documentation,
+> configuration and notebooks in this repository follow the new specification;
+> parts of `src/` still implement the old one, and every such divergence is listed
+> under Implementation status.
 >
 > This is not an operated service and has no on-call rotation.
 
@@ -60,31 +69,46 @@ where is a coordination problem across dozens of coupled variables.
 
 This project formulates that as a constrained optimization over **absolute tilt**
 for every `(cell, band)` pair, evaluated against five KPIs computed from
-Sionna-RT ray-traced radio maps, and compares two solution methods — Bayesian
-Optimization and Multi-Agent RL — under one identical problem definition.
+Sionna-RT ray-traced radio maps, and compares two solution methods — **TuRBO**
+(trust-region Bayesian Optimization) and **Multi-Agent RL** — under one identical
+problem definition.
+
+Everything is simulated end to end. SUMO drives UE mobility over the road
+network, Sionna-RT propagates through the 3D scene, and the two together produce
+both the radio maps and the synthetic MDT that stands in for network
+measurements. Because a scenario can therefore be *regenerated*, it can also be
+perturbed — buildings moved, materials changed, traffic rerouted — which is how
+the project asks whether an optimized configuration survives conditions it was
+not tuned for.
 
 The full formulation, including the KPI mathematics, is in
 [PROJECT.md](PROJECT.md).
 
 ### Capabilities
 
-- **A single, testable objective.** Five KPIs — hole rate, overlap rate, weak
-  rate, mean overlap neighbours, and a UE-weighted band priority score — defined
-  once in `src/kpi/`, under a lexicographic priority of *Hole > Overlap > Weak*.
-  They consume a plain RSRP array, so the whole objective is testable against
-  hand-computed fixtures with no simulator involved.
-- **A shared search space.** BO and MARL derive their bounds from the same module
-  and score through the same functions, so the comparison measures the two
-  methods rather than two implementations.
-- **A KPI surrogate.** Ray tracing is too slow to sit inside a training loop, so a
-  learned model stands in during search — while every reported number still comes
-  from Sionna-RT.
+- **A single, testable objective.** Five KPIs — hole rate, overlap rate, mean
+  overlap neighbours, a UE-weighted band priority score, and weak rate — defined
+  once in `src/kpi/`, in that lexicographic priority order. They consume a plain
+  RSRP array, so the whole objective is testable against hand-computed fixtures
+  with no simulator involved.
+- **A shared search space.** TuRBO and MARL derive their bounds from the same
+  module and score through the same functions, so the comparison measures the two
+  methods rather than two implementations. TuRBO's trust region is a subset of
+  that space, never a relaxation of it.
+- **A radio-map surrogate.** Ray tracing is too slow to sit inside a training
+  loop, so a learned model predicts the RSRP map during search and `src/kpi/`
+  derives the KPIs from its output — the same code that scores a ray-traced map.
+  One KPI implementation, two possible maps underneath it, and every reported
+  number still comes from Sionna-RT.
+- **Scenario-level evaluation.** Train, validation and test split between whole
+  scenarios, so the held-out numbers measure transfer to unseen environments
+  rather than interpolation within one.
 - **Band-generic throughout.** Nothing hardcodes the number of bands. Adding one
   is an edit to `configs/radio.yaml`.
 
 ### Non-goals
 
-- **Minimising reconfiguration effort.** The tilt offset is derived after
+- **Minimising reconfiguration effort.** `delta_tilt` is derived after
   optimization for reporting only; there is no penalty on how far an antenna
   moves. The research question is which configuration is best, not how to get
   there cheaply.
@@ -96,6 +120,10 @@ The full formulation, including the KPI mathematics, is in
 - **Reporting surrogate predictions as results.** The surrogate accelerates the
   search and never sources a reported number
   ([ADR 0003](docs/adr/0003-sionna-rt-is-ground-truth.md)).
+- **Validation against a live network.** Robustness is studied by perturbing
+  simulated scenarios, not by comparing against measurements from a real network.
+  Every number this project produces comes from simulation, and no part of the
+  chain is calibrated against reality.
 - **Deployment to a live network.** There is no OSS/northbound integration and
   none is planned. The output is a tilt table, not a configuration push.
 
@@ -103,66 +131,75 @@ The full formulation, including the KPI mathematics, is in
 
 ```mermaid
 flowchart TB
-    subgraph inputs["Inputs"]
+    subgraph inputs["Scenario — perturbed to test robustness"]
         scene["3D scene<br/>geometry + materials"]
         radio["Radio configuration<br/>cell × band"]
-        mdt["MDT measurements<br/>UE position + RSRP"]
+        roads["Road network"]
     end
 
-    prep["src/data<br/>clean · leakage-safe split · UE density"]
-    rt["src/radio<br/>Sionna-RT radio maps"]
+    sumo["src/mobility<br/>SUMO UE trajectories"]
+    rt["src/radio<br/>Sionna-RT radio maps + synthetic MDT"]
+    prep["src/data<br/>scenario split · UE density"]
     kpi["src/kpi<br/>the five KPIs"]
-    sur["src/surrogate<br/>fast KPI prediction"]
+    sur["src/surrogate<br/>fast radio-map prediction"]
 
     subgraph opt["src/optim — one problem, two searches"]
-        bo["Bayesian Optimization<br/>Ax · BoTorch"]
+        bo["TuRBO<br/>Ax · BoTorch"]
         marl["Multi-Agent RL<br/>TorchRL"]
     end
 
-    theta["θ*  absolute tilt<br/>per cell × band"]
-    val["src/evaluation<br/>Sionna-RT validation"]
-    out["Tilt table + KPI comparison<br/>baseline vs BO vs MARL"]
+    tilt["optimized_tilt<br/>one absolute tilt per cell × band"]
+    val["src/evaluation<br/>Sionna-RT on held-out scenarios"]
+    out["Tilt table + KPI comparison<br/>baseline vs TuRBO vs MARL"]
 
+    roads --> sumo
+    sumo --> rt
     scene --> rt
     radio --> rt
-    mdt --> prep
-    prep --> rt
-    rt --> kpi
-    kpi --> sur
-    sur --> bo
-    sur --> marl
-    bo --> theta
-    marl --> theta
-    theta --> val
+    rt --> prep
+    prep --> sur
+    rt --> sur
+    sur -->|predicted map| kpi
+    kpi --> bo
+    kpi --> marl
+    bo --> tilt
+    marl --> tilt
+    tilt --> val
+    val -->|ray-traced map| kpi
     val --> out
-    kpi -.->|same definitions| val
 ```
+
+The KPI module sits downstream of *both* the simulator and the surrogate and is
+called by both — that single evaluator is what makes a predicted score and a
+ground-truth score comparable at all.
 
 ### Components
 
 | Component | Responsibility | Location |
 |---|---|---|
-| Data | Load, validate, clean and split MDT; build the UE density grid | [`src/data/`](src/data/) |
+| Mobility | SUMO UE trajectories, mapped into the scene frame | **not built** — see Implementation status |
+| Data | Load and validate MDT, split by scenario, build the UE density grid | [`src/data/`](src/data/) |
 | Radio | Scene construction, the cell-band table, radio-map generation, tilt sampling | [`src/radio/`](src/radio/) |
 | KPI | The five KPIs, their priority, and candidate comparison — the objective | [`src/kpi/`](src/kpi/) |
-| Surrogate | `D_sur` construction, features, the KPI predictor and its error report | [`src/surrogate/`](src/surrogate/) |
-| Optimization | The shared search space and objective, plus BO and MARL | [`src/optim/`](src/optim/) |
+| Surrogate | `D_sur` construction, features, the radio-map predictor and its error report | [`src/surrogate/`](src/surrogate/) |
+| Optimization | The shared search space and objective, plus TuRBO and MARL | [`src/optim/`](src/optim/) |
 | Evaluation | Sionna-RT validation, method comparison, spatial maps, reporting | [`src/evaluation/`](src/evaluation/) |
-| Notebooks | The pipeline, one notebook per stage | [`notebooks/`](notebooks/) |
+| Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
 
 The dependency direction between these is one-way and is documented in
-[docs/adr/](docs/adr/) and enforced by review, not by tooling.
+[CLAUDE.md](CLAUDE.md) and enforced by review, not by tooling.
 
 ### External dependencies
 
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Ray-traced radio maps — the ground truth for every reported KPI | **Critical** | `--extra rt`; no reported result exists without it |
-| MDT export | UE positions and RSRP; the spatial weight in KPI 5 | **Critical** | supplied externally, not in the repository |
+| [Eclipse SUMO](https://eclipse.dev/sumo/) | UE mobility; the trajectories synthetic MDT is sampled along | **Critical** | **no extra, no module, not yet integrated** |
+| 3D scene and road network | Propagation geometry, materials, and the streets UEs drive on | **Critical** | supplied externally, not in the repository |
 | Multi-band cell configuration | Band, carrier, power and tilt bounds per cell-band | **Critical** | **not yet available** |
-| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The BO loop, GP model and acquisition functions | Degraded | `--extra bo`; MARL still runs without it |
-| [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Degraded | `--extra marl`; BO still runs without it |
+| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and acquisition TuRBO is built on | Degraded | `--extra bo`; MARL still runs without it |
+| [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Degraded | `--extra marl`; TuRBO still runs without it |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc` |
 | [MLflow](https://mlflow.org/) | Experiment tracking | Optional | `--extra tracking`; imported lazily |
 
@@ -176,7 +213,8 @@ The dependency direction between these is one-way and is documented in
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
 | CUDA GPU | — | optional, but Sionna-RT ray tracing is impractically slow without one |
-| MDT + cell configuration | — | supplied externally; `data/` is DVC-tracked and not in the clone |
+| [SUMO](https://eclipse.dev/sumo/) | 1.19+ | for UE mobility; not yet wired into the project |
+| Scene + cell configuration | — | supplied externally; `data/` is DVC-tracked and not in the clone |
 
 ### Install
 
@@ -246,9 +284,10 @@ are composed into `cfg.data`, `cfg.radio`, `cfg.kpi`, `cfg.surrogate` and
 
 Override from the command line: `task bo -- optim.search.n_iter=50 seed=7`.
 
-Lowercase `<placeholder>` values in `configs/` mark parameters PROJECT.md
-section 30 leaves open. `src.config.validate_config` is the guard that stops one
-reaching a numeric call site.
+Lowercase `<placeholder>` values in `configs/` mark parameters the specification
+deliberately leaves to the scenario configuration (PROJECT.md section 22.2).
+`src.config.validate_config` is the guard that stops one reaching a numeric call
+site.
 
 Environment variables, from `.env.example`:
 
@@ -266,33 +305,38 @@ repository, and `DVC_REMOTE_URL` is the only value that may carry a credential.
 
 ## Usage
 
-The pipeline runs as eight notebooks, or as scripts through the task runner. Both
+The pipeline runs as eight notebooks, one per phase of
+[PROJECT.md](PROJECT.md) section 16, or as scripts through the task runner. Both
 call the same functions in `src/`, so they cannot diverge.
 
-| Stage | Notebook | Script |
+| Phase | Notebook | Script |
 |---|---|---|
-| Explore MDT and the cell configuration | [`00_eda`](notebooks/00_eda.ipynb) | — |
-| Clean and split | [`01_clean_and_split`](notebooks/01_clean_and_split.ipynb) | `task clean:data` |
-| Scene, radio map, baseline KPIs | [`02_scene_and_radiomap`](notebooks/02_scene_and_radiomap.ipynb) | — |
-| Build the surrogate dataset | [`03_surrogate_dataset`](notebooks/03_surrogate_dataset.ipynb) | `task surrogate:dataset` |
-| Train the surrogate | [`04_surrogate_modeling`](notebooks/04_surrogate_modeling.ipynb) | `task surrogate:train` |
-| Bayesian Optimization | [`05a_bo`](notebooks/05a_bo.ipynb) | `task bo` |
-| Multi-Agent RL | [`05b_marl`](notebooks/05b_marl.ipynb) | `task marl` |
-| Validate and compare | [`06_evaluation`](notebooks/06_evaluation.ipynb) | `task validate` |
+| 1 — Scenario: scene, materials, cell-band table, tilt bounds | [`00_scenario`](notebooks/00_scenario.ipynb) | — |
+| 2 — UE mobility with SUMO | [`01_mobility`](notebooks/01_mobility.ipynb) | — |
+| 3 — Radio maps, synthetic MDT, baseline KPIs | [`02_radiomap_and_mdt`](notebooks/02_radiomap_and_mdt.ipynb) | — |
+| 4 — Surrogate dataset, split by scenario | [`03_surrogate_dataset`](notebooks/03_surrogate_dataset.ipynb) | `task surrogate:dataset` |
+| 5 — Train and freeze the radio-map surrogate | [`04_surrogate_modeling`](notebooks/04_surrogate_modeling.ipynb) | `task surrogate:train` |
+| 6a — TuRBO | [`05a_turbo`](notebooks/05a_turbo.ipynb) | `task bo` |
+| 6b — Multi-Agent RL | [`05b_marl`](notebooks/05b_marl.ipynb) | `task marl` |
+| 7–8 — Validate on held-out scenarios, then report | [`06_validation_and_reporting`](notebooks/06_validation_and_reporting.ipynb) | `task validate` |
 
 ```bash
 task lab                                  # start JupyterLab
-task clean:data                           # the only stage that runs today
-task bo -- optim.search.n_iter=100        # once the band data lands
+task bo -- optim.search.n_iter=100        # once the pipeline runs
 task dvc:repro                            # the whole pipeline, in order
 ```
 
-Each notebook opens in Colab from the badge in its first cell; the bootstrap cell
-clones the repository and installs what Colab does not ship.
+**No stage runs end to end today.** `task clean:data` still exists but operates
+on the retired operator MDT export and is labelled legacy; everything else waits
+on SUMO integration and the multi-band cell configuration.
 
-The deliverable is the tilt table from PROJECT.md section 27.1 — current tilt,
-optimal tilt and the derived offset for every cell-band — plus the
-baseline/BO/MARL KPI comparison.
+Each notebook opens in Colab from the badge in its first cell; the bootstrap cell
+clones the repository and installs what Colab does not ship. That cell is
+identical across all eight notebooks except its `COLAB_PACKAGES` line.
+
+The deliverable is the tilt table from PROJECT.md section 19 — `current_tilt`,
+`optimized_tilt` and the derived `delta_tilt` for every cell-band — plus the
+baseline/TuRBO/MARL comparison across all five KPIs, reported separately.
 
 ## Development
 
@@ -301,9 +345,9 @@ baseline/BO/MARL KPI comparison.
 ```
 band-tilt/
 ├── configs/       Hydra config groups — every tunable
-├── data/          DVC-tracked; raw MDT, cell config, 3D scene
+├── data/          DVC-tracked; 3D scene, road network, cell config, generated MDT
 ├── docs/adr/      architecture decision records
-├── notebooks/     the pipeline, one notebook per stage
+├── notebooks/     the pipeline, one notebook per phase of PROJECT.md section 16
 ├── src/           importable project logic
 ├── tests/         contract tests, skipped until their module exists
 ├── app/           template serving scaffolding — see Implementation status
@@ -315,14 +359,29 @@ band-tilt/
 
 | Area | State |
 |---|---|
-| Configs, decision records, notebooks, tests | Written |
+| Configs, decision records, notebooks, tests | Written, and aligned to the 2026-08-28 specification |
 | `src/utils/plotting.py` | Implemented |
 | Everything else in `src/` | `NotImplementedError` — contracts, not defects |
-| `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope for the current restructure; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which no longer composes. |
+| `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which no longer composes. |
 | CI | None. `task lint` and `task test` run locally only. |
 
 The numbered `# TODO(n)` comments in each stub are the intended implementation
 order. `src/data/split.py` is the reference for the stub shape.
+
+#### Where `src/` still implements the old specification
+
+The rewrite landed in the documentation, configuration and notebooks. These
+divergences need function bodies and are therefore still open. `CLAUDE.md`
+carries the full list.
+
+| Divergence | Consequence |
+|---|---|
+| No `src/mobility/` | Phase 2 does not exist; synthetic MDT cannot be generated |
+| Nothing produces `scenario_id` | The scenario-level split cannot be performed |
+| `src/surrogate/` predicts KPIs, not radio maps | Contradicts Decision 6; `radio_map_tensor` and `radio_map_error` are referenced by notebooks 03–04 and unwritten |
+| `src/optim/bo/` is generic Ax BO | `cfg.optim.trust_region` is declared and unread — this is not yet TuRBO |
+| `src/data/clean.py`, `split.py` | Written for the retired operator export; `split.method: scenario` has no implementation |
+| `tests/conftest.py::rsrp_grid` | Its documented `overlap_rate` and `mean_overlap_neighbors` literals do not match the new KPI definitions and must be re-derived by hand |
 
 ### Standards
 
@@ -355,7 +414,7 @@ checklist.
 
 Two rules the tests hold to:
 
-- **No test touches the network, the real dataset, or Sionna-RT.** A suite that
+- **No test touches the network, a real dataset, or Sionna-RT.** A suite that
   only runs after `dvc pull` stops being run. Fixtures in `tests/conftest.py` are
   tiny and synthetic.
 - **Expected KPI values are computed by hand and asserted as literals.** A test
@@ -365,27 +424,38 @@ Two rules the tests hold to:
 
 ## Compliance and data handling
 
-The MDT export contains **device-level location traces** — a pseudonymous
-identifier, coordinates, and a timestamp, per measurement. Sequences of those
-points describe where a device went and when. That is personal data under most
-regimes even though no name, MSISDN or IMSI appears, because trajectory data is
-notoriously re-identifiable.
+**MDT is synthetic.** UE trajectories come from SUMO and their RSRP from
+Sionna-RT (PROJECT.md sections 6 and 9). No `ue_id` corresponds to a person, no
+position was observed, and nothing in the pipeline is personal data. There is no
+DPIA to write and no lawful basis to establish, because there is no data subject.
 
 | | |
 |---|---|
-| **Data categories** | Pseudonymous device identifier, position in a local simulation frame, timestamp, serving cell, RSRP |
-| **Identifiers** | `ue_id` and `gcell_id` are opaque 32-character hashes. `sim_x` / `sim_y` are a local metric frame, not WGS-84 — but the scene's geographic reference makes them georeferenceable. |
-| **Volume** | 41,481 measurements from 1,490 devices over roughly two weeks |
-| **Regimes** | **Not assessed.** No DPIA or record of processing exists for this repository. |
-| **Retention** | Undefined. Data lives in DVC storage for the life of the project. |
+| **Data categories** | Simulated UE identifier, position in a local scene frame, simulation timestamp, cell-band, simulated RSRP |
+| **Provenance** | Generated from a 3D scene, a road network and a mobility configuration. Regenerable from the scenario manifest and the seed. |
+| **Personal data** | None |
+| **Retention** | Governed by storage cost, not by law. Artifacts live in DVC for the life of the project. |
 | **Residency** | Wherever the DVC remote is configured. |
 
+### The retired operator export
+
+An earlier formulation used a real MDT export — 41,481 measurements from 1,490
+devices over roughly two weeks. That file **did** contain device-level location
+traces: a pseudonymous identifier, coordinates and a timestamp per measurement,
+and sequences of those points describe where a device went and when. Trajectory
+data is notoriously re-identifiable, so it was personal data under most regimes
+despite carrying no name, MSISDN or IMSI.
+
+It is no longer an input to this project. `data/raw/measurement_data.csv` may
+still be present in DVC storage.
+
 > [!WARNING]
-> **Before publishing results or sharing this dataset**, confirm with the data
-> owner: the lawful basis for using it in research, whether the pseudonymisation
-> is sufficient given the trajectory structure, a retention period, and whether
-> raw coordinates may appear in published figures. The characterisation above is
-> a good-faith reading of the files, not a legal assessment.
+> **Do not reintroduce the operator export as a project input** without first
+> settling what the earlier version of this section called for and never
+> obtained: the lawful basis for research use, whether the pseudonymisation is
+> sufficient given the trajectory structure, a retention period, and whether raw
+> coordinates may appear in published figures. None of that was ever assessed.
+> Deleting it from the DVC remote is the cleaner option if nothing depends on it.
 
 The repository never commits data: `data/` is DVC-tracked, `.env` is gitignored,
 and no identifier appears in any committed file.
@@ -410,13 +480,14 @@ and on a ray-tracing configuration.
 | Data and artifacts | DVC (`.dvc` files committed, contents in the remote) | Which exact inputs and outputs? |
 | Runs and results | MLflow (`./mlruns` by default) | What happened, and how did it score? |
 | Simulation fidelity | `cfg.radio.ray_tracing` and `cfg.radio.grid`, recorded in the surrogate dataset's metadata | Against what ground truth? |
+| Scenario | `scenario_id` and its manifest — scene, materials, mobility parameters, seed | Which world was this measured in? |
 
 Restore a past result: check out the commit, then `dvc pull && task dvc:repro`.
 
-Two things invalidate stored results rather than adding to them, because they
-change the ground truth itself: the ray-tracing settings, and the grid
-resolution. `dvc.yaml` expresses both as parameter dependencies so a change
-forces a rebuild.
+Three things invalidate stored results rather than adding to them, because they
+change the ground truth itself: the ray-tracing settings, the grid resolution,
+and the KPI thresholds or their order. `dvc.yaml` expresses the first two as
+parameter dependencies so a change forces a rebuild; the third needs an ADR.
 
 Artifact retention follows the DVC remote's policy; none is configured yet.
 
@@ -436,14 +507,23 @@ significant — see [docs/adr/README.md](docs/adr/README.md).
 
 ## Roadmap
 
+Ordered roughly by what unblocks the most.
+
 | Item | Blocked on | Status |
 |---|---|---|
-| Multi-band cell configuration | external data delivery | **Blocking everything below** |
-| Fix the open parameters in PROJECT.md section 30 — band weights, tilt bounds, grid resolution | the band data, plus notebook 00 findings | Not started |
-| Implement `src/data/` and `src/kpi/` | — | Not started; independent of the band data |
-| Implement `src/radio/` and validate the simulation against MDT | Sionna-RT access | Not started |
+| Multi-band cell configuration | external data delivery | **Blocking most of the below** |
+| Implement `src/kpi/` — including the new `\|G\|` denominator for mean overlap neighbours | re-deriving the `rsrp_grid` fixture literals by hand | Not started; independent of the band data |
+| Re-derive the hand-computed KPI fixtures in `tests/conftest.py` | — | Not started; they are currently wrong |
+| Build `src/mobility/` — SUMO integration, trajectories, scene-frame mapping | a SUMO scenario for the study area | Not started; blocks synthetic MDT and everything after it |
+| Emit `scenario_id`, and generate the perturbed scenarios of PROJECT.md section 12 | the above | Not started; blocks the scenario-level split |
+| Rework `src/surrogate/` to predict radio maps rather than KPIs | — | Not started; config and docs already specify it |
+| Rework `src/data/split.py` for scenario-level splitting; retire `clean.py` | `scenario_id` | Not started |
+| Implement the trust-region logic in `src/optim/bo/` — make it TuRBO, not generic BO | — | Not started; `cfg.optim.trust_region` is declared and unread |
+| Fix the open parameters in PROJECT.md section 22.2 — band weights, tilt bounds, grid resolution, KPI tolerances | the band data, plus notebook 00 findings | Not started |
+| Implement `src/radio/` | Sionna-RT access | Not started |
 | Build `D_sur` and train the surrogate | the above | Not started |
-| BO and MARL studies, and the comparison | a surrogate that passes acceptance | Not started |
+| TuRBO and MARL studies, and the comparison | a surrogate that passes acceptance | Not started |
+| Write the five ADRs cited but never recorded — 0001, 0004, 0005, 0006, 0007 | — | Not started; 0004 (angle conventions) is the urgent one, since PROJECT.md no longer states the convention |
 | CI (`task check` on every push) | — | Not started |
 
 ## License

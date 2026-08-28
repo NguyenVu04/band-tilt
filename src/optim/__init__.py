@@ -2,14 +2,14 @@
 
 Modules
 -------
-- ``space``     the search space Theta, shared by both methods
+- ``space``     the search space X, shared by both methods
 - ``objective`` turn a KPI vector into whatever the optimizer consumes
-- ``bo``        Ax / BoTorch
+- ``bo``        TuRBO — trust-region Bayesian Optimization
 - ``marl``      TorchRL
 
 The comparison is the point
 ---------------------------
-PROJECT.md section 25 requires BO and MARL to be evaluated under identical
+PROJECT.md section 17 requires TuRBO and MARL to be evaluated under identical
 inputs, action space, tilt constraints, KPI definitions, surrogate and
 validation procedure. Anything else measures the two implementations rather than
 the two methods.
@@ -24,8 +24,8 @@ What legitimately differs
 -------------------------
 How each method searches: the acquisition function, the policy architecture, the
 number of evaluations, the wall-clock cost. Those are the results
-(PROJECT.md sections 25.1 to 25.4), and they belong in
+(PROJECT.md section 17), and they belong in
 ``configs/optim/bo.yaml`` and ``configs/optim/marl.yaml``.
 
-See docs/adr/0006.
+See PROJECT.md sections 13 and 14.
 """

@@ -1,10 +1,10 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 #
-# The stages mirror PROJECT.md section 19 and the notebooks one-to-one, and both
+# The stages mirror PROJECT.md section 16 and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
 # Only the first stage is active. The rest are commented because they depend on
-# parameters PROJECT.md section 30 leaves open (band table, tilt bounds, grid
+# parameters PROJECT.md section 22.2 leaves open (band table, tilt bounds, grid
 # resolution, surrogate architecture) and on the multi-band cell configuration
 # that has not arrived yet. Uncomment each as its inputs become real.
 #
@@ -13,7 +13,10 @@
 # output — not every key in the file.
 
 stages:
-  # --- Steps 2-3: cleaning and the frozen split (notebook 01) ---------------
+  # --- LEGACY: cleaning the retired operator MDT export ---------------------
+  # No notebook calls this any more. MDT is now synthetic (PROJECT.md sections 6
+  # and 9) and the scenario-level split belongs to the surrogate dataset stage.
+  # Kept until src/data/ is reworked; see CLAUDE.md, Known gaps.
   clean_split:
     cmd: python -m src.data.clean
     deps:
@@ -32,7 +35,7 @@ stages:
       - data/processed/mdt_train.parquet
       - data/processed/mdt_test.parquet
 
-  # --- Step 5: radio maps and the surrogate dataset (notebook 03) -----------
+  # --- Phase 4: radio maps and the surrogate dataset (notebook 03) ----------
   # The expensive stage: one ray-tracing solve per sampled configuration. The
   # ray-tracing settings and the grid geometry define the labels, so a change to
   # either invalidates every existing sample rather than adding to it — which is
@@ -61,7 +64,7 @@ stages:
   #   outs:
   #     - data/processed/surrogate_dataset.parquet
 
-  # --- Step 6: train the surrogate (notebook 04) ---------------------------
+  # --- Phase 5: train the radio-map surrogate (notebook 04) ----------------
   # surrogate_train:
   #   cmd: python -m src.surrogate.train
   #   deps:
@@ -80,7 +83,7 @@ stages:
   #     - reports/results/surrogate_error.json:
   #         cache: false
 
-  # --- Section 20: Bayesian Optimization (notebook 05a) --------------------
+  # --- Phase 6a: TuRBO (notebook 05a) --------------------------------------
   # bo:
   #   cmd: python -m src.optim.bo.run optim=bo
   #   deps:
@@ -95,10 +98,10 @@ stages:
   #         - stopping
   #         - seeds
   #   outs:
-  #     - reports/results/bo_theta.json:
+  #     - reports/results/bo_tilt.json:
   #         cache: false
 
-  # --- Section 21: MARL (notebook 05b) -------------------------------------
+  # --- Phase 6b: MARL (notebook 05b) ---------------------------------------
   # marl:
   #   cmd: python -m src.optim.marl.train optim=marl
   #   deps:
@@ -116,20 +119,21 @@ stages:
   #         - reward
   #         - seeds
   #   outs:
-  #     - reports/results/marl_theta.json:
+  #     - reports/results/marl_tilt.json:
   #         cache: false
 
-  # --- Sections 26-27: Sionna-RT validation and comparison (notebook 06) ---
+  # --- Phases 7-8: Sionna-RT validation and reporting (notebook 06) --------
   # Depends on the TEST split, not the train split: UE density during
   # optimization came from train, and the Band Priority Score weights locations
-  # by where users were measured.
+  # by where users are. The split is at SCENARIO level (PROJECT.md section 12.3),
+  # so this validates on environments the surrogate never saw.
   #
   # validate:
   #   cmd: python -m src.evaluation.validate
   #   deps:
   #     - src/evaluation/
-  #     - reports/results/bo_theta.json
-  #     - reports/results/marl_theta.json
+  #     - reports/results/bo_tilt.json
+  #     - reports/results/marl_tilt.json
   #     - data/processed/mdt_test.parquet
   #     - data/external/simulation_map/scene.xml
   #   params:

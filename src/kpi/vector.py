@@ -1,21 +1,29 @@
-"""Assemble, normalise and order the KPI vector — PROJECT.md sections 15 to 17.
+"""Assemble, normalise and order the KPI vector — PROJECT.md sections 4 to 5.
 
-The complete objective is::
+The complete objective, in priority order, is::
 
-    K = [K_H, K_O, K_W, K_ON, K_BPS]
+    K = [K_H, K_O, K_ON, K_BPS, K_W]
 
-minimising the first four and maximising the last. This module is the only
-place that direction is written down, and the only place two candidates are
-compared.
+minimising all but ``K_BPS``, which is maximised. The canonical all-minimising
+form negates it (PROJECT.md section 5)::
+
+    J = [K_H, K_O, K_ON, -K_BPS, K_W]
+
+This module is the only place that direction is written down, and the only place
+two candidates are compared.
 
 Lexicographic, with slack
 -------------------------
-PROJECT.md section 17 states the priority as ``Hole > Overlap > Weak``, then
-overlap severity, then band coordination. Implemented literally, that
-degenerates: hole rate is continuous, exact ties essentially never happen, and
-the comparison never reaches the second objective. So each objective carries a
-tolerance from ``configs/kpi.yaml`` — a difference smaller than the tolerance is
-a tie, and the comparison moves on.
+PROJECT.md section 5 states the priority as ``Hole > Overlap > MeanOverlap-
+Neighbors > BPS > Weak``. Implemented literally, that degenerates: hole rate is
+continuous, exact ties essentially never happen, and the comparison never
+reaches the second objective. So each objective carries a tolerance from
+``configs/kpi.yaml`` — a difference smaller than the tolerance is a tie, and the
+comparison moves on.
+
+Note that weak rate is **last**. Under the previous formulation it ranked third,
+above overlap severity and band coordination; a configuration may now trade weak
+coverage for either of those, which it previously could not. See docs/adr/0002.
 
 Choosing those tolerances is a real decision, not a formality. Too tight and
 this is single-objective optimization on hole rate; too loose and the priority
@@ -25,8 +33,8 @@ Scalarization is a fallback, not the definition
 -----------------------------------------------
 Some optimizers cannot express a lexicographic goal and need one number.
 :func:`scalarize` provides it, but a weighted sum is a lossy encoding of the
-priority — it can always be made to trade a lot of hole rate for enough weak
-rate, which the lexicographic order forbids outright. Prefer
+priority — it can always be made to trade a lot of hole rate for enough of the
+other four, which the lexicographic order forbids outright. Prefer
 :func:`lexicographic_better` where the optimizer allows it, and say which was
 used when reporting.
 
@@ -35,20 +43,25 @@ Normalise before weighting. Always.
 Hole rate is a percentage, mean overlap neighbours is a small count, and the
 Band Priority Score is on whatever scale the band weights happen to use.
 Applying weights to raw values silently reorders the priority regardless of what
-the weights say — the exact failure PROJECT.md section 23 warns about.
+the weights say — the exact failure PROJECT.md section 25.3 warns about.
 """
 
 import numpy as np
 from omegaconf import DictConfig
 
-#: Canonical KPI order. Every array in this module follows it, and it matches
-#: ``cfg.kpi.order``. Do not reorder: saved results index by position.
+#: Canonical KPI order — PROJECT.md section 5. Every array in this module follows
+#: it, and it must stay identical to ``cfg.kpi.order`` — which
+#: :func:`src.config.validate_config` is specified to check, at TODO(5).
+#:
+#: Reordering this invalidates any result already saved, because saved KPI
+#: vectors index by position and carry no names. Nothing has been produced yet,
+#: which is the only reason the reorder below was safe to make.
 KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
-    "weak_rate",
     "mean_overlap_neighbors",
     "band_priority_score",
+    "weak_rate",
 )
 
 
@@ -197,7 +210,7 @@ def lexicographic_better(left: dict, right: dict, cfg: DictConfig) -> bool:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This is the authoritative statement of PROJECT.md section 17. Walk
+        This is the authoritative statement of PROJECT.md section 5. Walk
         ``cfg.kpi.order``; at each objective, treat a difference smaller than
         its tolerance as a tie and continue; otherwise return on the first
         objective that separates them.

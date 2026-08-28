@@ -1,8 +1,8 @@
-"""Turn an absolute tilt configuration into an RSRP array — PROJECT.md section 6.
+"""Turn an absolute tilt configuration into an RSRP array — PROJECT.md section 10.
 
 This is the ground truth of the whole project::
 
-    theta -> Sionna-RT -> radio map -> RSRP
+    tilt -> Sionna-RT -> radio map -> RSRP
 
 Everything downstream — the five KPIs, the surrogate labels, the final
 validation — is computed from the array this module returns. See docs/adr/0003.
@@ -35,14 +35,14 @@ import pandas as pd
 from omegaconf import DictConfig
 
 
-def set_tilt(scene: Any, table: pd.DataFrame, theta: np.ndarray) -> Any:
+def set_tilt(scene: Any, table: pd.DataFrame, tilt: np.ndarray) -> Any:
     """Apply an absolute tilt configuration to the scene transmitters.
 
     Args:
         scene: A scene with transmitters attached by
             :func:`src.radio.scene.add_transmitters`.
         table: The cell-band table, giving azimuth and row order.
-        theta: Absolute tilt per cell-band in degrees, ordered to match
+        tilt: Absolute tilt per cell-band in degrees, ordered to match
             ``table``.
 
     Returns:
@@ -50,22 +50,22 @@ def set_tilt(scene: Any, table: pd.DataFrame, theta: np.ndarray) -> Any:
 
     Raises:
         NotImplementedError: Always — implement this module first.
-        ValueError: Once implemented, when ``theta`` does not match ``table``.
+        ValueError: Once implemented, when ``tilt`` does not match ``table``.
 
     Notes:
         Convert through :func:`src.radio.geometry.orientations` and nowhere
         else. Writing the ``90 - azimuth`` or ``-tilt`` conversion here would
         create a second copy of the convention, which is the failure
-        docs/adr/0004 exists to prevent.
+        PROJECT.md section 22.2 exists to prevent.
 
         Mutate the existing transmitters rather than removing and re-adding
         them: re-adding invalidates the acceleration structure and costs a full
         rebuild per evaluation.
 
     Example:
-        >>> scene = set_tilt(scene, table, theta)
+        >>> scene = set_tilt(scene, table, tilt)
     """
-    # TODO(1): orient = geometry.orientations(table, theta)
+    # TODO(1): orient = geometry.orientations(table, tilt)
     # TODO(2): assign orientation to each transmitter, in table order
     raise NotImplementedError("src.radio.radiomap.set_tilt")
 
@@ -112,11 +112,11 @@ def compute_radiomap(scene: Any, table: pd.DataFrame, cfg: DictConfig) -> np.nda
     raise NotImplementedError("src.radio.radiomap.compute_radiomap")
 
 
-def evaluate(theta: np.ndarray, scene: Any, table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
+def evaluate(tilt: np.ndarray, scene: Any, table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
     """Evaluate one tilt configuration end to end.
 
     Args:
-        theta: Absolute tilt per cell-band in degrees.
+        tilt: Absolute tilt per cell-band in degrees.
         scene: A scene with transmitters attached.
         table: The cell-band table.
         cfg: Composed config.
@@ -130,12 +130,12 @@ def evaluate(theta: np.ndarray, scene: Any, table: pd.DataFrame, cfg: DictConfig
     Notes:
         The one function an optimizer or a dataset builder should call. It
         validates the configuration before spending a solve on it: an
-        out-of-bounds theta produces a perfectly plausible radio map for a
+        out-of-bounds tilt produces a perfectly plausible radio map for a
         network that cannot exist.
 
     Example:
-        >>> rsrp = evaluate(theta, scene, table, cfg)
+        >>> rsrp = evaluate(tilt, scene, table, cfg)
     """
-    # TODO(1): sampling.assert_within_bounds(theta, table)
+    # TODO(1): sampling.assert_within_bounds(tilt, table)
     # TODO(2): set_tilt then compute_radiomap
     raise NotImplementedError("src.radio.radiomap.evaluate")

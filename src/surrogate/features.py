@@ -1,8 +1,8 @@
-"""Turn a state and a tilt configuration into the surrogate input tensor.
+"""Turn scenario features and a tilt configuration into the surrogate input tensor.
 
-The surrogate learns ``f_sur: (s, theta) -> K_hat`` (PROJECT.md section 18).
-``theta`` is fixed by the problem — one absolute tilt per cell-band — but what
-goes into ``s`` is an open choice, declared in ``cfg.surrogate.features``.
+The surrogate learns ``f_sur: (x, tilt) -> R_hat`` (PROJECT.md section 11).
+``tilt`` is fixed by the problem — one absolute tilt per cell-band — but what
+goes into ``x`` is an open choice, declared in ``cfg.surrogate.features``.
 
 This is the only module allowed to fit on data
 ----------------------------------------------
@@ -18,15 +18,24 @@ Fit once, then transform
 The fitted state travels with the model artifact, not with the code. A
 surrogate loaded in notebook 05a or 05b must transform new tilt configurations
 exactly as it did during training — refitting at inference time silently changes
-the input distribution and the predictions with it.
+the input distribution and the predictions with it. The surrogate is frozen for
+the whole optimization phase (PROJECT.md section 11.4), so this transform is
+fixed from the moment it is accepted.
 
 What is worth including
 -----------------------
 Tilt alone makes the surrogate memorise configurations rather than learn the
 geometry, and it cannot generalise to a network whose cells have moved. Cell
 geometry, band identity, UE density and the neighbour structure are all
-candidates (PROJECT.md section 22 lists the analogous set for the MARL state).
+candidates (PROJECT.md section 14.1 lists the analogous set for the MARL state).
 Each is a config switch, so the ablation is a sweep rather than a rewrite.
+
+Scene features are the ones the sim-to-reality study depends on. PROJECT.md
+section 12 perturbs buildings, dimensions and materials between scenarios; a
+surrogate whose input never describes the environment cannot generalise across
+those perturbations, it can only memorise the scenario it trained on — and the
+held-out-scenario error in ``cfg.surrogate.acceptance`` is then measuring
+nothing.
 """
 
 from typing import Any
@@ -95,11 +104,11 @@ def fit(train_df: pd.DataFrame, state: dict, cfg: DictConfig) -> Any:
     raise NotImplementedError("src.surrogate.features.fit")
 
 
-def transform(theta: np.ndarray, state: dict, transformer: Any) -> np.ndarray:
+def transform(tilt: np.ndarray, state: dict, transformer: Any) -> np.ndarray:
     """Build the surrogate input tensor for one or many tilt configurations.
 
     Args:
-        theta: Shape ``(n_cell_bands,)`` for one configuration or
+        tilt: Shape ``(n_cell_bands,)`` for one configuration or
             ``(n, n_cell_bands)`` for a batch, in degrees.
         state: The state mapping from :func:`build_state`.
         transformer: The fitted transformer from :func:`fit`.
@@ -109,7 +118,7 @@ def transform(theta: np.ndarray, state: dict, transformer: Any) -> np.ndarray:
 
     Raises:
         NotImplementedError: Always — implement this module first.
-        ValueError: Once implemented, when ``theta`` does not match the
+        ValueError: Once implemented, when ``tilt`` does not match the
             cell-band count the transformer was fitted with.
 
     Notes:
@@ -119,14 +128,14 @@ def transform(theta: np.ndarray, state: dict, transformer: Any) -> np.ndarray:
         Python loop is the difference between an experiment that finishes and
         one that does not.
 
-        Check the width. A theta vector of the wrong length is the symptom of a
+        Check the width. A tilt vector of the wrong length is the symptom of a
         band added to ``configs/radio.yaml`` after the surrogate was trained,
         and it must fail loudly rather than broadcast.
 
     Example:
-        >>> x = transform(theta, state, transformer)
+        >>> x = transform(tilt, state, transformer)
     """
-    # TODO(1): raise ValueError when theta width disagrees with the fitted width
+    # TODO(1): raise ValueError when tilt width disagrees with the fitted width
     # TODO(2): reshape a single configuration to a batch of one
     # TODO(3): concatenate the scaled tilt with the enabled state components
     raise NotImplementedError("src.surrogate.features.transform")

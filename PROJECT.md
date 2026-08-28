@@ -1,1710 +1,1574 @@
-# PROJECT.md — Multi-Band Tilt Coordination for Coverage-Efficient 5G/6G RAN
+# Multi-band Tilt Coordination for Coverage-Efficient 5G/6G RAN
 
 ## 1. Project Overview
 
-This project studies the problem of **multi-band tilt coordination** for 5G/6G Radio Access Networks (RANs).
-
-The objective is to determine an **optimal absolute tilt configuration** for each `(cell, band)` pair such that multiple frequency bands cooperate to:
-
-1. minimize **coverage holes (Hole)**;
-2. minimize **coverage overlap (Overlap)**;
-3. minimize **weak coverage (Weak)**;
-4. reduce overlap severity by minimizing the number of neighboring cells simultaneously overlapping with the serving cell;
-5. encourage higher-priority bands to dominate in areas with higher UE density.
-
-Two optimization approaches are investigated and compared under the same problem formulation:
-
-- **Bayesian Optimization (BO)**;
-- **Multi-Agent Reinforcement Learning (MARL)**.
-
-Because running Sionna-RT for every candidate tilt configuration can be computationally expensive, a **surrogate model** is introduced to approximate the relationship between tilt configurations, radio-map characteristics, and network KPIs.
-
----
-
-# 2. Research Objective
-
-## 2.1. Primary Objective
-
-Given a multi-cell, multi-band RAN deployment, determine:
-
-\[
-\boldsymbol{\theta}^{*}
-=
-[
-\theta_{1,1}^{*},
-\theta_{1,2}^{*},
-\ldots,
-\theta_{N,B}^{*}
-]
-\]
-
-where:
-
-- \(N\) is the number of cells;
-- \(B\) is the number of frequency bands;
-- \(\theta_{i,b}\) is the absolute tilt of cell \(i\) on band \(b\).
-
-The optimal configuration should improve coverage quality while coordinating the spatial roles of different frequency bands.
-
-## 2.2. Optimization Priority
-
-The primary coverage objectives follow the strict priority:
-
-\[
-\boxed{
-Hole > Overlap > Weak
-}
-\]
-
-Therefore:
-
-1. eliminating or reducing holes is the highest priority;
-2. reducing overlap is the second priority;
-3. reducing weak-coverage areas is the third priority.
-
-After satisfying the primary coverage objectives, the optimization should favor an appropriate spatial distribution of frequency bands according to UE density.
-
----
-
-# 3. Core Design Decisions
-
-## 3.1. Absolute Tilt Is the Optimization Variable
-
-The optimizer directly outputs **absolute tilt**:
-
-\[
-\boxed{
-\theta_{i,b}
-}
-\]
-
-subject to:
-
-\[
-\boxed{
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}
-}
-\]
-
-for every cell-band pair.
-
-The optimizer does **not** directly output tilt offsets.
-
-### Rationale
-
-Using tilt offset as the optimization action,
-
-\[
-a_{i,b}=\Delta\theta_{i,b},
-\]
-
-would make the feasible action range depend on the current tilt:
-
-\[
-\Delta\theta_{i,b}
-\in
-[
-\theta_{i,b}^{min}-\theta_{i,b}^{current},
-\theta_{i,b}^{max}-\theta_{i,b}^{current}
-].
-\]
-
-Consequently, the action space changes with the current network configuration.
-
-With absolute tilt:
-
-\[
-a_{i,b}=\theta_{i,b},
-\]
-
-the action space is fixed:
-
-\[
-a_{i,b}
-\in
-[
-\theta_{i,b}^{min},
-\theta_{i,b}^{max}
-].
-\]
-
-This formulation is more natural for both BO and MARL.
-
----
-
-## 3.2. Tilt Offset Is a Derived Reporting Quantity
-
-After optimization, the tilt offset is calculated as:
-
-\[
-\boxed{
-\Delta\theta_{i,b}
-=
-\theta_{i,b}^{*}
--
-\theta_{i,b}^{current}
-}
-\]
-
-Tilt offset is:
-
-- not an optimization variable;
-- not a KPI;
-- not part of the objective function.
-
-It is retained only to communicate how much each tilt has changed from the current configuration.
-
-The final result should therefore report:
-
-| Cell | Band | Current Tilt | Optimal Tilt | Tilt Offset |
-|---|---|---:|---:|---:|
-| Cell 1 | Band 1 | \(\theta^{current}\) | \(\theta^*\) | \(\Delta\theta^*\) |
-| Cell 1 | Band 2 | \(\theta^{current}\) | \(\theta^*\) | \(\Delta\theta^*\) |
-| ... | ... | ... | ... | ... |
-
----
-
-## 3.3. Tilt-Change Magnitude Is Not Optimized
-
-The objective does not include:
-
-\[
-|\Delta\theta|
-\]
-
-or any explicit penalty for changing the tilt.
-
-The rationale is that the research objective is network optimization rather than minimizing the amount of configuration change.
-
-The physical tilt bounds already constrain the solution:
-
-\[
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}.
-\]
-
-If a real deployment later requires a maximum reconfiguration step, that should be modeled as an **operational constraint**, rather than as a network-quality KPI.
-
----
-
-## 3.4. Accessibility Is Excluded
-
-**Accessibility is intentionally excluded** from the current formulation.
-
-It is not used as:
-
-- an optimization KPI;
-- an objective term;
-- a dominant-band criterion.
-
-The current formulation focuses on radio coverage, overlap, and UE-aware band coordination.
-
----
-
-# 4. System Inputs
-
-The system inputs are divided into three major groups.
-
-## 4.1. 3D Environment
-
-The simulation environment should contain the information required to construct the Sionna-RT scene, including:
-
-- 3D map of the target area;
-- building and infrastructure geometry;
-- terrain information when available;
-- electromagnetic material properties of relevant surfaces;
-- coordinate system;
-- spatial reference information.
-
-These data determine the propagation environment used by Sionna-RT.
-
----
-
-## 4.2. Radio Configuration
-
-For each cell-band pair, the configuration should contain the parameters required to construct the transmitter and antenna model in Sionna-RT, such as:
-
-- antenna position;
-- antenna height;
-- antenna characteristics;
-- carrier frequency;
-- transmit power;
-- azimuth;
-- electrical tilt (`eTilt`);
-- mechanical tilt (`mTilt`);
-- other radio parameters required by the simulator.
-
-The absolute radio tilt is defined as:
-
-\[
-\boxed{
-\mathrm{tilt}
-=
-\mathrm{eTilt}
-+
-\mathrm{mTilt}
-}
-\]
-
-Therefore:
-
-\[
-\theta_{i,b}
-=
-\mathrm{eTilt}_{i,b}
-+
-\mathrm{mTilt}_{i,b}.
-\]
-
-The optimization variable is the resulting absolute tilt \(\theta_{i,b}\).
-
----
-
-## 4.3. MDT Data
-
-The minimum MDT record contains:
-
-```text
-ue_id
-sim_x
-sim_y
-date
-rsrp
-gcell_id
-ue_height
+This project studies coordinated antenna tilt optimization across
+multiple cells and frequency bands in a 5G/6G Radio Access Network
+(RAN).
+
+A site may operate multiple frequency layers simultaneously, such as
+low-, mid-, and high-frequency bands. Because different bands exhibit
+different propagation characteristics, independently configured and
+static antenna tilts can create:
+
+-   excessive coverage overlap near the site;
+-   coverage holes at cell edges;
+-   inefficient assignment of frequency-layer roles;
+-   unnecessary interference caused by redundant coverage.
+
+The project formulates **multi-band tilt coordination** as a joint
+optimization problem over all cell-band pairs. The objective is to
+determine an operationally valid absolute tilt configuration that
+improves coverage quality while coordinating the roles of different
+frequency layers.
+
+The core causal pipeline is:
+
+``` text
+Tilt
+  ↓
+RSRP Radio Map
+  ↓
+Coverage / Overlap / Band-Priority KPIs
 ```
 
-Additional fields may be incorporated later if required.
+The project evaluates two optimization approaches:
 
-MDT data are primarily used to:
+1.  **Trust Region Bayesian Optimization (TuRBO)**;
+2.  **Multi-Agent Reinforcement Learning (MARL)**.
 
-- characterize UE spatial distribution;
-- estimate UE density;
-- identify areas with high UE concentration;
-- support surrogate modeling;
-- evaluate UE-aware band coordination.
+Both approaches operate on the same decision space, constraints,
+radio-map representation, and KPI evaluation module.
 
----
+------------------------------------------------------------------------
 
-# 5. Coordinate and Angle Conventions
+## 2. Scope and Objectives
 
-The current implementation uses the following conversion between the radio configuration/MDT convention and the Sionna-RT simulation convention:
+### 2.1 Primary objective
 
-```python
-yaw = deg2rad(90.0 - row.azimuth)
-pitch = deg2rad(-row.tilt)
+Find an optimal absolute tilt vector
+
+``` text
+tilt* = [tilt(1,1), tilt(1,2), ..., tilt(N,B)]
 ```
 
-Therefore:
+for all cell-band pairs such that the network satisfies the operational
+tilt constraints and optimizes the five project KPIs in a predefined
+lexicographic order.
 
-\[
-\boxed{
-yaw
-=
-\operatorname{deg2rad}
-(90^\circ-azimuth)
+### 2.2 Secondary objectives
+
+The project also aims to:
+
+-   coordinate coverage roles across frequency bands;
+-   reduce excessive coverage overlap;
+-   reduce coverage holes;
+-   preferentially use higher-frequency bands in areas with high UE
+    density;
+-   preserve broader coverage through lower-frequency bands;
+-   reduce the computational cost of repeated radio propagation
+    evaluation;
+-   evaluate robustness against simulation-to-reality differences.
+
+### 2.3 Out of scope
+
+The current optimization does **not** include Accessibility as an
+optimization KPI.
+
+The current decision variable is antenna tilt. Other radio parameters
+such as antenna position, antenna height, carrier frequency, transmit
+power, azimuth, antenna array, radiation pattern, and polarization are
+treated as fixed within a scenario unless a specific experiment states
+otherwise.
+
+------------------------------------------------------------------------
+
+## 3. Problem Formulation
+
+Assume:
+
+-   `N` cells;
+-   `B` frequency bands;
+-   one decision variable for each cell-band pair.
+
+The complete decision vector is:
+
+``` text
+tilt = [tilt(1,1), tilt(1,2), ..., tilt(N,B)]^T
+```
+
+### 3.1 Absolute tilt is the optimization variable
+
+The optimizer directly produces **absolute tilt**, not tilt offset.
+
+For every cell `i` and band `b`:
+
+``` text
+tilt_min(i,b) <= tilt(i,b) <= tilt_max(i,b)
+```
+
+This constraint is mandatory throughout the optimization process.
+
+After optimization, the operational change is derived as:
+
+``` text
+DeltaTilt(i,b) = tilt*(i,b) - tilt_current(i,b)
+```
+
+This separation is intentional:
+
+-   **absolute tilt** is the decision variable;
+-   **DeltaTilt** is the resulting configuration change reported to
+    operators.
+
+### 3.2 Feasible search space
+
+The global feasible set is:
+
+``` text
+X = {
+    tilt |
+    tilt_min(i,b) <= tilt(i,b) <= tilt_max(i,b)
+    for every cell-band pair
 }
-\]
+```
 
-and:
+All candidate configurations generated by TuRBO or MARL must remain
+inside this feasible space.
 
-\[
-\boxed{
-pitch
-=
-\operatorname{deg2rad}
-(-tilt)
-}
-\]
+------------------------------------------------------------------------
 
-Under this convention, a positive radio downtilt is represented by a negative pitch in the simulation coordinate system.
+## 4. KPI Definition and Priority
 
-The conversion must be applied consistently throughout data preprocessing, scene construction, radio-map generation, and validation.
+The project uses exactly five primary KPIs:
 
----
+1.  **Hole Rate**
+2.  **Overlap Rate**
+3.  **Mean Overlap Neighbors**
+4.  **UE-weighted Band Priority Score (BPS)**
+5.  **Weak Rate**
 
-# 6. Sionna-RT Radio-Map Generation
+The optimization priority is strictly:
 
-For a given absolute tilt configuration:
+``` text
+HoleRate
+    ≻ OverlapRate
+    ≻ MeanOverlapNeighbors
+    ≻ BPS
+    ≻ WeakRate
+```
 
-\[
-\boldsymbol{\theta},
-\]
+The symbol `≻` denotes **priority**, not numerical comparison.
 
-Sionna-RT is used to generate the received signal distribution over a spatial grid:
+The optimization directions are:
 
-\[
-\mathcal{G}
-=
-\{g_1,g_2,\ldots,g_M\}.
-\]
+  KPI                               Direction
+  --------------------------------- -----------
+  Hole Rate                         Minimize
+  Overlap Rate                      Minimize
+  Mean Overlap Neighbors            Minimize
+  UE-weighted Band Priority Score   Maximize
+  Weak Rate                         Minimize
 
-For cell \(i\), band \(b\), and location \(g\):
+### 4.1 RSRP serving-layer rule
 
-\[
-R_{i,b}(g;\boldsymbol{\theta})
-=
-\mathrm{RSRP}_{i,b}(g;\boldsymbol{\theta}).
-\]
+At each evaluation location `g`, the strongest cell-band layer is:
 
-The basic simulation pipeline is:
+``` text
+R_max(g) = max R(i,b,g)
+```
 
-\[
-\boxed{
-\boldsymbol{\theta}
-\rightarrow
-\mathrm{Sionna\text{-}RT}
-\rightarrow
-\mathrm{Radio\ Map}
-\rightarrow
-\mathrm{RSRP}
-}
-\]
+If the location is not a coverage hole, the serving layer is:
 
-The resulting radio maps provide the ground truth used to calculate the network KPIs.
+``` text
+s(g) = argmax_(i,b) R(i,b,g)
+```
 
----
+### 4.2 Coverage-hole threshold
 
-# 7. UE Spatial Distribution
+A location is classified as a coverage hole when:
 
-The target area is discretized into spatial grids:
-
-\[
-g\in\mathcal{G}.
-\]
-
-Let:
-
-\[
-\rho(g)
-\]
-
-denote the number of UE observations assigned to grid \(g\).
-
-If all grids have equal area:
-
-\[
-\rho(g)=n_g.
-\]
-
-The total number of UE observations is:
-
-\[
-\boxed{
-N_{UE}
-=
-\sum_{g\in\mathcal{G}}\rho(g)
-}
-\]
-
-The UE distribution is used to give greater importance to areas containing more users when evaluating band priority.
-
----
-
-# 8. Serving Cell and Dominant Band
-
-## 8.1. Serving Cell
-
-The serving cell at a location \(x\) is determined from the strongest cell signal:
-
-\[
-\boxed{
-s(x)
-=
-\operatorname*{arg\,max}_{i}
-R_i(x)
-}
-\]
-
-where \(R_i(x)\) represents the RSRP used for serving-cell selection under the adopted multi-band evaluation rule.
-
-Accessibility is not included in this formulation.
-
----
-
-## 8.2. Dominant Cell-Band
-
-For UE-aware band coordination, the dominant cell-band at grid \(g\) is:
-
-\[
-\boxed{
-(i^*(g),b^*(g))
-=
-\operatorname*{arg\,max}_{i,b}
-R_{i,b}(g)
-}
-\]
-
-and the corresponding dominant band is:
-
-\[
-b^*(g).
-\]
-
-Thus, the current definition of dominant band is based directly on the largest RSRP among the considered cell-band combinations.
-
----
-
-# 9. Primary KPI Set
-
-The optimization uses exactly **five primary KPIs**:
-
-1. **Hole Rate**;
-2. **Weak Rate**;
-3. **Overlap Rate**;
-4. **Mean Overlap Neighbors**;
-5. **UE-weighted Band Priority Score**.
-
-Their optimization directions are:
-
-| KPI | Objective |
-|---|---|
-| Hole Rate | Minimize |
-| Overlap Rate | Minimize |
-| Weak Rate | Minimize |
-| Mean Overlap Neighbors | Minimize |
-| UE-weighted Band Priority Score | Maximize |
-
-The coverage priority remains:
-
-\[
-\boxed{
-Hole > Overlap > Weak
-}
-\]
-
----
-
-# 10. KPI 1 — Hole Rate
-
-At location \(x\), define the strongest received signal:
-
-\[
-R_{max}(x)
-=
-\max_{i,b}R_{i,b}(x).
-\]
-
-A location is classified as a hole when:
-
-\[
-R_{max}(x)\leq-120\ \mathrm{dBm}.
-\]
-
-Define:
-
-\[
-H(x)
-=
-\mathbb{I}
-[
-R_{max}(x)\leq-120
-].
-\]
+``` text
+R_max(g) <= -120 dBm
+```
 
 The Hole Rate is:
 
-\[
-\boxed{
-K_H
-=
-\mathrm{HoleRate}
-=
-\frac{
-\sum_{x\in\mathcal{G}}H(x)
-}{
-|\mathcal{G}|
-}
-\times100\%
-}
-\]
+``` text
+HoleRate =
+    (# evaluation locations classified as holes)
+    / (# evaluation locations)
+```
 
-Objective:
+and is minimized.
 
-\[
-\boxed{
-K_H\rightarrow\min
-}
-\]
-
-Hole Rate is the highest-priority coverage KPI.
-
----
-
-# 11. KPI 2 — Weak Rate
+### 4.3 Weak-coverage threshold
 
 A location is classified as weak coverage when:
 
-\[
--120<R_{max}(x)\leq-90\ \mathrm{dBm}.
-\]
-
-Define:
-
-\[
-W(x)
-=
-\mathbb{I}
-[
--120<R_{max}(x)\leq-90
-].
-\]
-
-The Weak Rate is:
-
-\[
-\boxed{
-K_W
-=
-\mathrm{WeakRate}
-=
-\frac{
-\sum_{x\in\mathcal{G}}W(x)
-}{
-|\mathcal{G}|
-}
-\times100\%
-}
-\]
-
-Objective:
-
-\[
-\boxed{
-K_W\rightarrow\min
-}
-\]
-
-Weak coverage has lower priority than Hole and Overlap.
-
----
-
-# 12. KPI 3 — Overlap Rate
-
-Let the serving cell at location \(x\) be:
-
-\[
-s(x)
-=
-\operatorname*{arg\,max}_i R_i(x).
-\]
-
-A neighbor \(j\) is considered overlapping with the serving cell when:
-
-\[
-R_{s(x)}(x)>-120\ \mathrm{dBm}
-\]
-
-and:
-
-\[
-R_{s(x)}(x)-R_j(x)<6\ \mathrm{dB}.
-\]
-
-The number of overlapping neighbors is:
-
-\[
-\boxed{
-N_{ov}(x)
-=
-\sum_{j\in\mathcal{N}_{s(x)}}
-\mathbb{I}
-\left[
-R_{s(x)}(x)>-120
-\land
-R_{s(x)}(x)-R_j(x)<6
-\right]
-}
-\]
-
-A location is classified as an overlap location if:
-
-\[
-O(x)
-=
-\mathbb{I}
-[
-N_{ov}(x)>0
-].
-\]
-
-The Overlap Rate is:
-
-\[
-\boxed{
-K_O
-=
-\mathrm{OverlapRate}
-=
-\frac{
-\sum_{x\in\mathcal{G}}O(x)
-}{
-|\mathcal{G}|
-}
-\times100\%
-}
-\]
-
-Objective:
-
-\[
-\boxed{
-K_O\rightarrow\min
-}
-\]
-
----
-
-# 13. KPI 4 — Mean Overlap Neighbors
-
-Overlap Rate measures how frequently overlap occurs, but does not describe how many neighbors participate in each overlap region.
-
-Therefore:
-
-\[
-\boxed{
-K_{ON}
-=
-\mathrm{MeanOverlapNeighbors}
-=
-\frac{
-\sum_{x\in\mathcal{G}}N_{ov}(x)
-}{
-\sum_{x\in\mathcal{G}}O(x)
-}
-}
-\]
-
-This KPI is evaluated over locations where overlap actually occurs.
-
-Objective:
-
-\[
-\boxed{
-K_{ON}\rightarrow\min
-}
-\]
-
-This provides an additional measure of overlap severity.
-
----
-
-# 14. KPI 5 — UE-weighted Band Priority Score
-
-Each frequency band \(b\) is assigned a positive priority weight:
-
-\[
-\boxed{
-w_b>0
-}
-\]
-
-The weight represents the desired importance of the band in spatial coverage allocation.
-
-For example, a conceptual configuration could be:
-
-\[
-w_{\mathrm{low}}<w_{\mathrm{mid}}<w_{\mathrm{high}}.
-\]
-
-The exact values are hyperparameters and must be defined before optimization experiments.
-
-For grid \(g\), the dominant band is:
-
-\[
-b^*(g)
-=
-b
-\left(
-\operatorname*{arg\,max}_{i,b}
-R_{i,b}(g)
-\right).
-\]
-
-The UE-weighted Band Priority Score is:
-
-\[
-\boxed{
-K_{BPS}
-=
-\mathrm{BPS}
-=
-\frac{
-\sum_{g\in\mathcal{G}}
-\rho(g)w_{b^*(g)}
-}{
-\sum_{g\in\mathcal{G}}\rho(g)
-}
-}
-\]
-
-Objective:
-
-\[
-\boxed{
-K_{BPS}\rightarrow\max
-}
-\]
-
-## Interpretation
-
-The number of UE observations acts as a spatial importance weight.
-
-For example:
-
-```text
-Grid A: 100 UE, high-band dominant, weight = 3
-Grid B:  10 UE, low-band dominant,  weight = 1
+``` text
+-120 dBm < R_max(g) <= -90 dBm
 ```
 
-Grid A contributes substantially more to the final score.
+The Weak Rate is the fraction of evaluation locations in this interval
+and is minimized.
 
-Therefore, the optimizer is encouraged to make higher-priority bands dominant in areas with higher UE concentration.
+### 4.4 Overlap rule
 
----
+For a serving cell-band layer `s(g)`, a neighboring cell-band layer
+`(j,c)` is considered overlapping when:
 
-# 15. KPI Vector and Optimization Direction
+1.  the serving layer is above `-120 dBm`;
+2.  the neighboring layer is above `-120 dBm`;
+3.  their RSRP difference is no more than `6 dB`.
 
-The complete KPI vector is:
+Formally:
 
-\[
-\boxed{
-\mathbf{K}
-=
-[
-K_H,
-K_O,
-K_W,
-K_{ON},
-K_{BPS}
-]
-}
-\]
-
-with:
-
-\[
-\boxed{
-K_H\downarrow
-}
-\]
-
-\[
-\boxed{
-K_O\downarrow
-}
-\]
-
-\[
-\boxed{
-K_W\downarrow
-}
-\]
-
-\[
-\boxed{
-K_{ON}\downarrow
-}
-\]
-
-\[
-\boxed{
-K_{BPS}\uparrow
-}
-\]
-
-The first three KPIs describe coverage quality, while Mean Overlap Neighbors characterizes overlap severity and Band Priority Score describes UE-aware multi-band coordination.
-
----
-
-# 16. Optimization Formulation
-
-The decision vector is:
-
-\[
-\boxed{
-\boldsymbol{\theta}
-=
-[
-\theta_{1,1},
-\theta_{1,2},
-\ldots,
-\theta_{N,B}
-]^T
-}
-\]
-
-The optimization problem can be formulated as a multi-objective or lexicographic optimization:
-
-\[
-\boxed{
-\boldsymbol{\theta}^{*}
-=
-\arg\operatorname{opt}_{\boldsymbol{\theta}}
-\left(
-K_H,
-K_O,
-K_W,
-K_{ON},
--K_{BPS}
-\right)
-}
-\]
-
-subject to:
-
-\[
-\boxed{
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}
-}
-\]
-
-for all:
-
-\[
-i\in\mathcal{C},
-\qquad
-b\in\mathcal{B}.
-\]
-
----
-
-# 17. Lexicographic Priority
-
-Because the research requirement explicitly states:
-
-\[
-Hole>Overlap>Weak,
-\]
-
-the preferred conceptual formulation is:
-
-\[
-\boxed{
-\min_{\boldsymbol{\theta}}^{lex}
-\left(
-K_H,
-K_O,
-K_W,
-K_{ON},
--K_{BPS}
-\right)
-}
-\]
-
-The optimization therefore follows:
-
-1. minimize Hole Rate;
-2. among acceptable solutions, minimize Overlap Rate;
-3. then minimize Weak Rate;
-4. reduce the number of overlapping neighbors;
-5. maximize UE-weighted Band Priority Score.
-
-If a scalar objective is required for a specific optimizer, the KPI terms should first be normalized and then combined with coefficients chosen so that the intended priority order is preserved.
-
----
-
-# 18. Surrogate Modeling
-
-Directly evaluating every candidate configuration with Sionna-RT can be expensive.
-
-A direct optimization loop would be:
-
-```text
-Optimizer
-    ↓
-Sionna-RT
-    ↓
-Radio Map
-    ↓
-KPI
-    ↓
-Optimizer
+``` text
+R_s(g) > -120 dBm
+R_j,c(g) > -120 dBm
+R_s(g) - R_j,c(g) <= 6 dB
 ```
 
-The proposed architecture introduces a surrogate:
+The number of overlapping neighboring cell-band layers is:
 
-```text
-Sionna-RT
-    ↓
-Radio Maps
-    ↓
-Training Dataset
-    ↓
-Surrogate Model
-    ↓
-Fast KPI Prediction
+``` text
+N_ov(g)
 ```
 
-The surrogate dataset is:
+A location is classified as overlapping when:
 
-\[
-\boxed{
-\mathcal{D}_{sur}
-=
-\{
-(
-\mathbf{s}^{(k)},
-\boldsymbol{\theta}^{(k)},
-\mathbf{K}^{(k)}
-)
-\}_{k=1}^{N_{sur}}
-}
-\]
+``` text
+N_ov(g) > 0
+```
+
+### 4.5 Overlap Rate
+
+``` text
+OverlapRate =
+    (# locations with N_ov(g) > 0)
+    / (# evaluation locations)
+```
+
+The objective is to minimize Overlap Rate.
+
+### 4.6 Mean Overlap Neighbors
+
+Mean Overlap Neighbors measures the severity of overlap rather than only
+whether overlap exists:
+
+``` text
+MeanOverlapNeighbors =
+    (1 / |G|) * sum_g N_ov(g)
+```
+
+A lower value means that fewer neighboring cell-band layers overlap with
+the serving layer on average.
+
+The objective is to minimize this KPI.
+
+### 4.7 UE-weighted Band Priority Score
+
+The Band Priority Score evaluates whether UE traffic/population is
+preferentially served by appropriate frequency layers.
+
+For each band `b`, an initial priority weight `w_b` is assigned and
+normalized to `[0,1]`:
+
+``` text
+w_tilde_b =
+    (w_b - w_min) / (w_max - w_min)
+```
 
 where:
 
-- \(\mathbf{s}^{(k)}\) represents the network/environment state;
-- \(\boldsymbol{\theta}^{(k)}\) is an absolute tilt configuration;
-- \(\mathbf{K}^{(k)}\) contains the KPI values obtained from Sionna-RT.
+``` text
+w_min = min_b w_b
+w_max = max_b w_b
+```
+
+Let `N(g,b)` be the number of UEs at location/region `g` served by band
+`b`. Then:
+
+``` text
+BPS =
+    sum_g sum_b w_tilde_b * N(g,b)
+    --------------------------------
+    sum_g sum_b N(g,b)
+```
+
+The resulting value is in `[0,1]`, with a larger value indicating that a
+larger fraction of UEs is served by higher-priority bands.
+
+The objective is to maximize BPS.
+
+The intended design direction is:
+
+-   lower-frequency bands provide broader coverage and support cell-edge
+    coverage;
+-   higher-frequency bands are preferentially used in high-UE-density
+    areas when assigned higher priority;
+-   intermediate bands provide an intermediate coverage/capacity role.
+
+These are **design guidelines**, not hard constraints. Actual behavior
+must emerge from the propagation model, antenna configuration, KPI
+thresholds, and band-priority weights.
+
+------------------------------------------------------------------------
+
+## 5. Lexicographic Optimization Convention
+
+Because the KPI priorities are strict, the canonical objective
+representation is:
+
+``` text
+J(tilt) =
+    [HoleRate,
+     OverlapRate,
+     MeanOverlapNeighbors,
+     -BPS,
+     WeakRate]
+```
+
+All components therefore have the minimization direction.
+
+The final solution is conceptually:
+
+``` text
+tilt* =
+    argmin_(tilt in X)^lex J(tilt)
+```
+
+The lexicographic ordering must not be silently replaced by an arbitrary
+weighted sum.
+
+For MARL, if scalar rewards are used, reward coefficients must be
+selected so that lower-priority objectives cannot reverse the intended
+higher-priority ordering. When strict priority is required, hierarchical
+rewards, constrained rewards, or an explicit lexicographic objective are
+preferred over a simple weighted sum.
+
+------------------------------------------------------------------------
+
+## 6. Simulation and Data Generation Architecture
+
+The project combines:
+
+-   **SUMO** for UE mobility simulation;
+-   **Sionna-RT** for 3D radio propagation simulation;
+-   **synthetic MDT** for UE-position/time-linked radio measurements;
+-   a **surrogate model** for fast radio-map prediction;
+-   **TuRBO** and **MARL** for optimization.
+
+The overall data-generation pipeline is:
+
+``` text
+3D Environment + Network Configuration + Traffic Model
+                         ↓
+                       SUMO
+                         ↓
+                 UE Trajectories
+                         ↓
+                    Sionna-RT
+                         ↓
+                    RSRP Measurements
+                         ↓
+                  Synthetic MDT
+```
+
+The surrogate-training pipeline is:
+
+``` text
+Tilt Configurations
+        ↓
+    Sionna-RT
+        ↓
+     Radio Maps
+        +
+  Synthetic MDT
+        ↓
+Surrogate Dataset
+        ↓
+Surrogate Training
+        ↓
+Radio-map Surrogate
+```
+
+The optimization pipeline is:
+
+``` text
+Candidate Tilt
+      ↓
+Surrogate Model
+      ↓
+Predicted RSRP Radio Map
+      ↓
+Common KPI Evaluator
+      ↓
+Five KPIs
+      ↓
+Optimizer
+      ↓
+Next Candidate Tilt
+```
+
+Sionna-RT is **not** used inside the optimization loop after the
+surrogate has been trained.
+
+------------------------------------------------------------------------
+
+## 7. Environment Model
+
+The simulation environment must contain the information required to
+represent the physical propagation scene.
+
+### 7.1 Required environment information
+
+The environment may include:
+
+-   3D geometry of the study area;
+-   buildings and infrastructure;
+-   terrain information when available;
+-   road networks used for UE mobility;
+-   propagation-relevant objects;
+-   radio-material information.
+
+The same environment concept supports both simulation domains:
+
+-   the road network constrains UE movement in SUMO;
+-   3D geometry and material properties are used by Sionna-RT.
+
+### 7.2 Radio-material model
+
+3D surfaces may be assigned radio-material properties including:
+
+-   material type;
+-   relative permittivity;
+-   conductivity;
+-   scattering parameters;
+-   other propagation-related parameters.
+
+These properties influence reflection, transmission, refraction, and
+scattering in ray-tracing simulations.
+
+------------------------------------------------------------------------
+
+## 8. Antenna and Cell-Band Configuration
+
+Each cell-band transmitter is characterized by:
+
+-   position;
+-   antenna height;
+-   carrier frequency;
+-   transmit power;
+-   azimuth;
+-   antenna array;
+-   antenna radiation pattern;
+-   polarization;
+-   tilt.
+
+Only tilt is optimized by default.
+
+The remaining parameters are fixed within each scenario unless an
+experiment explicitly varies them.
+
+------------------------------------------------------------------------
+
+## 9. UE Mobility and Synthetic MDT
+
+### 9.1 UE trajectory generation
+
+SUMO generates UE movement over the road network.
+
+A trajectory for UE `u` is represented conceptually as:
+
+``` text
+T_u = {
+    (t_k, x_u,k, y_u,k, v_u,k, d_u,k)
+}
+```
+
+where:
+
+-   `t_k` = sampling time;
+-   `(x_u,k, y_u,k)` = UE position;
+-   `v_u,k` = velocity;
+-   `d_u,k` = movement direction.
+
+Scenarios may vary:
+
+-   UE count;
+-   UE density;
+-   routes;
+-   movement trajectories;
+-   speed;
+-   UE arrival times.
+
+SUMO coordinates are mapped into the coordinate system of the Sionna-RT
+3D scene.
+
+### 9.2 RSRP generation
+
+For each UE position and time, Sionna-RT evaluates propagation using:
+
+-   3D scene geometry;
+-   radio materials;
+-   antenna configuration;
+-   carrier frequency;
+-   transmit power;
+-   antenna tilt.
+
+The simulated measurement is:
+
+``` text
+RSRP(u, i, b, t_k)
+```
+
+Unlike a purely static spatial grid, synthetic MDT records measurements
+at positions actually traversed by simulated UEs. This allows the
+dataset to represent both spatial radio characteristics and UE
+mobility/distribution.
+
+### 9.3 Synthetic MDT record
+
+A minimal record is:
+
+``` text
+ue_id
+sim_x
+sim_y
+timestamp
+cell_id
+band_id
+rsrp
+ue_height
+```
+
+If multiple cell-band measurements are stored in one record, `rsrp` may
+instead be represented as a vector/tensor indexed by `(cell, band)`.
+
+Synthetic MDT is primarily used to characterize UE spatial distribution
+and support the UE weighting required by BPS. It is also combined with
+simulated radio data for surrogate-model construction and evaluation.
+
+------------------------------------------------------------------------
+
+## 10. Radio Map Representation
+
+Let:
+
+``` text
+G = {g_1, g_2, ..., g_M}
+```
+
+be the spatial evaluation grid.
+
+For every location `g`, cell `i`, and band `b`:
+
+``` text
+R(i,b,g) = RSRP(i,b,g)
+```
+
+A radio map can therefore be represented as a tensor indexed by:
+
+``` text
+(location, cell, band)
+```
+
+Conceptually:
+
+``` text
+R = [R(i,b,g)]
+```
+
+The radio-map generation process is:
+
+``` text
+Tilt
+  ↓
+Sionna-RT
+  ↓
+RSRP Radio Map
+```
+
+The radio map is the common intermediate representation used by:
+
+-   KPI evaluation;
+-   surrogate-model training;
+-   optimization evaluation.
+
+This design keeps KPI definitions independent from the source of the
+radio map.
+
+------------------------------------------------------------------------
+
+## 11. Surrogate Model
+
+### 11.1 Motivation
+
+Repeated Sionna-RT ray tracing for every optimization candidate is
+computationally expensive.
+
+The project therefore introduces a surrogate model that approximates the
+Sionna-RT radio map.
 
 The surrogate learns:
 
-\[
-\boxed{
-f_{sur}
-:
-(\mathbf{s},\boldsymbol{\theta})
-\rightarrow
-\widehat{\mathbf K}
-}
-\]
-
-where:
-
-\[
-\widehat{\mathbf K}
-=
-[
-\widehat K_H,
-\widehat K_O,
-\widehat K_W,
-\widehat K_{ON},
-\widehat K_{BPS}
-].
-\]
-
-The surrogate is an acceleration mechanism, not the final source of truth.
-
----
-
-# 19. Overall Research Pipeline
-
-## Step 1 — Data Exploration
-
-Investigate:
-
-- MDT schema;
-- UE distribution;
-- RSRP distribution;
-- cell distribution;
-- band distribution;
-- missing values;
-- outliers;
-- coordinate ranges;
-- temporal distribution.
-
----
-
-## Step 2 — Data Cleaning
-
-Perform:
-
-- invalid-record removal;
-- missing-value handling;
-- duplicate checking;
-- coordinate validation;
-- RSRP validation;
-- cell-ID validation;
-- UE-height validation;
-- coordinate convention normalization.
-
----
-
-## Step 3 — Train/Test Split
-
-Split the data into training and test sets.
-
-The split should avoid information leakage, particularly when MDT observations are correlated spatially or temporally.
-
-Depending on the experimental objective, spatial and/or temporal splitting should be considered instead of relying only on random splitting.
-
----
-
-## Step 4 — Construct the Sionna-RT Scene
-
-Build the simulation scene from:
-
-```text
-3D Map
-+
-Building Geometry
-+
-Material Properties
-+
-Antenna Configuration
-+
-Radio Configuration
-+
-Absolute Tilt
+``` text
+(environment/network/MDT features, absolute tilt)
+              ↓
+       predicted RSRP map
 ```
 
----
+Formally:
 
-## Step 5 — Generate Radio Maps
-
-Sample valid absolute tilt configurations:
-
-\[
-\boldsymbol{\theta}^{(1)},
-\boldsymbol{\theta}^{(2)},
-\ldots,
-\boldsymbol{\theta}^{(N)}.
-\]
-
-For each configuration:
-
-\[
-\boldsymbol{\theta}^{(k)}
-\rightarrow
-\mathrm{Sionna\text{-}RT}
-\rightarrow
-R^{(k)}
-\rightarrow
-\mathbf{K}^{(k)}.
-\]
-
----
-
-## Step 6 — Train the Surrogate
-
-Train:
-
-\[
-f_{sur}
-(\mathbf{s},\boldsymbol{\theta})
-\rightarrow
-\widehat{\mathbf K}.
-\]
-
-Evaluate:
-
-- prediction error;
-- generalization;
-- error for each KPI;
-- error across different regions of the tilt search space;
-- prediction reliability near promising candidate configurations.
-
----
-
-# 20. Bayesian Optimization Pipeline
-
-BO treats the optimization problem as an expensive black-box problem:
-
-\[
-J(\boldsymbol{\theta})
-\]
-
-subject to:
-
-\[
-\boldsymbol{\theta}\in\Theta
-\]
+``` text
+f_sur(x, tilt) -> R_hat
+```
 
 where:
 
-\[
-\Theta
-=
-\left\{
-\boldsymbol{\theta}
-\mid
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}
-\right\}.
-\]
+-   `x` represents environment, network, and MDT-related features;
+-   `tilt` is the absolute tilt vector;
+-   `R_hat` is the predicted radio map.
+
+The surrogate predicts the radio map rather than directly predicting KPI
+values.
+
+### 11.2 Surrogate dataset
+
+Each training sample contains:
+
+``` text
+(x^(k), tilt^(k), R^(k))
+```
+
+where:
+
+-   `x^(k)` = environment/network/MDT features;
+-   `tilt^(k)` = absolute tilt configuration;
+-   `R^(k)` = Sionna-RT reference radio map.
+
+### 11.3 Training objective
+
+The baseline loss is mean squared error over all spatial locations,
+cells, and bands:
+
+``` text
+L_MSE =
+    1 / (|G| |C| |B|)
+    * sum_g sum_i sum_b
+      (R_hat(i,b,g) - R(i,b,g))^2
+```
+
+### 11.4 Freeze-before-optimization rule
+
+Once the surrogate reaches the required validation accuracy:
+
+1.  freeze the surrogate;
+2.  use it as the fast evaluator during optimization;
+3.  do not rerun Sionna-RT for every optimizer candidate;
+4.  validate the final optimized configuration using Sionna-RT.
+
+This separation is essential for fair and computationally efficient
+optimization.
+
+------------------------------------------------------------------------
+
+## 12. Simulation-to-Reality Robustness
+
+The project explicitly studies uncertainty between simulation and
+real-world conditions.
+
+Scenarios are generated from a common base configuration with controlled
+perturbations.
+
+### 12.1 Radio-environment perturbations
+
+Possible perturbations include:
+
+-   adding or removing buildings;
+-   changing building position;
+-   changing building dimensions;
+-   changing building height;
+-   changing surface-material properties;
+-   changing propagation-relevant objects.
+
+### 12.2 UE-mobility perturbations
+
+Possible perturbations include:
+
+-   changing UE count;
+-   changing UE density;
+-   changing routes;
+-   changing UE trajectories;
+-   changing UE speed;
+-   changing UE arrival times.
+
+The purpose is to determine whether the surrogate and optimization
+method generalize to conditions different from those used for training.
+
+### 12.3 Scenario-level data split
+
+Training, validation, and test data must be separated **by scenario**,
+rather than by randomly splitting individual MDT records.
+
+This prevents UE trajectories and environment configurations from
+leaking between datasets.
+
+The final optimized configuration must be re-evaluated with Sionna-RT on
+held-out test scenarios.
+
+------------------------------------------------------------------------
+
+## 13. Optimization Method A: TuRBO
+
+TuRBO is the Bayesian Optimization method used for the project.
+
+### 13.1 Optimization state
+
+At iteration `t`, the optimizer maintains observations:
+
+``` text
+D_t = {
+    (tilt_k, K_hat_k)
+}
+```
+
+where `K_hat_k` is the five-KPI vector computed from the
+surrogate-predicted radio map.
+
+### 13.2 Trust region
+
+TuRBO searches locally within a trust region:
+
+``` text
+T_t ⊆ X
+```
+
+where `X` is the globally feasible tilt space.
+
+This is particularly suitable for a high-cost black-box optimization
+problem because it restricts local modeling and acquisition to a region
+where the surrogate objective can be explored more effectively.
+
+### 13.3 Candidate-generation loop
 
 The conceptual loop is:
 
-```text
-Initial Samples
-      ↓
-Sionna-RT / Existing Dataset
-      ↓
+``` text
+Current observations
+       ↓
+TuRBO
+       ↓
+Candidate absolute tilt
+       ↓
 Surrogate
-      ↓
-Acquisition Function
-      ↓
-Candidate Absolute Tilt
-      ↓
-Sionna-RT Evaluation
-      ↓
-KPI
-      ↓
-Update Surrogate
-      ↓
-Repeat
+       ↓
+Predicted RSRP map
+       ↓
+KPI evaluation
+       ↓
+Update observations
+       ↓
+Next TuRBO iteration
 ```
 
-The final BO solution is:
+The next candidate is selected through an acquisition function:
 
-\[
-\boldsymbol{\theta}_{BO}^{*}.
-\]
+``` text
+tilt_(t+1) =
+    argmax_(tilt in T_t)
+    alpha(tilt | D_t)
+```
 
-When the surrogate is used during optimization, important candidate solutions should still be validated using Sionna-RT.
+### 13.4 Objective convention
 
----
+TuRBO uses:
 
-# 21. Multi-Agent Reinforcement Learning Pipeline
+``` text
+J(tilt) =
+    [HoleRate,
+     OverlapRate,
+     MeanOverlapNeighbors,
+     -BPS,
+     WeakRate]
+```
 
-MARL models the optimization as a multi-agent control problem.
+and seeks the lexicographically smallest feasible vector.
 
-A possible mapping is:
+------------------------------------------------------------------------
 
-- one agent per cell; or
-- one agent per site.
+## 14. Optimization Method B: MARL
 
-The exact agent granularity depends on the desired coordination structure.
+MARL is the second optimization approach.
 
-Each agent may generate the absolute tilts of its bands:
+The optimization problem is modeled as a Markov Decision Process /
+multi-agent decision process.
 
-\[
-a_i
-=
+### 14.1 State
+
+The state contains a representation of:
+
+-   current network configuration;
+-   current tilt configuration;
+-   radio-map information;
+-   UE distribution.
+
+Conceptually:
+
+``` text
+s_t =
+    phi(RadioMap_t, tilt_t, UE_Distribution)
+```
+
+During optimization, radio information is obtained through the surrogate
+rather than repeated Sionna-RT ray tracing.
+
+### 14.2 Agent structure
+
+An agent may be assigned per:
+
+-   cell; or
+-   site.
+
+An agent controls the absolute tilts of the frequency bands assigned to
+it.
+
+Conceptually:
+
+``` text
+tilt_i,t =
+    pi_phi_i(s_i,t, c_i,t)
+```
+
+where `c_i,t` represents coordination information, potentially obtained
+through inter-agent communication or a centralized critic.
+
+### 14.3 Action constraints
+
+Every generated action must satisfy:
+
+``` text
+tilt_min(i,b) <= tilt(i,b,t) <= tilt_max(i,b)
+```
+
+for every controlled cell-band pair and time step.
+
+### 14.4 MARL evaluation loop
+
+The common optimization loop is:
+
+``` text
+State
+  ↓
+Policy
+  ↓
+Absolute Tilt
+  ↓
+Surrogate
+  ↓
+Predicted RSRP Map
+  ↓
+KPI Evaluation
+  ↓
+Reward
+  ↓
+Next State
+```
+
+### 14.5 Reward design
+
+A general normalized scalar reward is:
+
+``` text
+r_t =
+    - lambda_H   * H_tilde_t
+    - lambda_O   * O_tilde_t
+    - lambda_ON  * ON_tilde_t
+    + lambda_BPS * BPS_tilde_t
+    - lambda_W   * W_tilde_t
+```
+
+However, the reward must preserve the required KPI priority.
+
+A simple weighted sum is therefore not automatically equivalent to the
+project's lexicographic objective.
+
+When strict priority is required, prefer:
+
+-   hierarchical reward;
+-   constrained reward;
+-   lexicographic objective.
+
+The policy objective is:
+
+``` text
+pi* =
+    argmax_pi E_pi[
+        sum_(t=0)^(T-1) gamma^t r_t
+    ]
+```
+
+------------------------------------------------------------------------
+
+## 15. Common Evaluation Module
+
+TuRBO and MARL must share the same KPI evaluator.
+
+The evaluator accepts an RSRP radio map and UE weighting information and
+returns:
+
+``` text
+K =
 [
-\theta_{i,1},
-\theta_{i,2},
-\ldots,
-\theta_{i,B}
-].
-\]
-
-A policy can be represented as:
-
-\[
-\boxed{
-a_i
-=
-\pi_{\phi_i}(s_i,c_i)
-}
-\]
-
-where:
-
-- \(s_i\) is the local state;
-- \(c_i\) represents coordination information, when communication or a centralized critic is used.
-
-All actions must satisfy:
-
-\[
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}.
-\]
-
----
-
-# 22. MARL State
-
-The state can contain information describing the local radio environment and the effect of the cell's tilt.
-
-Potential state features include:
-
-- current absolute tilt;
-- neighboring-cell RSRP characteristics;
-- local Hole/Weak/Overlap statistics;
-- local UE density;
-- dominant-band distribution;
-- band identity;
-- spatial context;
-- coordination information from neighboring agents.
-
-The exact state representation is an implementation choice and should be validated experimentally.
-
----
-
-# 23. MARL Reward
-
-The reward must reflect:
-
-\[
-Hole>Overlap>Weak
-\]
-
-while encouraging:
-
-\[
-BPS\uparrow.
-\]
-
-A possible normalized scalar reward is:
-
-\[
-\boxed{
-r_t
-=
--\lambda_H\widetilde K_H
--\lambda_O\widetilde K_O
--\lambda_W\widetilde K_W
--\lambda_{ON}\widetilde K_{ON}
-+\lambda_{BPS}\widetilde K_{BPS}
-}
-\]
-
-where each \(\widetilde K\) is a normalized KPI.
-
-The coefficients must be chosen so that KPI scaling does not accidentally reverse the desired priority:
-
-\[
-\lambda_H>\lambda_O>\lambda_W.
-\]
-
-If strict priority is required, a hierarchical or lexicographic reward formulation may be preferable to a simple weighted sum.
-
----
-
-# 24. Surrogate-Assisted MARL
-
-Instead of evaluating every environment step with Sionna-RT:
-
-```text
-Agent
- ↓
-Absolute Tilt
- ↓
-Sionna-RT
- ↓
-KPI
- ↓
-Reward
+    HoleRate,
+    OverlapRate,
+    MeanOverlapNeighbors,
+    BPS,
+    WeakRate
+]
 ```
 
-the training loop can use:
+This module must implement exactly the same:
 
-```text
-Agent
- ↓
-Absolute Tilt
- ↓
-Surrogate
- ↓
-Predicted KPI
- ↓
-Reward
+-   coverage-hole threshold;
+-   weak-coverage threshold;
+-   serving-layer selection;
+-   overlap RSRP threshold;
+-   overlap RSRP-difference threshold;
+-   UE weighting;
+-   KPI directions;
+-   KPI priority order.
+
+The evaluator should work identically for:
+
+1.  Sionna-RT reference radio maps;
+2.  surrogate-predicted radio maps.
+
+This prevents differences in KPI implementation from contaminating the
+comparison between optimization methods or between simulation and
+surrogate evaluation.
+
+------------------------------------------------------------------------
+
+## 16. End-to-End Implementation Workflow
+
+### Phase 1 --- Scenario preparation
+
+1.  Prepare the 3D study area.
+2.  Define buildings, infrastructure, terrain when available, and
+    propagation objects.
+3.  Assign radio-material properties.
+4.  Define the road network.
+5.  Configure cell locations and antenna parameters.
+6.  Define frequency bands.
+7.  Define current absolute tilts.
+8.  Define per-cell-band tilt bounds.
+9.  Define band-priority weights.
+
+### Phase 2 --- UE mobility generation
+
+1.  Configure SUMO.
+2.  Define UE populations.
+3.  Define routes and mobility patterns.
+4.  Generate UE trajectories.
+5.  Map SUMO coordinates to the Sionna-RT scene.
+
+### Phase 3 --- Reference radio-data generation
+
+For selected feasible absolute tilt configurations:
+
+1.  configure antenna tilts in Sionna-RT;
+2.  generate RSRP radio maps;
+3.  evaluate RSRP along UE trajectories;
+4.  construct synthetic MDT records;
+5.  store scenario metadata together with the generated data.
+
+### Phase 4 --- Surrogate dataset construction
+
+For each sample, store:
+
+``` text
+scenario/environment features
+network features
+MDT-derived UE features
+absolute tilt vector
+reference Sionna-RT radio map
 ```
 
-Sionna-RT remains the high-fidelity environment used for:
+Ensure that the training/validation/test split is performed at scenario
+level.
 
-- initial dataset generation;
-- validation;
-- policy evaluation;
-- surrogate error monitoring;
-- surrogate updates.
+### Phase 5 --- Surrogate training
 
----
+1.  preprocess model inputs;
+2.  train the radio-map surrogate;
+3.  evaluate radio-map prediction error on validation scenarios;
+4.  check generalization to held-out scenarios;
+5.  freeze the surrogate when the required validation quality is
+    achieved.
 
-# 25. BO vs. MARL Comparison
+### Phase 6 --- Optimization
 
-BO and MARL should be evaluated using the same:
+Run TuRBO and MARL separately using:
 
-- input data;
-- radio-map environment;
-- action/search space;
-- tilt constraints;
-- KPI definitions;
-- surrogate;
-- validation procedure;
-- test scenarios.
+-   the same feasible tilt space;
+-   the same input scenario;
+-   the same surrogate;
+-   the same KPI evaluator;
+-   the same KPI priority;
+-   the same tilt constraints;
+-   comparable optimization budgets.
 
-## 25.1. Solution Quality
+No Sionna-RT ray tracing is performed inside the optimization loop.
 
-Compare:
+### Phase 7 --- Final validation
 
-\[
-K_H,\quad
-K_O,\quad
-K_W,\quad
-K_{ON},\quad
-K_{BPS}.
-\]
+For each method:
 
-## 25.2. Computational Efficiency
+1.  obtain the final absolute tilt configuration;
+2.  compute DeltaTilt relative to the current configuration;
+3.  run the optimized configuration through Sionna-RT;
+4.  generate reference radio maps on held-out test scenarios;
+5.  recompute all five KPIs from the Sionna-RT maps;
+6.  compare surrogate predictions against Sionna-RT measurements.
 
-Measure:
+### Phase 8 --- Reporting
 
-- number of Sionna-RT evaluations;
-- total optimization time;
-- number of candidate configurations;
-- surrogate inference cost;
-- training cost for MARL.
+Report:
 
-## 25.3. Stability
+-   current absolute tilt;
+-   optimized absolute tilt;
+-   DeltaTilt;
+-   all five KPIs before optimization;
+-   all five KPIs after optimization;
+-   surrogate prediction error;
+-   Sionna-RT validation results;
+-   RSRP maps;
+-   hole maps;
+-   overlap maps;
+-   weak-coverage maps;
+-   UE-density maps;
+-   dominant-band maps.
 
-Run each method using multiple random seeds and report:
+------------------------------------------------------------------------
 
-- mean;
-- standard deviation;
-- best result;
-- worst result.
+## 17. Experimental Comparison Protocol
 
-## 25.4. Scalability
+TuRBO and MARL must be compared under controlled conditions.
 
-Evaluate performance as the problem size increases:
+The comparison must use:
 
-- number of cells;
-- number of bands;
-- geographical area;
-- number of decision variables.
+-   the same test scenarios;
+-   the same KPI definitions;
+-   the same tilt constraints;
+-   the same candidate/episode evaluation budget where applicable;
+-   the same surrogate model;
+-   the same final Sionna-RT validation procedure.
 
----
+The evaluation must not report only a single aggregate score.
 
-# 26. Final Validation
+All five KPIs must be reported separately because they have different
+meanings and a strict priority order.
 
-The final optimized configuration:
+Surrogate results and Sionna-RT results must also be reported separately
+to prevent surrogate error from being mistaken for actual propagation
+performance.
 
-\[
-\boldsymbol{\theta}^{*}
-\]
+------------------------------------------------------------------------
 
-must be evaluated again using Sionna-RT.
+## 18. Input Contract
 
-Validation flow:
+The optimizer's conceptual input includes:
 
-```text
-Optimal Absolute Tilt
-        ↓
-Sionna-RT
-        ↓
-Ground-Truth Radio Map
-        ↓
-Compute Five KPIs
-        ↓
-Compare with Surrogate Prediction
+  Input                         Role
+  ----------------------------- ---------------------------
+  3D environment                Propagation geometry
+  Terrain, when available       Physical environment
+  Radio materials               Propagation behavior
+  Cell positions                Network topology
+  Antenna heights               Transmitter configuration
+  Azimuth                       Antenna orientation
+  Carrier frequency             Band-specific propagation
+  Transmit power                Link budget
+  Antenna array                 Radiation characteristics
+  Radiation pattern             Antenna gain behavior
+  Current absolute tilt         Baseline configuration
+  Feasible tilt interval        Hard constraint
+  UE spatial distribution       BPS and state information
+  Synthetic MDT                 UE/radio observations
+  Band priority `p_b` / `w_b`   BPS weighting
+
+A minimal MDT record is:
+
+``` text
+ue_id
+sim_x
+sim_y
+timestamp
+cell_id
+band_id
+rsrp
+ue_height
 ```
 
-The final reported network performance must therefore be based on high-fidelity Sionna-RT results rather than surrogate predictions alone.
+------------------------------------------------------------------------
 
----
+## 19. Output Contract
 
-# 27. Final Result Reporting
+The primary optimization output is:
 
-## 27.1. Tilt Configuration
+``` text
+tilt*
+```
 
-For every cell-band pair, report:
+containing one absolute tilt value for every cell-band pair.
 
-\[
-\theta_{i,b}^{current}
-\]
+Every output must satisfy:
 
-\[
-\theta_{i,b}^{*}
-\]
+``` text
+tilt_min(i,b) <= tilt*(i,b) <= tilt_max(i,b)
+```
+
+The operational change is:
+
+``` text
+DeltaTilt(i,b) =
+    tilt*(i,b) - tilt_current(i,b)
+```
+
+The final configuration report should contain:
+
+  Cell     Band       Current Tilt   Optimized Tilt   DeltaTilt
+  -------- -------- -------------- ---------------- -----------
+  Cell 1   Band 1              ...              ...         ...
+  Cell 1   Band 2              ...              ...         ...
+  Cell 2   Band 1              ...              ...         ...
+  ...      ...                 ...              ...         ...
+
+------------------------------------------------------------------------
+
+## 20. Before/After Evaluation
+
+Define:
+
+``` text
+K_before =
+[
+    H_before,
+    O_before,
+    ON_before,
+    BPS_before,
+    W_before
+]
+```
 
 and:
 
-\[
-\Delta\theta_{i,b}
-=
-\theta_{i,b}^{*}
--
-\theta_{i,b}^{current}.
-\]
-
-The recommended final table is:
-
-| Cell | Band | Current Tilt | Optimal Tilt | Tilt Offset |
-|---|---|---:|---:|---:|
-| ... | ... | ... | ... | ... |
-
----
-
-## 27.2. KPI Comparison
-
-Compare:
-
-```text
-Baseline
-vs.
-BO
-vs.
-MARL
+``` text
+K_after =
+[
+    H_after,
+    O_after,
+    ON_after,
+    BPS_after,
+    W_after
+]
 ```
 
-using:
+For minimized KPIs:
 
-| KPI | Baseline | BO | MARL |
-|---|---:|---:|---:|
-| Hole Rate | | | |
-| Overlap Rate | | | |
-| Mean Overlap Neighbors | | | |
-| Weak Rate | | | |
-| UE-weighted Band Priority Score | | | |
-
----
-
-## 27.3. Radio-Map Visualization
-
-Recommended visualizations include:
-
-- baseline RSRP map;
-- optimized RSRP map;
-- Hole map;
-- Weak map;
-- Overlap map;
-- UE-density map;
-- dominant-band map.
-
-These visualizations help demonstrate not only numerical KPI improvement but also the spatial behavior of the optimized network.
-
----
-
-# 28. End-to-End Architecture
-
-```text
-                 ┌──────────────────────┐
-                 │       3D Map         │
-                 │ Geometry + Material  │
-                 └──────────┬───────────┘
-                            │
-                 ┌──────────▼───────────┐
-                 │ Radio Configuration  │
-                 │ Cell / Band / Antenna│
-                 └──────────┬───────────┘
-                            │
-                 ┌──────────▼───────────┐
-                 │       MDT Data       │
-                 │ UE / Position / RSRP │
-                 └──────────┬───────────┘
-                            │
-                            ▼
-                 ┌──────────────────────┐
-                 │ Data Preprocessing   │
-                 │ + UE Density         │
-                 └──────────┬───────────┘
-                            │
-                            ▼
-                 ┌──────────────────────┐
-                 │      Sionna-RT       │
-                 │   Radio-map Engine   │
-                 └──────────┬───────────┘
-                            │
-                            ▼
-                 ┌──────────────────────┐
-                 │  Radio-map Dataset   │
-                 └──────────┬───────────┘
-                            │
-                            ▼
-                 ┌──────────────────────┐
-                 │   Surrogate Model    │
-                 └──────────┬───────────┘
-                            │
-                 ┌──────────┴───────────┐
-                 │                      │
-                 ▼                      ▼
-        ┌────────────────┐     ┌────────────────┐
-        │       BO       │     │      MARL      │
-        └───────┬────────┘     └───────┬────────┘
-                │                      │
-                └──────────┬───────────┘
-                           ▼
-                 ┌──────────────────────┐
-                 │ Absolute Tilt θ*     │
-                 │ per Cell × Band      │
-                 └──────────┬───────────┘
-                            │
-                            ▼
-                 ┌──────────────────────┐
-                 │ Sionna-RT Validation│
-                 └──────────┬───────────┘
-                            │
-                            ▼
-              ┌──────────────────────────────┐
-              │        Five Main KPIs        │
-              │ Hole / Weak / Overlap        │
-              │ Mean Overlap Neighbors       │
-              │ UE-weighted Band Priority    │
-              └──────────────┬───────────────┘
-                             │
-                             ▼
-                 ┌──────────────────────┐
-                 │  Final Result Report │
-                 │ Absolute Tilt       │
-                 │ Tilt Offset          │
-                 │ KPI Comparison       │
-                 └──────────────────────┘
+``` text
+DeltaK =
+    K_before - K_after
 ```
 
----
+for:
 
-# 29. Confirmed Design Decisions
+``` text
+K in {HoleRate, OverlapRate, MeanOverlapNeighbors, WeakRate}
+```
 
-| Component | Final Decision |
-|---|---|
-| Optimization variable | **Absolute tilt** |
-| Tilt offset | **Derived reporting quantity only** |
-| Tilt definition | \(\mathrm{tilt}=\mathrm{eTilt}+\mathrm{mTilt}\) |
-| Tilt constraint | \(\theta^{min}\leq\theta\leq\theta^{max}\) |
-| Delta-tilt constraint | Not included in the current formulation |
-| Tilt-change penalty | **Not used** |
-| Accessibility | **Not used** |
-| Serving-cell criterion | RSRP-based |
-| Dominant-band criterion | Maximum RSRP among cell-band pairs |
-| Hole threshold | \(R_{max}\leq-120\) dBm |
-| Weak range | \(-120<R_{max}\leq-90\) dBm |
-| Overlap threshold | Serving RSRP - neighbor RSRP \(<6\) dB |
-| Overlap coverage condition | Serving RSRP \(>-120\) dBm |
-| Primary KPI count | **5** |
-| Coverage priority | **Hole > Overlap > Weak** |
-| Overlap severity | Mean Overlap Neighbors |
-| Band coordination KPI | UE-weighted Band Priority Score |
-| UE weighting | UE count/density per spatial grid |
-| Separate high-band dominance KPI | **Not required** |
-| Simulator | **Sionna-RT** |
-| Computational acceleration | **Surrogate modeling** |
-| Optimization methods | **BO + MARL** |
-| Final validation | **Sionna-RT ground truth** |
+For BPS:
 
----
+``` text
+DeltaBPS =
+    BPS_after - BPS_before
+```
 
-# 30. Parameters Still Requiring Experimental Definition
+A positive `DeltaK` for a minimized KPI indicates improvement, while a
+positive `DeltaBPS` indicates improvement in the maximized KPI.
 
-The following parameters are not yet fixed by the formulation and must be determined during implementation and experimentation:
+------------------------------------------------------------------------
 
-1. number and identity of frequency bands;
-2. band priority weights \(w_b\);
-3. minimum and maximum tilt for each cell-band;
-4. spatial grid resolution;
-5. precise serving-cell aggregation rule across bands;
-6. radio-map sampling strategy;
-7. surrogate-model architecture;
-8. KPI normalization method;
-9. scalar objective or reward design;
-10. MARL algorithm;
-11. BO surrogate and acquisition function;
-12. optimization stopping criteria;
-13. surrogate update strategy;
-14. evaluation scenarios and random seeds.
+## 21. Design Decisions
 
-These should be treated as **implementation and experimental choices**, rather than as fixed elements of the core problem formulation.
+### Decision 1 --- Optimize absolute tilt
 
----
+Absolute tilt is the formal decision variable because it directly
+represents the physical configuration that must be applied to the
+antenna.
 
-# 31. Final Mathematical Formulation
+DeltaTilt is derived only after optimization.
 
-The complete optimization problem is:
+### Decision 2 --- Enforce hard tilt bounds
 
-\[
-\boxed{
-\begin{aligned}
-\boldsymbol{\theta}^{*}
-&=
-\arg\operatorname{opt}_{\boldsymbol{\theta}}
-\left(
-K_H,
-K_O,
-K_W,
-K_{ON},
--K_{BPS}
-\right)
-\\
-\text{s.t.}\quad
-&
-\theta_{i,b}^{min}
-\leq
-\theta_{i,b}
-\leq
-\theta_{i,b}^{max}.
-\end{aligned}
-}
-\]
+Every candidate and final configuration must remain within the permitted
+operating interval.
 
-The five objectives are:
+The optimizer must never rely on post-hoc clipping as the primary
+constraint mechanism because clipping can change the intended candidate
+and distort optimization behavior.
 
-\[
-\boxed{
-K_H=\mathrm{HoleRate}\rightarrow\min
-}
-\]
+### Decision 3 --- Optimize all cell-band pairs jointly
 
-\[
-\boxed{
-K_O=\mathrm{OverlapRate}\rightarrow\min
-}
-\]
+The project does not optimize each band or cell independently.
 
-\[
-\boxed{
-K_W=\mathrm{WeakRate}\rightarrow\min
-}
-\]
+Joint optimization is required because the KPI values depend on
+interactions among multiple frequency layers and neighboring cell-band
+combinations.
 
-\[
-\boxed{
-K_{ON}
-=
-\mathrm{MeanOverlapNeighbors}
-\rightarrow\min
-}
-\]
+### Decision 4 --- Use five KPIs consistently
 
-\[
-\boxed{
-K_{BPS}
-=
-\mathrm{UE\text{-}weighted\ Band\ Priority\ Score}
-\rightarrow\max
-}
-\]
+The project deliberately restricts the primary KPI framework to:
 
-The tilt offset is derived only after optimization:
+-   Hole Rate;
+-   Overlap Rate;
+-   Mean Overlap Neighbors;
+-   UE-weighted BPS;
+-   Weak Rate.
 
-\[
-\boxed{
-\Delta\boldsymbol{\theta}^{*}
-=
-\boldsymbol{\theta}^{*}
--
-\boldsymbol{\theta}^{current}
-}
-\]
+Other network indicators are not part of the current optimization
+objective.
 
-The resulting research pipeline is therefore:
+### Decision 5 --- Preserve lexicographic priority
 
-\[
-\boxed{
-\text{MDT + 3D Environment + Radio Configuration}
-\rightarrow
-\text{Sionna-RT}
-\rightarrow
-\text{Radio Maps}
-\rightarrow
-\text{Surrogate}
-\rightarrow
-\text{BO / MARL}
-\rightarrow
-\text{Absolute Tilt}
-\rightarrow
-\text{Sionna-RT Validation}
-\rightarrow
-\text{Five KPIs}
-}
-\]
+The KPI priority is not merely an informal ranking.
 
-This formulation establishes a common optimization problem for both BO and MARL, with absolute tilt as the decision variable, explicit physical tilt constraints, UE-aware multi-band coordination, and high-fidelity Sionna-RT validation as the final source of truth.
+The canonical objective is:
+
+``` text
+[HoleRate, OverlapRate, MeanOverlapNeighbors, -BPS, WeakRate]
+```
+
+with lexicographic minimization.
+
+### Decision 6 --- Predict radio maps rather than KPIs
+
+The surrogate predicts RSRP radio maps and the KPI evaluator derives all
+five KPIs from those maps.
+
+This ensures that the same KPI logic can be applied to both Sionna-RT
+and surrogate outputs.
+
+### Decision 7 --- Keep Sionna-RT outside the optimization loop
+
+Sionna-RT is used for:
+
+-   reference data generation;
+-   synthetic MDT generation;
+-   final validation.
+
+The surrogate is used for repeated optimization evaluations.
+
+### Decision 8 --- Split data by scenario
+
+Scenario-level splitting is required to avoid leakage of similar UE
+trajectories and environments between training and evaluation.
+
+### Decision 9 --- Use the same evaluator for BO and MARL
+
+This isolates the comparison to the optimization algorithm rather than
+changing the underlying problem definition.
+
+------------------------------------------------------------------------
+
+## 22. Implementation Conventions
+
+### 22.1 Naming
+
+Use consistent terminology:
+
+-   `cell_id`
+-   `band_id`
+-   `ue_id`
+-   `tilt`
+-   `current_tilt`
+-   `optimized_tilt`
+-   `delta_tilt`
+-   `rsrp`
+-   `radio_map`
+-   `hole_rate`
+-   `overlap_rate`
+-   `mean_overlap_neighbors`
+-   `bps`
+-   `weak_rate`
+
+Use `BPS` for **UE-weighted Band Priority Score**.
+
+### 22.2 Unit conventions
+
+Use:
+
+-   RSRP in `dBm`;
+-   RSRP difference in `dB`;
+-   tilt in the project's defined angular unit;
+-   rates as fractions internally and percentages when reporting;
+-   BPS normalized to `[0,1]`.
+
+The exact numerical tilt bounds are scenario/configuration parameters
+and must be explicitly supplied rather than assumed.
+
+### 22.3 Configuration versus observation
+
+Separate:
+
+**Fixed scenario configuration**
+
+-   environment;
+-   cell positions;
+-   antenna height;
+-   frequency;
+-   transmit power;
+-   azimuth;
+-   antenna array;
+-   radiation pattern;
+-   polarization;
+-   tilt bounds;
+-   band-priority weights.
+
+from:
+
+**Dynamic/optimization variables**
+
+-   absolute tilt;
+-   derived DeltaTilt;
+-   predicted radio map;
+-   KPI values.
+
+### 22.4 Deterministic evaluation
+
+For a fixed scenario and fixed absolute tilt configuration, the
+evaluation pipeline should be reproducible.
+
+Store scenario identifiers, random seeds where applicable, model
+version, configuration version, and optimizer settings with experiment
+outputs.
+
+### 22.5 Single source of truth for KPI logic
+
+Do not duplicate KPI formulas across:
+
+-   TuRBO;
+-   MARL;
+-   evaluation scripts;
+-   reporting code.
+
+Implement one shared KPI evaluation component.
+
+------------------------------------------------------------------------
+
+## 23. Recommended Software Architecture
+
+A modular implementation should separate the following components:
+
+``` text
+project/
+├── environment/
+│   ├── scene/
+│   ├── materials/
+│   └── network/
+│
+├── mobility/
+│   └── sumo/
+│
+├── radio/
+│   ├── sionna_rt/
+│   ├── radio_map/
+│   └── rsrp/
+│
+├── data/
+│   ├── synthetic_mdt/
+│   ├── surrogate_dataset/
+│   └── scenarios/
+│
+├── surrogate/
+│   ├── model/
+│   ├── training/
+│   └── evaluation/
+│
+├── kpi/
+│   ├── hole.py
+│   ├── overlap.py
+│   ├── mean_overlap_neighbors.py
+│   ├── bps.py
+│   └── weak.py
+│
+├── optimization/
+│   ├── turbo/
+│   └── marl/
+│
+├── validation/
+│   └── sionna_rt/
+│
+├── experiments/
+│   ├── configs/
+│   └── results/
+│
+└── reports/
+```
+
+The exact implementation language and framework are not fixed by the
+current project specification.
+
+------------------------------------------------------------------------
+
+## 24. Validation Requirements
+
+Before accepting an optimized configuration, verify:
+
+### Constraint validation
+
+-   every absolute tilt is inside its permitted interval;
+-   DeltaTilt is computed from the same current-tilt baseline.
+
+### Surrogate validation
+
+-   radio-map error is measured on unseen scenarios;
+-   validation scenarios are not used for optimizer training;
+-   surrogate performance is reported separately from optimization
+    performance.
+
+### Optimization validation
+
+-   all five KPIs are computed using the same evaluator;
+-   lexicographic priority is respected;
+-   TuRBO and MARL use equivalent problem definitions.
+
+### Physical validation
+
+-   the final configuration is evaluated using Sionna-RT;
+-   held-out scenarios are used for final testing;
+-   surrogate predictions are compared against Sionna-RT results.
+
+------------------------------------------------------------------------
+
+## 25. Failure Modes to Avoid
+
+### 25.1 Optimizing only DeltaTilt
+
+Do not redefine the optimization space around arbitrary tilt offsets
+when the formal problem requires absolute tilt.
+
+DeltaTilt is derived from the optimized absolute configuration.
+
+### 25.2 Violating tilt bounds
+
+Never allow the optimizer to return an infeasible final configuration.
+
+### 25.3 Replacing lexicographic priority with an arbitrary weighted sum
+
+A weighted sum can allow improvement in a low-priority KPI to compensate
+for degradation in a higher-priority KPI.
+
+This conflicts with the specified KPI ordering unless the weights are
+rigorously designed to preserve it.
+
+### 25.4 Computing KPIs directly from incompatible representations
+
+Do not implement one KPI definition for Sionna-RT maps and another for
+surrogate maps.
+
+Both must pass through the same evaluator.
+
+### 25.5 Randomly splitting MDT records across train and test
+
+This can leak environment or trajectory information and produce overly
+optimistic generalization results.
+
+Use scenario-level separation.
+
+### 25.6 Evaluating every optimizer step with Sionna-RT
+
+This defeats the primary purpose of the surrogate and can make
+high-dimensional optimization prohibitively expensive.
+
+Use Sionna-RT for offline dataset generation and final validation.
+
+### 25.7 Reporting only one aggregate metric
+
+The five KPIs have different operational meanings and explicit priority.
+Report all five separately.
+
+------------------------------------------------------------------------
+
+## 26. Interpretation of Optimized Tilt
+
+Tilt changes should be interpreted through the physical chain:
+
+``` text
+DeltaTilt
+    ↓
+Delta RSRP
+    ↓
+Coverage / overlap changes
+    ↓
+KPI changes
+```
+
+The analysis should focus particularly on multi-band coordination.
+
+Expected design behavior is:
+
+-   lower-frequency layers can extend coverage toward cell edges;
+-   higher-frequency layers can concentrate coverage where UE density is
+    high;
+-   intermediate layers can provide a transition between broad coverage
+    and localized high-priority coverage.
+
+These expectations must be validated experimentally rather than treated
+as universal rules.
+
+------------------------------------------------------------------------
+
+## 27. Final Acceptance Criteria
+
+A method is considered successfully implemented when it can:
+
+1.  construct valid simulation scenarios;
+2.  generate UE trajectories with SUMO;
+3.  generate Sionna-RT RSRP data;
+4.  construct synthetic MDT;
+5.  generate radio-map/tilt training samples;
+6.  train and validate a surrogate model;
+7.  freeze the surrogate for optimization;
+8.  optimize all cell-band tilts jointly;
+9.  enforce every tilt bound;
+10. compute all five KPIs consistently;
+11. respect the lexicographic KPI priority;
+12. produce optimized absolute tilts and DeltaTilt;
+13. validate the final configuration using Sionna-RT;
+14. evaluate generalization on held-out scenarios;
+15. compare TuRBO and MARL under the same experimental conditions.
+
+------------------------------------------------------------------------
+
+## 28. References and External Dependencies
+
+The source specification identifies the following external technologies
+and references:
+
+-   **Sionna** --- radio propagation / ray-tracing simulation.
+-   **Eclipse SUMO** --- traffic and mobility simulation.
+-   **TuRBO** --- trust-region Bayesian optimization.
+-   Research references listed in the source project description include
+    work on machine-learning-based cellular optimization, MARL with
+    graph Q-networks for antenna tuning, and data-driven
+    high-dimensional Bayesian optimization.
+
+The current project specification does not prescribe a specific
+deep-learning framework, MARL library, data format, or programming
+language. Those implementation choices should therefore be treated as
+engineering decisions made during development rather than as fixed
+requirements of the research formulation.

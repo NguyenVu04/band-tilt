@@ -1,4 +1,4 @@
-"""The TorchRL environment wrapping the tilt problem — PROJECT.md sections 21-24.
+"""The TorchRL environment wrapping the tilt problem — PROJECT.md section 14.
 
 An agent proposes absolute tilts, the environment scores the resulting network,
 and the reward comes back. The expensive part is the scoring, so the environment
@@ -7,10 +7,10 @@ section 24) and Sionna-RT validates the learned policy afterwards.
 
 The action is the tilt, not a change to it
 ------------------------------------------
-Every agent emits absolute tilts in ``[theta_min, theta_max]``
+Every agent emits absolute tilts in ``[tilt_min, tilt_max]``
 (PROJECT.md section 3.1). With an offset parameterisation the feasible action
 range would depend on the current configuration, so the action space would move
-under the policy during training. See docs/adr/0001.
+under the policy during training. See PROJECT.md Decision 1.
 
 A consequence worth expecting: a single step can already reach any
 configuration. Episodes exist to let the agent refine, not to travel, so a long
@@ -67,7 +67,7 @@ class TiltEnv:
 
             Warn when ``objective`` is backed by Sionna-RT. It will work and it
             will be correct, but training will take weeks — this is the mistake
-            PROJECT.md section 24 exists to prevent.
+            PROJECT.md section 11.4 exists to prevent.
         """
         # TODO(1): partition the cell-band table by cfg.optim.agents.granularity
         # TODO(2): raise ValueError unless the partition is an exact cover
@@ -101,7 +101,7 @@ class TiltEnv:
         Example:
             >>> td = env.reset()
         """
-        # TODO(1): draw theta per cfg.optim.env.reset_strategy
+        # TODO(1): draw tilt per cfg.optim.env.reset_strategy
         # TODO(2): evaluate the starting KPIs so the first reward has a reference
         # TODO(3): return the per-agent observations as a TensorDict
         raise NotImplementedError("src.optim.marl.env.TiltEnv.reset")
@@ -119,7 +119,7 @@ class TiltEnv:
             NotImplementedError: Always — implement this module first.
 
         Notes:
-            Assemble the joint theta in cell-band table order. The agent
+            Assemble the joint tilt in cell-band table order. The agent
             partition is a grouping of that table, and reassembling it in agent
             order instead assigns tilts to the wrong cells — which produces a
             complete, plausible, entirely wrong training run.
@@ -131,17 +131,17 @@ class TiltEnv:
         Example:
             >>> td = env.step(td)
         """
-        # TODO(1): gather per-agent actions into one theta in table order
+        # TODO(1): gather per-agent actions into one tilt in table order
         # TODO(2): assert_within_bounds, catching a squashing bug here
-        # TODO(3): objective.kpis(theta) -> reward.compute(...)
+        # TODO(3): objective.kpis(tilt) -> reward.compute(...)
         # TODO(4): build the next observation and the truncation flag
         raise NotImplementedError("src.optim.marl.env.TiltEnv.step")
 
-    def observation(self, theta: Any, kpis: dict) -> Any:
-        """Build the per-agent local observation — PROJECT.md section 22.
+    def observation(self, tilt: Any, kpis: dict) -> Any:
+        """Build the per-agent local observation — PROJECT.md section 14.1.
 
         Args:
-            theta: The current joint configuration.
+            tilt: The current joint configuration.
             kpis: The KPIs for that configuration.
 
         Returns:
@@ -161,7 +161,7 @@ class TiltEnv:
             own masking.
 
         Example:
-            >>> obs = env.observation(theta, kpis)
+            >>> obs = env.observation(tilt, kpis)
         """
         # TODO(1): per agent, assemble the components enabled in cfg.optim.observation
         # TODO(2): local_kpi -> recompute over that agent serving area only

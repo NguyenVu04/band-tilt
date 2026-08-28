@@ -1,6 +1,6 @@
 """Tests for the shared search space.
 
-:mod:`src.optim.space` is what makes the comparison in PROJECT.md section 25
+:mod:`src.optim.space` is what makes the comparison in PROJECT.md section 17
 valid: BO and MARL must search the same set, or the experiment measures two
 search spaces rather than two methods. These tests pin down the properties both
 optimizers rely on.
@@ -27,18 +27,18 @@ pytestmark = pytest.mark.skip(reason="implement src/optim/space.py first")
 
 
 def test_dimension_is_cells_times_bands(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
-    """One decision variable per cell-band pair — PROJECT.md section 16."""
+    """One decision variable per cell-band pair — PROJECT.md section 3."""
     assert TiltSpace(cell_bands, cfg).n_dims == len(cell_bands)
 
 
 def test_unit_round_trip_is_exact(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
-    """``from_unit(to_unit(theta)) == theta``.
+    """``from_unit(to_unit(tilt)) == tilt``.
 
     The single most consequential property in this module.
     """
     space = TiltSpace(cell_bands, cfg)
-    theta = np.array([1.0, 4.5, 7.0, 9.25, 12.0, 14.0])
-    assert space.from_unit(space.to_unit(theta)) == pytest.approx(theta)
+    tilt = np.array([1.0, 4.5, 7.0, 9.25, 12.0, 14.0])
+    assert space.from_unit(space.to_unit(tilt)) == pytest.approx(tilt)
 
 
 def test_unit_bounds_map_to_the_corners(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
@@ -82,8 +82,8 @@ def test_unit_cube_maps_only_to_feasible_configurations(
     """
     space = TiltSpace(cell_bands, cfg)
     rng = np.random.default_rng(0)
-    for theta in space.from_unit(rng.random((32, space.n_dims))):
-        sampling.assert_within_bounds(theta, cell_bands)
+    for tilt in space.from_unit(rng.random((32, space.n_dims))):
+        sampling.assert_within_bounds(tilt, cell_bands)
 
 
 def test_baseline_is_the_current_deployed_configuration(
@@ -124,8 +124,8 @@ def test_sampled_configurations_are_all_feasible(cell_bands: pd.DataFrame, cfg: 
     network that cannot exist, and it spends ray-tracing budget teaching the
     surrogate about states no optimizer may propose.
     """
-    for theta in sampling.sample_configurations(cell_bands, cfg):
-        sampling.assert_within_bounds(theta, cell_bands)
+    for tilt in sampling.sample_configurations(cell_bands, cfg):
+        sampling.assert_within_bounds(tilt, cell_bands)
 
 
 def test_sampling_includes_the_baseline(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
@@ -134,9 +134,9 @@ def test_sampling_includes_the_baseline(cell_bands: pd.DataFrame, cfg: DictConfi
     It is the reference point for every claim, and a surrogate that is
     inaccurate exactly there undermines every comparison built on it.
     """
-    thetas = sampling.sample_configurations(cell_bands, cfg)
+    tilts = sampling.sample_configurations(cell_bands, cfg)
     baseline = cell_bands["current_tilt"].to_numpy()
-    assert np.isclose(thetas, baseline).all(axis=1).any()
+    assert np.isclose(tilts, baseline).all(axis=1).any()
 
 
 def test_sampling_is_deterministic(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:

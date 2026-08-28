@@ -28,7 +28,7 @@ imports Sionna-RT, or ``src.radio`` at all — which is exactly what lets the sa
 code score a ray-traced map, a surrogate prediction, and a hand-built test
 fixture with known answers.
 
-Optimization directions are fixed by PROJECT.md section 15: hole rate, overlap
+Optimization directions are fixed by PROJECT.md section 4: hole rate, overlap
 rate, weak rate and mean overlap neighbours are minimised; the Band Priority
 Score is maximised. ``vector`` is the only place that ordering is encoded.
 """

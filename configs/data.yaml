@@ -2,6 +2,12 @@
 # Single source of truth for input paths, the MDT/cell-config data contract,
 # and the split scheme.
 #
+# MDT is SYNTHETIC (PROJECT.md sections 6 and 9): SUMO generates UE
+# trajectories over the road network, Sionna-RT evaluates RSRP along them, and
+# the records below are the result. It is not an operator export. The schema is
+# the same either way — the difference is that a scenario can be regenerated,
+# perturbed and split as a unit, which is what section 12 needs.
+#
 # Enforcement lives in src/data/schema.py: this file declares *what* is true,
 # the Python module holds the logic that checks it. If a constraint needs
 # cross-column or conditional logic, express it in schema.py rather than
@@ -12,13 +18,18 @@
 #
 # `cell_config_path` is today's single-band export: one row per gcell, with a
 # single `digital_tilt` and no band, carrier frequency or transmit power. The
-# multi-band export that PROJECT.md section 4.2 requires has not arrived yet;
+# multi-band export that PROJECT.md section 8 requires has not arrived yet;
 # when it does, point `cell_config_path` at it and fill in the placeholder
-# columns under `schema.cell_config` below. See docs/adr/0005.
+# columns under `schema.cell_config` below.
+#
+# `mdt_path` points at the retired operator export. Under PROJECT.md sections 6
+# and 9 this is generated instead — SUMO trajectories through Sionna-RT — and
+# the generation stage does not exist yet. Do not treat the file below as the
+# spec'd input; see CLAUDE.md, Known gaps.
 mdt_path: data/raw/measurement_data.csv
 cell_config_path: data/raw/gcell_conf.csv
 
-# The Sionna-RT scene (PROJECT.md section 4.1). Read by src/radio/scene.py.
+# The Sionna-RT scene (PROJECT.md section 7). Read by src/radio/scene.py.
 scene_dir: data/external/simulation_map
 scene_file: data/external/simulation_map/scene.xml
 
@@ -28,9 +39,13 @@ train_path: data/processed/mdt_train.parquet
 test_path: data/processed/mdt_test.parquet
 
 # --- Cleaning --------------------------------------------------------------
-# PROJECT.md section 19 Step 2. Every rule here is a hard rule — a record either
-# violates a declared bound or it does not. Statistical outlier handling is a
-# modelling choice and does not belong in the cleaning stage.
+# Every rule here is a hard rule — a record either violates a declared bound or
+# it does not. Statistical outlier handling is a modelling choice and does not
+# belong in the cleaning stage.
+#
+# These rules were written for the operator export. Synthetic MDT is generated
+# in-range by construction, so most of them become assertions rather than
+# filters — which is a better use for them, not a reason to drop them.
 clean:
   drop_duplicates: true
   # Drop MDT records whose RSRP falls outside the reportable range declared in
@@ -44,19 +59,34 @@ clean:
   drop_outside_scene: true
 
 # --- Split -----------------------------------------------------------------
-# ALL split configuration lives here. PROJECT.md section 19 Step 3: MDT records
-# are correlated both spatially (consecutive points on one trajectory) and
-# temporally (one UE over one session), so a plain random split puts sibling
-# observations on both sides of the boundary and leaks. See docs/adr/0007.
+# ALL split configuration lives here.
 #
-# method: spatial_block | temporal | group_shuffle | random
-#   spatial_block  hold out whole grid blocks — tests spatial generalisation
-#   temporal       hold out the tail of the observation window
+# The boundary falls between SCENARIOS (PROJECT.md section 12.3, Decision 8). A
+# scenario is one environment — buildings, dimensions, materials — plus one UE
+# mobility realisation. Everything inside it shares those, so a split that cuts
+# through one leaks them.
+#
+# This is not only ordinary leakage hygiene. The question the held-out set has to
+# answer is a sim-to-reality one (section 12): does the surrogate, and the
+# configuration it produced, survive an environment it was never fitted on? A
+# record-level split cannot answer that — it measures interpolation inside one
+# scene and reports it as generalisation. Section 25.5 names it as a failure
+# mode outright.
+#
+# method: scenario | spatial_block | temporal | group_shuffle | random
+#   scenario       hold out whole scenarios — THE ONLY ONE VALID FOR A REPORTED
+#                  RESULT; tests transfer to unseen environments and mobility
+#   spatial_block  hold out whole grid blocks within a scenario — a diagnostic
+#                  of spatial transfer, not a generalisation estimate
+#   temporal       hold out the tail of the observation window — likewise
 #   group_shuffle  hold out whole groups of `group_col`
 #   random         provided only so the leakage cost can be demonstrated;
 #                  never use it for a reported result
 split:
-  method: spatial_block
+  method: scenario
+  # Column identifying the scenario a record belongs to, for method: scenario.
+  # Not yet emitted by the pipeline — see CLAUDE.md, Known gaps.
+  scenario_col: scenario_id
   group_col: ue_id
   # Edge length in metres of one held-out block, for method: spatial_block.
   block_size_m: 250.0
@@ -76,7 +106,7 @@ split:
 #
 # Never put a data-derived threshold (mean, std, quantile, IQR fence) here.
 schema:
-  # MDT records — PROJECT.md section 4.3.
+  # MDT records — PROJECT.md section 9.3.
   mdt:
     columns:
       ue_id:
@@ -112,7 +142,7 @@ schema:
         nullable: false
         source: UE above ground level; upper bound is the scene building height
 
-  # Cell configuration — PROJECT.md section 4.2.
+  # Cell configuration — PROJECT.md section 8.
   cell_config:
     columns:
       gcell_id:

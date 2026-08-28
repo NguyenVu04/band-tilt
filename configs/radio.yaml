@@ -4,18 +4,18 @@
 # This file is the only place the set of frequency bands is declared. No module
 # in src/ hardcodes the number of bands B: every one of them derives the
 # cell-band table from here via src/radio/cell_band.py. Adding a band is an
-# edit to this file. See docs/adr/0005.
+# edit to this file. See PROJECT.md section 8.
 
 # --- Bands -----------------------------------------------------------------
-# PROJECT.md section 30 lists the band set, the priority weights and the tilt
+# PROJECT.md section 22.2 lists the band set, the priority weights and the tilt
 # bounds as parameters that must be fixed experimentally. They are placeholders
 # until the multi-band cell configuration lands.
 #
-# priority_weight is w_b from PROJECT.md section 14. Higher means "prefer this
+# priority_weight is w_b from PROJECT.md section 4.7. Higher means "prefer this
 # band to dominate where UEs actually are". The conceptual ordering in the spec
 # is w_low < w_mid < w_high; only the ordering is fixed, not the values.
 #
-# tilt.min / tilt.max are theta_min and theta_max from PROJECT.md section 3.1.
+# tilt.min / tilt.max are tilt_min and tilt_max from PROJECT.md section 3.1.
 # They bound the absolute tilt, which is the optimization variable itself — so
 # these two numbers are the whole feasible set. Getting them wrong does not
 # produce an error, it produces a quietly wrong answer.
@@ -25,8 +25,8 @@ bands:
     tx_power_dbm: <transmit power in dBm>
     priority_weight: <w_b, positive>
     tilt:
-      min: <theta_min in degrees>
-      max: <theta_max in degrees>
+      min: <tilt_min in degrees>
+      max: <tilt_max in degrees>
 
 # Bands carried by each cell. A mapping of gcell_id -> list of band ids
 # overrides the default for that cell; `default` applies to every other cell.
@@ -49,7 +49,7 @@ antenna:
   num_cols: <horizontal elements>
 
 # --- Evaluation grid -------------------------------------------------------
-# The spatial grid G from PROJECT.md section 6. Every KPI is a sum over this
+# The spatial grid G from PROJECT.md section 10. Every KPI is a sum over this
 # grid, so its resolution changes every reported number: a coarse grid hides
 # small holes, a fine one multiplies ray-tracing cost. Fix it once, before the
 # first surrogate sample is generated, and record a change as an ADR.
@@ -74,7 +74,7 @@ ray_tracing:
 
 # --- Tilt sampling ---------------------------------------------------------
 # How candidate configurations are drawn to build the surrogate dataset
-# (PROJECT.md section 19 Step 5). Used by src/radio/sampling.py.
+# (PROJECT.md section 16 Phase 3). Used by src/radio/sampling.py.
 #
 # strategy: sobol | lhs | uniform | grid
 #   Prefer a low-discrepancy sequence (sobol, lhs) over uniform sampling: the

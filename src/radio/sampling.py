@@ -1,6 +1,6 @@
 """Draw absolute tilt configurations for the surrogate dataset.
 
-PROJECT.md section 19 Step 5 needs a set of configurations whose radio maps
+PROJECT.md section 16 Phase 3 needs a set of configurations whose radio maps
 become the surrogate training data. The set has to cover the tilt space well
 enough that the surrogate is accurate where the optimizer will actually look —
 which is not where uniform random sampling concentrates.
@@ -55,8 +55,8 @@ def sample_configurations(table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
         a continuous optimum it cannot be set to is not an answer.
 
     Example:
-        >>> thetas = sample_configurations(table, cfg)
-        >>> thetas.shape
+        >>> tilts = sample_configurations(table, cfg)
+        >>> tilts.shape
         (256, 26)
     """
     # TODO(1): dispatch on cfg.radio.sampling.strategy (sobol, lhs, uniform, grid)
@@ -67,11 +67,11 @@ def sample_configurations(table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
     raise NotImplementedError("src.radio.sampling.sample_configurations")
 
 
-def assert_within_bounds(theta: np.ndarray, table: pd.DataFrame) -> None:
+def assert_within_bounds(tilt: np.ndarray, table: pd.DataFrame) -> None:
     """Assert every tilt in a configuration lies within its own bounds.
 
     Args:
-        theta: One configuration of shape ``(len(table),)`` or a batch of shape
+        tilt: One configuration of shape ``(len(table),)`` or a batch of shape
             ``(n, len(table))``, in degrees.
         table: The cell-band table from
             :func:`src.radio.cell_band.build_table`.
@@ -88,7 +88,7 @@ def assert_within_bounds(theta: np.ndarray, table: pd.DataFrame) -> None:
         that Sionna-RT will happily simulate.
 
     Example:
-        >>> assert_within_bounds(theta_star, table)
+        >>> assert_within_bounds(optimized_tilt, table)
     """
     # TODO(1): fetch lower/upper from cell_band.tilt_bounds(table)
     # TODO(2): compare with broadcasting so a batch works too

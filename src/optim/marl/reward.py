@@ -1,4 +1,4 @@
-"""The MARL reward — PROJECT.md section 23.
+"""The MARL reward — PROJECT.md section 14.5.
 
 The scalar reward is::
 
@@ -24,7 +24,7 @@ rather than assumed.
 
 A weighted sum is a lossy encoding of the priority
 --------------------------------------------------
-PROJECT.md section 17 states a strict order; a weighted sum will always trade
+PROJECT.md section 5 states a strict order; a weighted sum will always trade
 some hole rate for enough of everything else. Section 23 acknowledges this and
 allows a hierarchical or lexicographic reward instead. If the trained policy
 turns out to accept coverage holes in exchange for band-priority gains, that is

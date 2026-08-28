@@ -1,4 +1,4 @@
-"""The MARL training loop — PROJECT.md sections 21 and 24.
+"""The MARL training loop — PROJECT.md section 14 and 11.4.
 
 Also runs as a script: ``python -m src.optim.marl.train optim=marl`` (or
 ``task marl``).
@@ -20,7 +20,7 @@ reasonable if some carry bands that others do not.
 
 Compare against BO honestly
 ---------------------------
-PROJECT.md section 25.2 compares the two methods on computational cost, and MARL
+PROJECT.md section 17 compares the two methods on computational cost, and MARL
 carries a training cost that BO does not. Report the training cost as part of
 the method cost, not as a fixed setup expense excluded from the comparison — a
 policy that transfers across networks amortises it, and one that does not, does
@@ -30,7 +30,7 @@ Validate the policy, not the training curve
 -------------------------------------------
 A converged reward curve says the agent learned to maximise the surrogate. The
 result that matters is the KPI vector of the configuration it produces, measured
-with Sionna-RT (PROJECT.md section 26).
+with Sionna-RT (PROJECT.md section 16 Phase 7).
 """
 
 from typing import Any
@@ -103,11 +103,11 @@ class MARLTrainer:
             because the deliverable is one configuration to deploy.
 
         Example:
-            >>> theta_star = trainer.extract_policy_configuration()
+            >>> optimized_tilt = trainer.extract_policy_configuration()
         """
         # TODO(1): reset the environment at the baseline configuration
         # TODO(2): roll out deterministically, taking the policy mean
-        # TODO(3): return the final theta, asserted within bounds
+        # TODO(3): return the final tilt, asserted within bounds
         raise NotImplementedError("src.optim.marl.train.MARLTrainer.extract_policy_configuration")
 
 
@@ -126,7 +126,7 @@ def main(cfg: DictConfig) -> float | None:
 
     Notes:
         Run over ``cfg.optim.seeds`` and report mean, standard deviation, best
-        and worst (PROJECT.md section 25.3). A single-seed result for a
+        and worst (PROJECT.md section 17). A single-seed result for a
         stochastic method is an anecdote, and MARL varies more across seeds than
         BO does.
 
@@ -137,7 +137,7 @@ def main(cfg: DictConfig) -> float | None:
     # TODO(2): build the space, surrogate-backed objective and TiltEnv
     # TODO(3): train per seed in cfg.optim.seeds
     # TODO(4): extract the configuration and validate it with source="sionna"
-    # TODO(5): persist theta_star, the KPIs and the history to reports/results/
+    # TODO(5): persist optimized_tilt, the KPIs and the history to reports/results/
     raise NotImplementedError("src.optim.marl.train.main")
 
 

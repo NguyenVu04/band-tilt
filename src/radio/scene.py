@@ -1,4 +1,4 @@
-"""Sionna-RT scene construction — PROJECT.md section 19 Step 4.
+"""Sionna-RT scene construction — PROJECT.md section 16 Phase 1.
 
 The scene is the propagation environment: terrain, building geometry, and the
 electromagnetic material assigned to every surface. It is built once and reused

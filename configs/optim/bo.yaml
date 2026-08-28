@@ -1,41 +1,79 @@
-# Bayesian Optimization over the absolute-tilt space (PROJECT.md section 20).
+# TuRBO — trust-region Bayesian Optimization over the absolute-tilt space
+# (PROJECT.md section 13).
 #
-# BO and MARL solve the SAME problem: they read the same tilt bounds from
+# TuRBO and MARL solve the SAME problem: they read the same tilt bounds from
 # configs/radio.yaml through src/optim/space.py, and score with the same
 # src/kpi/ functions. Nothing about the problem is defined in this file — only
-# how this optimizer searches it. See docs/adr/0006.
+# how this optimizer searches it. See PROJECT.md sections 13 and 14.
 
 _target_: src.optim.bo.run.BayesianOptimizer
 
 # Backend: ax | botorch
 #   ax       the managed Service API — handles the loop, storage and restarts
 #   botorch  the model/acquisition layer directly, for full control
+#
+# TuRBO is not a stock Ax generation strategy: the trust-region logic below has
+# to be supplied either way. botorch gives more direct control over it.
 backend: ax
+
+# --- Trust region ----------------------------------------------------------
+# PROJECT.md section 13.2. TuRBO fits its GP and maximises the acquisition
+# inside a box T_t centred on the best configuration so far, not over all of X.
+# That is the whole reason this method was chosen: with one dimension per
+# cell-band the problem sits in the tens of dimensions, where a single global GP
+# fits poorly and the acquisition surface goes flat.
+#
+# T_t is always a SUBSET of the feasible box from configs/radio.yaml. The trust
+# region narrows the search; it never relaxes the tilt bounds, which are hard
+# constraints (PROJECT.md section 25.2).
+trust_region:
+  # Initial edge length as a fraction of each dimension's full range.
+  length_init: <fraction of the tilt range, in (0, 1]>
+  # Bounds on that length. Hitting length_min triggers a restart rather than an
+  # ever-shrinking region that stops proposing anything new.
+  length_min: <fraction below which the region restarts>
+  length_max: <fraction the region may not exceed>
+  # Consecutive improvements before the region doubles, and consecutive
+  # failures before it halves. Common defaults are 3 and ceil(D / batch_size).
+  success_tolerance: <consecutive successes before expanding>
+  failure_tolerance: <consecutive failures before contracting>
+  # Restart from a fresh quasi-random design when the region collapses.
+  # Observations carry over: the reported evaluation count is the total across
+  # restarts, not the count since the last one.
+  restart_on_collapse: true
+  # Number of independent trust regions searched at once. 1 is plain TuRBO-1.
+  n_regions: 1
 
 # --- Search ----------------------------------------------------------------
 # The decision vector is one absolute tilt per cell-band, so dimensionality is
 # N cells x B bands. This grows fast, and standard GP-based BO degrades well
-# before the full problem size — PROJECT.md section 25.4 asks for exactly this
-# scalability comparison, so record where it breaks rather than hiding it.
+# before the full problem size — which is what the trust region above is for.
+# PROJECT.md section 17 asks for exactly this scalability comparison, so record
+# where it breaks rather than hiding it.
 search:
   # Quasi-random configurations evaluated before the model takes over. Too few
   # and the first surrogate is fitted on nothing; a common floor is 2 * D + 2.
+  # Also used for the design after a trust-region restart.
   n_init: <number of initial configurations>
   # Model-guided iterations after the initialisation phase.
-  n_iter: <number of BO iterations>
+  n_iter: <number of TuRBO iterations>
   # Candidates proposed per iteration. > 1 only helps if evaluations run in
   # parallel; Sionna-RT evaluations here are sequential unless you change that.
   batch_size: 1
 
 # --- Model and acquisition -------------------------------------------------
-# PROJECT.md section 30 leaves both open.
+# PROJECT.md section 22.2 leaves both open.
+#
+# The model is fitted on the observations inside the trust region, not on all of
+# them. TuRBO conventionally pairs a local GP with Thompson sampling; ei and
+# logei also work, restricted to T_t.
 #
 # The choice of acquisition function has to match configs/kpi.yaml `mode`:
-# a single-objective acquisition (ei, ucb) needs mode: scalarized, while
+# a single-objective acquisition (ei, ucb, ts) needs mode: scalarized, while
 # qnehvi is multi-objective and works on the raw KPI vector, returning a Pareto
 # front rather than one configuration.
 surrogate_model: <gp|saasgp|other>
-acquisition: <ei|logei|ucb|qnehvi>
+acquisition: <ts|ei|logei|ucb|qnehvi>
 acquisition_params: {}
 
 # --- Objective -------------------------------------------------------------
@@ -43,15 +81,20 @@ acquisition_params: {}
 #   kpi        evaluate every candidate with Sionna-RT — expensive, exact
 #   surrogate  evaluate with the trained surrogate — cheap, approximate
 #
+# The surrogate predicts a RADIO MAP; src/kpi/ derives the five KPIs from it
+# (PROJECT.md Decision 6). `source` selects which map the evaluator scores, not
+# which KPI implementation runs — there is only one of those.
+#
 # With source: surrogate, `validate_top_k` candidates are re-run through
-# Sionna-RT at the end. PROJECT.md section 20 requires this: a BO result read
+# Sionna-RT at the end. PROJECT.md section 13 requires this: a TuRBO result read
 # off the surrogate alone has not been verified against the ground truth.
 objective:
   source: surrogate
   validate_top_k: <number of candidates to re-evaluate with Sionna-RT>
 
 # --- Stopping --------------------------------------------------------------
-# PROJECT.md section 30 item 12.
+# PROJECT.md section 22.2. Budgets must be comparable to the MARL budget in
+# configs/optim/marl.yaml — section 17 requires it.
 stopping:
   max_evaluations: <hard cap on Sionna-RT evaluations>
   # Stop when the best objective has not improved by more than this for
@@ -59,7 +102,7 @@ stopping:
   min_improvement: null
   patience: <iterations without improvement>
 
-# Seeds for the stability comparison in PROJECT.md section 25.3. Report mean,
+# Seeds for the stability comparison in PROJECT.md section 17. Report mean,
 # standard deviation, best and worst across this set — a single-seed result for
 # a stochastic optimizer is an anecdote.
 seeds: ["${seed}"]

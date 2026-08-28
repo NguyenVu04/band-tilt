@@ -10,7 +10,7 @@ downtilt: a positive number points the beam at the ground.
 counter-clockwise from the x-axis, and pitch is a rotation in which a positive
 value lifts the beam.
 
-The conversion fixed by PROJECT.md section 5 is::
+The conversion fixed by PROJECT.md section 22.2 is::
 
     yaw = deg2rad(90.0 - azimuth)
     pitch = deg2rad(-tilt)
@@ -26,7 +26,7 @@ invisible in every downstream number.
 
 So the conversion exists exactly once, it is unit-tested against hand-computed
 values, and no other module may write ``90.0 -`` or ``-tilt``. See
-docs/adr/0004.
+PROJECT.md section 22.2.
 """
 
 import numpy as np
@@ -34,7 +34,7 @@ import pandas as pd
 
 
 def absolute_tilt(etilt: np.ndarray, mtilt: np.ndarray) -> np.ndarray:
-    """Combine electrical and mechanical tilt into the absolute tilt theta.
+    """Combine electrical and mechanical tilt into the absolute tilt tilt.
 
     Args:
         etilt: Electrical tilt in degrees.
@@ -47,13 +47,13 @@ def absolute_tilt(etilt: np.ndarray, mtilt: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        PROJECT.md section 4.2 defines ``tilt = eTilt + mTilt``, and section 3.1
+        PROJECT.md section 8 defines ``tilt = eTilt + mTilt``, and section 3.1
         makes that sum — not either component — the optimization variable. The
         split back into a settable electrical tilt and a fixed mechanical tilt
         is a deployment concern, handled in reporting.
 
         Today's export carries a single ``digital_tilt`` and no mechanical tilt
-        column, so this is not yet reachable from real data (docs/adr/0005).
+        column, so this is not yet reachable from real data (PROJECT.md section 8).
 
     Example:
         >>> absolute_tilt(np.array([6.0]), np.array([2.0]))
@@ -77,7 +77,7 @@ def azimuth_to_yaw(azimuth_deg: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``yaw = deg2rad(90.0 - azimuth)`` (PROJECT.md section 5). Do not wrap
+        ``yaw = deg2rad(90.0 - azimuth)`` (PROJECT.md section 22.2). Do not wrap
         the result into a fixed interval unless a caller needs it: wrapping
         makes two mathematically equal orientations compare unequal, which
         breaks the round-trip test.
@@ -103,7 +103,7 @@ def tilt_to_pitch(tilt_deg: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``pitch = deg2rad(-tilt)`` (PROJECT.md section 5). The sign flip is the
+        ``pitch = deg2rad(-tilt)`` (PROJECT.md section 22.2). The sign flip is the
         entire content of this function and the entire risk: read the assertion
         in the test rather than re-deriving it.
 
@@ -115,13 +115,13 @@ def tilt_to_pitch(tilt_deg: np.ndarray) -> np.ndarray:
     raise NotImplementedError("src.radio.geometry.tilt_to_pitch")
 
 
-def orientations(cell_bands: pd.DataFrame, theta: np.ndarray) -> np.ndarray:
+def orientations(cell_bands: pd.DataFrame, tilt: np.ndarray) -> np.ndarray:
     """Build the Sionna-RT orientation array for one tilt configuration.
 
     Args:
         cell_bands: The cell-band table from
             :func:`src.radio.cell_band.build_table`, carrying azimuth per row.
-        theta: Absolute tilt per cell-band, in degrees, ordered to match
+        tilt: Absolute tilt per cell-band, in degrees, ordered to match
             ``cell_bands``.
 
     Returns:
@@ -130,24 +130,24 @@ def orientations(cell_bands: pd.DataFrame, theta: np.ndarray) -> np.ndarray:
 
     Raises:
         NotImplementedError: Always — implement this module first.
-        ValueError: Once implemented, when ``theta`` and ``cell_bands`` differ
+        ValueError: Once implemented, when ``tilt`` and ``cell_bands`` differ
             in length.
 
     Notes:
         Roll is zero for every transmitter here; it is included so the array
         matches the shape Sionna-RT expects.
 
-        Check the length rather than trusting it. A theta vector that is out of
+        Check the length rather than trusting it. A tilt vector that is out of
         order or the wrong size assigns tilts to the wrong cells, and every
         downstream number is then computed for a network that does not exist.
 
     Example:
-        >>> orient = orientations(cell_bands, theta)
+        >>> orient = orientations(cell_bands, tilt)
         >>> orient.shape
         (26, 3)
     """
-    # TODO(1): raise ValueError when len(theta) != len(cell_bands)
+    # TODO(1): raise ValueError when len(tilt) != len(cell_bands)
     # TODO(2): yaw from azimuth_to_yaw(cell_bands.azimuth)
-    # TODO(3): pitch from tilt_to_pitch(theta)
+    # TODO(3): pitch from tilt_to_pitch(tilt)
     # TODO(4): stack with a zero roll column
     raise NotImplementedError("src.radio.geometry.orientations")

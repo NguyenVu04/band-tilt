@@ -1,4 +1,4 @@
-"""The final deliverable — PROJECT.md section 27.
+"""The final deliverable — PROJECT.md section 19.
 
 The tilt table is what a network engineer actually receives::
 
@@ -8,11 +8,11 @@ Everything else in this project exists to fill in that fourth column.
 
 The offset is derived here and nowhere else
 -------------------------------------------
-``delta = theta* - theta_current`` is computed after optimization, purely to
+``delta = tilt* - current_tilt`` is computed after optimization, purely to
 communicate how far each antenna has to move. It is not a decision variable, not
-a KPI, and carries no penalty — PROJECT.md sections 3.2 and 3.3 are explicit
+a KPI, and carries no penalty — PROJECT.md section 3.1 and 2.3 are explicit
 that the research question is network quality, not minimal reconfiguration. See
-docs/adr/0001.
+PROJECT.md Decision 1.
 
 If a deployment caps how far a tilt may move in one step, that is an operational
 constraint on the feasible set: narrow the bounds in ``configs/radio.yaml`` and
@@ -22,7 +22,7 @@ validated.
 
 State the provenance
 --------------------
-Every reported KPI comes from Sionna-RT (PROJECT.md section 26). Where a
+Every reported KPI comes from Sionna-RT (PROJECT.md section 16 Phase 7). Where a
 surrogate prediction is shown, label it. A table that mixes the two without
 saying so is the single most misleading artifact this project can produce.
 """
@@ -34,11 +34,11 @@ import pandas as pd
 from omegaconf import DictConfig
 
 
-def tilt_table(theta_star: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
-    """Build the per-cell-band tilt report — PROJECT.md section 27.1.
+def tilt_table(optimized_tilt: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
+    """Build the per-cell-band tilt report — PROJECT.md section 19.
 
     Args:
-        theta_star: The optimized configuration in degrees, in cell-band table
+        optimized_tilt: The optimized configuration in degrees, in cell-band table
             order.
         table: The cell-band table from
             :func:`src.radio.cell_band.build_table`.
@@ -60,9 +60,9 @@ def tilt_table(theta_star: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
         sort into no useful order.
 
     Example:
-        >>> tilt_table(theta_star, table)
+        >>> tilt_table(optimized_tilt, table)
     """
-    # TODO(1): cell_band.tilt_offset(theta_star, table)
+    # TODO(1): cell_band.tilt_offset(optimized_tilt, table)
     # TODO(2): sort by absolute offset, descending, for presentation
     raise NotImplementedError("src.evaluation.report.tilt_table")
 
@@ -85,7 +85,7 @@ def summary(results: dict, tilts: pd.DataFrame, cfg: DictConfig) -> dict:
     Notes:
         Include the provenance: the seed, the cell-band table ordering, the grid
         geometry, the ray-tracing settings, and the surrogate artifact used. A
-        theta vector without its column ordering cannot be interpreted later,
+        tilt vector without its column ordering cannot be interpreted later,
         and a KPI without its grid resolution cannot be compared against
         anything.
 
