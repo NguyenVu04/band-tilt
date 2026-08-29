@@ -1,6 +1,6 @@
-"""Coverage KPIs 1-4 — PROJECT.md sections 4.2 to 4.6.
+"""Coverage KPIs 1-4 — hole, overlap, mean overlap neighbours and weak rate.
 
-Four numbers, in the priority order PROJECT.md section 5 fixes:
+Four numbers, in the priority order ``cfg.kpi.order`` fixes:
 
 ``hole_rate``              fraction of the grid with no usable signal at all
 ``overlap_rate``           fraction of the grid where neighbours pile onto the
@@ -41,7 +41,8 @@ def hole_rate(r_max: np.ndarray, cfg: DictConfig) -> float:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``H(x) = 1[R_max(x) <= hole_dbm]`` (PROJECT.md section 4.2). The
+        ``H(x) = 1[R_max(x) <= hole_dbm]``, with ``hole_dbm`` from
+        ``cfg.kpi``. The
         comparison is inclusive at the threshold, and the denominator is the
         full grid ``|G|``.
 
@@ -70,7 +71,7 @@ def weak_rate(r_max: np.ndarray, cfg: DictConfig) -> float:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``W(x) = 1[hole_dbm < R_max(x) <= weak_dbm]`` (PROJECT.md section 4.3).
+        ``W(x) = 1[hole_dbm < R_max(x) <= weak_dbm]``, both from ``cfg.kpi``.
         The band is half-open on both sides, so hole and weak are disjoint by
         construction — a location cannot be counted twice, and a bug that makes
         it possible shows up as ``hole + weak > 100``.
@@ -103,8 +104,8 @@ def overlap_neighbors(per_cell: np.ndarray, serving: np.ndarray, cfg: DictConfig
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        A neighbour ``j`` counts when both conditions of PROJECT.md section 4.4
-        hold: the serving cell is covered, ``R_s(x) > hole_dbm``; and the
+        A neighbour ``j`` counts when both conditions hold: the serving cell
+        is covered, ``R_s(x) > hole_dbm``; and the
         neighbour is within the margin, ``R_s(x) - R_j(x) < overlap_margin_db``.
 
         The serving cell must be excluded from its own count — it trivially
@@ -138,7 +139,7 @@ def overlap_rate(n_ov: np.ndarray) -> float:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``O(x) = 1[N_ov(x) > 0]`` (PROJECT.md section 4.4), over the full grid.
+        ``O(x) = 1[N_ov(x) > 0]``, over the full grid.
         Second priority, above weak rate.
 
     Example:
@@ -164,8 +165,7 @@ def mean_overlap_neighbors(n_ov: np.ndarray) -> float:
 
     Notes:
         The denominator is ``|G|``, every evaluation location, including the
-        ones where nothing overlaps and the ones that are coverage holes
-        (PROJECT.md section 4.6)::
+        ones where nothing overlaps and the ones that are coverage holes::
 
             MeanOverlapNeighbors = (1 / |G|) * sum_g N_ov(g)
 
@@ -176,13 +176,13 @@ def mean_overlap_neighbors(n_ov: np.ndarray) -> float:
         overlap rate: the two now move together, and a configuration that
         concentrates severe overlap in a few places is no longer distinguished
         from one that spreads mild overlap widely. Recorded as a cost in
-        docs/adr/0002; the spec is nonetheless what this must implement.
+        docs/adr/0001; the spec is nonetheless what this must implement.
 
         No empty-denominator case exists any more — ``|G|`` is never zero — so
         an all-zero ``n_ov`` returns ``0.0`` naturally rather than by a guard.
 
         This KPI now ranks THIRD in the lexicographic order, ahead of Band
-        Priority Score and weak rate (PROJECT.md section 5).
+        Priority Score and weak rate, per ``cfg.kpi.order``.
 
     Example:
         >>> mean_overlap_neighbors(n_ov)

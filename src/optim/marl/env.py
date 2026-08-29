@@ -1,16 +1,16 @@
-"""The TorchRL environment wrapping the tilt problem — PROJECT.md section 14.
+"""The TorchRL environment wrapping the tilt problem.
 
 An agent proposes absolute tilts, the environment scores the resulting network,
 and the reward comes back. The expensive part is the scoring, so the environment
-calls the surrogate rather than Sionna-RT during training (PROJECT.md
-section 24) and Sionna-RT validates the learned policy afterwards.
+calls the surrogate rather than Sionna-RT during training, and Sionna-RT
+validates the learned policy afterwards.
 
 The action is the tilt, not a change to it
 ------------------------------------------
 Every agent emits absolute tilts in ``[tilt_min, tilt_max]``
-(PROJECT.md section 3.1). With an offset parameterisation the feasible action
+(:mod:`src.optim.space`). With an offset parameterisation the feasible action
 range would depend on the current configuration, so the action space would move
-under the policy during training. See PROJECT.md Decision 1.
+under the policy during training.
 
 A consequence worth expecting: a single step can already reach any
 configuration. Episodes exist to let the agent refine, not to travel, so a long
@@ -67,7 +67,7 @@ class TiltEnv:
 
             Warn when ``objective`` is backed by Sionna-RT. It will work and it
             will be correct, but training will take weeks — this is the mistake
-            PROJECT.md section 11.4 exists to prevent.
+            the frozen surrogate exists to prevent.
         """
         # TODO(1): partition the cell-band table by cfg.optim.agents.granularity
         # TODO(2): raise ValueError unless the partition is an exact cover
@@ -138,7 +138,7 @@ class TiltEnv:
         raise NotImplementedError("src.optim.marl.env.TiltEnv.step")
 
     def observation(self, tilt: Any, kpis: dict) -> Any:
-        """Build the per-agent local observation — PROJECT.md section 14.1.
+        """Build the per-agent local observation.
 
         Args:
             tilt: The current joint configuration.

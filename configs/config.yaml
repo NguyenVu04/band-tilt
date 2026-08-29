@@ -27,8 +27,7 @@ defaults:
 
 # Global seed. Consumed by src.utils.seed.set_seed(), by the splitter, by the
 # tilt sampler and by both optimizers. Change it here only, never per module.
-# Reported results must state the seed set they were averaged over (PROJECT.md
-# section 25.3).
+# Reported results must state the seed set they were averaged over.
 seed: 42
 
 project_name: band-tilt

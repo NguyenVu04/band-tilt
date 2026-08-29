@@ -2,11 +2,11 @@
 # Single source of truth for input paths, the MDT/cell-config data contract,
 # and the split scheme.
 #
-# MDT is SYNTHETIC (PROJECT.md sections 6 and 9): SUMO generates UE
+# MDT is SYNTHETIC: SUMO generates UE
 # trajectories over the road network, Sionna-RT evaluates RSRP along them, and
 # the records below are the result. It is not an operator export. The schema is
 # the same either way — the difference is that a scenario can be regenerated,
-# perturbed and split as a unit, which is what section 12 needs.
+# perturbed and split as a unit, which is what the sim-to-reality study needs.
 #
 # Enforcement lives in src/data/schema.py: this file declares *what* is true,
 # the Python module holds the logic that checks it. If a constraint needs
@@ -18,7 +18,7 @@
 #
 # `cell_config_path` is today's single-band export: one row per gcell, with a
 # single `digital_tilt` and no band, carrier frequency or transmit power. The
-# multi-band export that PROJECT.md section 8 requires has not arrived yet;
+# multi-band export the cell-band table requires has not arrived yet;
 # when it does, point `cell_config_path` at it and fill in the placeholder
 # columns under `schema.cell_config` below.
 #
@@ -28,14 +28,14 @@
 # date; `raw/gcell_conf.csv` is the other candidate and has not been reconciled
 # against the scene.
 #
-# `mdt_path` points at the retired operator export. Under PROJECT.md sections 6
-# and 9 this is generated instead — SUMO trajectories through Sionna-RT — and
+# `mdt_path` points at the retired operator export. MDT is generated instead
+# — SUMO trajectories through Sionna-RT — and
 # the generation stage does not exist yet. Do not treat the file below as the
 # spec'd input; see CLAUDE.md, Known gaps.
 mdt_path: data/raw/measurement_data.csv
 cell_config_path: data/external/gcell_conf.csv
 
-# The Sionna-RT scene (PROJECT.md section 7). Read by src/radio/scene.py.
+# The Sionna-RT scene. Read by src/radio/scene.py.
 scene_dir: data/external/simulation_map
 scene_file: data/external/simulation_map/scene.xml
 
@@ -67,16 +67,16 @@ clean:
 # --- Split -----------------------------------------------------------------
 # ALL split configuration lives here.
 #
-# The boundary falls between SCENARIOS (PROJECT.md section 12.3, Decision 8). A
+# The boundary falls between SCENARIOS (src/data/split.py). A
 # scenario is one environment — buildings, dimensions, materials — plus one UE
 # mobility realisation. Everything inside it shares those, so a split that cuts
 # through one leaks them.
 #
 # This is not only ordinary leakage hygiene. The question the held-out set has to
-# answer is a sim-to-reality one (section 12): does the surrogate, and the
+# answer is a sim-to-reality one: does the surrogate, and the
 # configuration it produced, survive an environment it was never fitted on? A
 # record-level split cannot answer that — it measures interpolation inside one
-# scene and reports it as generalisation. Section 25.5 names it as a failure
+# scene and reports it as generalisation. That is a known failure
 # mode outright.
 #
 # method: scenario | spatial_block | temporal | group_shuffle | random
@@ -112,7 +112,7 @@ split:
 #
 # Never put a data-derived threshold (mean, std, quantile, IQR fence) here.
 schema:
-  # MDT records — PROJECT.md section 9.3.
+  # MDT records.
   mdt:
     columns:
       ue_id:
@@ -151,10 +151,9 @@ schema:
         dtype: string
         nullable: false
         source: src.data.scenario.scenario_id; a deterministic hash of the
-          scenario definition (PROJECT.md section 12.3). What split.scenario_col
-          below names.
+          scenario definition (ADR 0009). What split.scenario_col below names.
 
-  # Cell configuration — PROJECT.md section 8.
+  # Cell configuration.
   cell_config:
     columns:
       gcell_id:
@@ -194,8 +193,8 @@ schema:
           declared in configs/radio.yaml, not here
 
       # --- Pending the multi-band export -----------------------------------
-      # These columns do not exist in data/raw/gcell_conf.csv. PROJECT.md
-      # section 4.2 requires all of them; PROJECT.md section 3 defines
+      # These columns do not exist in data/raw/gcell_conf.csv. The cell-band
+      # table requires all of them, and
       # tilt = eTilt + mTilt, which today's single `digital_tilt` cannot
       # express. Fill each entry in and remove this comment when the
       # multi-band export lands. Until then src/data/schema.py must be called

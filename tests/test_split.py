@@ -4,7 +4,7 @@ Splitting bugs do not raise — they produce results that look better than they
 are, and nothing downstream notices. MDT makes this worse than usual: records
 are correlated both spatially and temporally, so a split that looks random and
 balanced can still put a measurement's near-twin on the other side of the
-boundary. See PROJECT.md section 12.3.
+boundary. See :mod:`src.data.split`.
 
 Every test is skipped until ``src/data/split.py`` is implemented; the skip list
 is the implementation checklist.

@@ -1,10 +1,10 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 #
-# The stages mirror PROJECT.md section 16 and the notebooks one-to-one, and both
+# The stages mirror the pipeline phases and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
 # Two stages are active: `mobility` and the legacy `clean_split`. The rest are
-# commented because they depend on parameters PROJECT.md section 22.2 leaves
+# commented because they depend on parameters the configs still leave
 # open (band table, tilt bounds, grid resolution, surrogate architecture) and
 # on the multi-band cell configuration that has not arrived yet. Uncomment
 # each as its inputs become real.
@@ -55,8 +55,8 @@ stages:
       - data/interim/trajectories
 
   # --- LEGACY: cleaning the retired operator MDT export ---------------------
-  # No notebook calls this any more. MDT is now synthetic (PROJECT.md sections 6
-  # and 9) and the scenario-level split belongs to the surrogate dataset stage.
+  # No notebook calls this any more. MDT is now synthetic, and the
+  # scenario-level split belongs to the surrogate dataset stage.
   # Kept until src/data/ is reworked; see CLAUDE.md, Known gaps.
   clean_split:
     cmd: python -m src.data.clean
@@ -166,7 +166,7 @@ stages:
   # --- Phases 7-8: Sionna-RT validation and reporting (notebook 06) --------
   # Depends on the TEST split, not the train split: UE density during
   # optimization came from train, and the Band Priority Score weights locations
-  # by where users are. The split is at SCENARIO level (PROJECT.md section 12.3),
+  # by where users are. The split is at SCENARIO level (src/data/split.py),
   # so this validates on environments the surrogate never saw.
   #
   # validate:

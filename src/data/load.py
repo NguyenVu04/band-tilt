@@ -73,11 +73,11 @@ def load_cell_config(cfg: DictConfig) -> pd.DataFrame:
 
     Notes:
         Today's export has one ``digital_tilt`` per cell and no band, carrier
-        frequency or transmit power. PROJECT.md section 8 requires all of
-        them, and section 3 defines ``tilt = eTilt + mTilt``, which a single
+        frequency or transmit power. The cell-band table requires all of
+        them, and ``tilt = eTilt + mTilt``, which a single
         tilt column cannot express. Until the multi-band export arrives, the
         columns marked pending in ``configs/data.yaml`` will be absent — so
-        validate this frame with ``strict=False``. See PROJECT.md section 8.
+        validate this frame with ``strict=False``.
 
         This function returns the configuration as exported. Turning it into the
         cell-band table the rest of the project uses is

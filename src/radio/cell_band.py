@@ -1,6 +1,6 @@
 """The cell-band table — the atomic unit of the decision variable.
 
-PROJECT.md optimises one absolute tilt per ``(cell, band)`` pair, so the
+The project optimises one absolute tilt per ``(cell, band)`` pair, so the
 project's fundamental object is not a cell and not a band but the pair. This
 module builds the table of those pairs and pins down their order.
 
@@ -19,7 +19,8 @@ Today's export has no band column, so the pairs are formed by applying the band
 declaration in ``configs/radio.yaml`` to each configured cell. When the
 multi-band export arrives, set ``cfg.radio.cells.from_cell_config`` and the
 table is read from the data instead. Nothing downstream changes: no module
-hardcodes the number of bands. See PROJECT.md section 8.
+hardcodes the number of bands. See the cell configuration schema in
+``configs/data.yaml``.
 """
 
 import numpy as np
@@ -73,8 +74,8 @@ def current_tilt(table: pd.DataFrame) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This vector is the baseline every reported result is measured against
-        (PROJECT.md section 20), and the starting point for the MARL reset
+        This vector is the baseline every reported result is measured against,
+        and the starting point for the MARL reset
         strategy ``baseline``. It is also the only input to the tilt offset in
         :func:`tilt_offset`.
 
@@ -99,8 +100,8 @@ def tilt_bounds(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        These two vectors are the whole of the constraint in PROJECT.md
-        section 16. They are consumed by :mod:`src.optim.space`, which is what
+        These two vectors are the whole of the tilt-bound constraint. They are
+        consumed by :mod:`src.optim.space`, which is what
         makes BO and MARL provably search the same set.
 
     Example:
@@ -120,16 +121,16 @@ def tilt_offset(tilt: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
 
     Returns:
         One row per cell-band with current tilt, optimal tilt and the offset —
-        the table specified in PROJECT.md section 19.
+        the deliverable tilt table, rendered by :mod:`src.evaluation.report`.
 
     Raises:
         NotImplementedError: Always — implement this module first.
 
     Notes:
         The offset is computed AFTER optimization and never enters it. It is not
-        a decision variable, not a KPI, and carries no penalty: PROJECT.md
-        sections 3.2 and 3.3 are explicit that the research question is network
-        quality, not minimal reconfiguration. See PROJECT.md Decision 1.
+        a decision variable, not a KPI, and carries no penalty: the research
+        question is network quality, not minimal reconfiguration. The absolute
+        tilt is the decision variable — see :mod:`src.optim.space`.
 
         If a deployment later caps how far a tilt may move in one step, that is
         an operational constraint on the feasible set — express it by narrowing

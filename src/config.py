@@ -12,8 +12,8 @@ history records what produced a result. This module only loads and checks.
 
 Why validation is worth the code
 --------------------------------
-Several config files still carry ``<placeholder>`` values, because PROJECT.md
-section 30 leaves those parameters open until they are fixed experimentally. A
+Several config files still carry ``<placeholder>`` values, because those
+parameters stay open until they are fixed experimentally. A
 placeholder that reaches a numeric call site does not raise — it produces a
 string comparison, a silent cast, or a KPI computed against the wrong
 threshold. :func:`validate_config` is what turns that into an early, loud
@@ -83,15 +83,14 @@ def validate_config(cfg: DictConfig) -> None:
         - KPI thresholds ordered ``hole_dbm < weak_dbm``. Reversed, every
           location classifies as a hole and the optimizer chases a constant.
         - Every band in ``cfg.radio.bands`` has ``tilt.min < tilt.max`` and a
-          strictly positive ``priority_weight`` (PROJECT.md section 4.7).
+          strictly positive ``priority_weight``.
         - ``cfg.kpi.order`` equals :data:`src.kpi.vector.KPI_NAMES`. The
           config declares the priority and the module indexes by position, so a
           divergence silently scores every candidate against the wrong
-          objective (PROJECT.md section 5).
+          objective.
         - Scalarization weights ordered ``hole > overlap > overlap_neighbors >
-          bps > weak`` when ``cfg.kpi.mode`` is ``scalarized`` (PROJECT.md
-          section 25.3) — the weights can otherwise contradict the stated
-          priority without any error.
+          bps > weak`` when ``cfg.kpi.mode`` is ``scalarized`` — the weights
+          can otherwise contradict the stated priority without any error.
         - No value anywhere in the tree still matches ``<...>``.
 
     Example:

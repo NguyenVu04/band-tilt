@@ -11,14 +11,14 @@ Two evaluation sources, one interface
 ``sionna``     expensive, exact. What validates a result before it is reported.
 
 Both return the same KPI mapping, so switching between them is a config change
-rather than a code path. That is what makes the validation in PROJECT.md
-section 26 a re-run of the same evaluation rather than a separate
-implementation that might disagree for its own reasons.
+rather than a code path. That is what makes final validation a re-run of the
+same evaluation rather than a separate implementation that might disagree for
+its own reasons.
 
 Count the expensive evaluations
 -------------------------------
-PROJECT.md section 17 compares BO and MARL on the number of Sionna-RT
-evaluations each consumed. That count is a headline result, so it is tracked
+BO and MARL are compared on the number of Sionna-RT evaluations each
+consumed. That count is a headline result, so it is tracked
 here rather than estimated afterwards — an estimate reconstructed from logs is
 exactly the number a reader will question.
 """
@@ -156,7 +156,7 @@ class Objective:
             NotImplementedError: Always — implement this module first.
 
         Notes:
-            A headline result for PROJECT.md section 17, not diagnostics.
+            A headline result of the method comparison, not diagnostics.
             Report it beside every optimization outcome.
         """
         # TODO(1): return the counter

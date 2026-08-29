@@ -1,10 +1,10 @@
 # Multi-Agent Reinforcement Learning over the absolute-tilt space
-# (PROJECT.md section 14).
+# (src/optim/marl/).
 #
 # BO and MARL solve the SAME problem: they read the same tilt bounds from
 # configs/radio.yaml through src/optim/space.py, and score with the same
 # src/kpi/ functions. Nothing about the problem is defined in this file — only
-# how this optimizer searches it. See PROJECT.md sections 13 and 14.
+# how this optimizer searches it.
 #
 # Built on TorchRL. Ray/RLlib is deliberately not used.
 
@@ -16,7 +16,7 @@ _target_: src.optim.marl.train.MARLTrainer
 #   site  one agent per gnodeb; each agent outputs the tilts of every cell-band
 #         it carries, so co-sited sectors are coordinated by construction
 #
-# PROJECT.md section 14 leaves this open. The trade-off is coordination against
+# Left open. The trade-off is coordination against
 # action-space size: `site` coordinates sectors that physically interfere but
 # gives each agent a much larger action space.
 agents:
@@ -27,8 +27,8 @@ agents:
   parameter_sharing: <true|false>
 
 # --- Action space ----------------------------------------------------------
-# The action IS the absolute tilt, not a delta (PROJECT.md section 3.1, and
-# PROJECT.md Decision 1). This keeps the action space fixed at
+# The action IS the absolute tilt, not a delta (src/optim/space.py).
+# This keeps the action space fixed at
 # [tilt_min, tilt_max] instead of moving with the current configuration.
 #
 # The policy must not be able to emit an out-of-bounds tilt. Squash the output
@@ -42,7 +42,7 @@ action:
   n_bins: null
 
 # --- Observation -----------------------------------------------------------
-# The state s_i from PROJECT.md section 14.1. Every entry is a per-agent local
+# The per-agent state s_i. Every entry is a per-agent local
 # view; the global picture reaches the agent through the centralised critic,
 # not through its own observation.
 observation:
@@ -54,7 +54,7 @@ observation:
   band_identity: <true|false>
 
 # --- Algorithm -------------------------------------------------------------
-# PROJECT.md section 22.2 leaves this open.
+# Left open until fixed experimentally.
 #
 # Centralised training with decentralised execution: the critic sees the joint
 # state during training, each policy sees only its own observation at
@@ -84,7 +84,7 @@ train:
   entropy_coef: <entropy bonus>
 
 # --- Environment -----------------------------------------------------------
-# PROJECT.md section 11.4. Training against Sionna-RT directly is not affordable:
+# Training against Sionna-RT directly is not affordable:
 # an episode is thousands of steps and each step would be a ray-tracing run.
 # The surrogate provides the reward during training; Sionna-RT validates the
 # learned policy afterwards.
@@ -101,7 +101,7 @@ env:
   reset_strategy: <baseline|random|sampled>
 
 # --- Reward ----------------------------------------------------------------
-# PROJECT.md section 14.5:
+# The scalar reward:
 #   r = -lambda_H*K_H - lambda_O*K_O - lambda_W*K_W - lambda_ON*K_ON
 #       + lambda_BPS*K_BPS
 #
@@ -121,5 +121,5 @@ reward:
   # network's quality, which carries no learning signal.
   potential_shaping: <true|false>
 
-# Seeds for the stability comparison in PROJECT.md section 17.
+# Seeds for the stability comparison.
 seeds: ["${seed}"]

@@ -9,7 +9,7 @@ Modules
 
 The comparison is the point
 ---------------------------
-PROJECT.md section 17 requires TuRBO and MARL to be evaluated under identical
+TuRBO and MARL must be evaluated under identical
 inputs, action space, tilt constraints, KPI definitions, surrogate and
 validation procedure. Anything else measures the two implementations rather than
 the two methods.
@@ -23,9 +23,6 @@ the project exists to make.
 What legitimately differs
 -------------------------
 How each method searches: the acquisition function, the policy architecture, the
-number of evaluations, the wall-clock cost. Those are the results
-(PROJECT.md section 17), and they belong in
-``configs/optim/bo.yaml`` and ``configs/optim/marl.yaml``.
-
-See PROJECT.md sections 13 and 14.
+number of evaluations, the wall-clock cost. Those are the results, and they
+belong in ``configs/optim/bo.yaml`` and ``configs/optim/marl.yaml``.
 """

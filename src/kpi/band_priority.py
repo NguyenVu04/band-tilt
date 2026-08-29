@@ -1,4 +1,4 @@
-"""KPI 4 — the UE-weighted Band Priority Score, PROJECT.md section 4.7.
+"""KPI 4 — the UE-weighted Band Priority Score.
 
 The four coverage KPIs say nothing about which band serves a location. This one
 does: it rewards configurations where high-priority bands dominate in places
@@ -49,13 +49,13 @@ def band_weights(table: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
             positive.
 
     Notes:
-        PROJECT.md section 4.7 requires ``w_b > 0``. A zero or negative weight
-        makes the score non-monotonic in band quality and the objective stops
-        meaning what section 14 says it means.
+        The score requires ``w_b > 0``. A zero or negative weight makes it
+        non-monotonic in band quality, and the objective stops meaning what
+        ``configs/radio.yaml``'s ``priority_weight`` says it means.
 
         Only the ORDER of the weights is fixed by the spec
-        (``w_low < w_mid < w_high``); the values are open parameters
-        (section 30 item 2). Their scale changes the magnitude of the score but
+        (``w_low < w_mid < w_high``); the values are open parameters in
+        ``configs/radio.yaml``. Their scale changes the magnitude of the score but
         not the ranking of configurations, so it matters mainly for
         normalisation.
 

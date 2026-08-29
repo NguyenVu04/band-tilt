@@ -1,8 +1,8 @@
 """Scenario identity — the single producer of ``scenario_id``.
 
-A scenario, per PROJECT.md section 12.3, is one environment (buildings,
-dimensions, materials) together with one UE mobility realisation. The
-scenario-level split, the section 12 perturbations, and notebook 06's held-out
+A scenario is one environment (buildings, dimensions, materials) together
+with one UE mobility realisation. The scenario-level split
+(:mod:`src.data.split`), the perturbed scenarios, and notebook 06's held-out
 validation all index by ``scenario_id``. Before this module, nothing in the
 pipeline produced one — this is that producer, and the only one.
 
@@ -21,8 +21,8 @@ What is excluded, and why
 ``cfg.mobility.output.*`` is excluded: a path is not part of what a scenario
 *is,* and including it would mean writing the same scenario twice to two
 different directories produces two different identities. The tilt
-configuration is excluded too — PROJECT.md section 12.3 and
-``src.data.split`` are explicit that many tilt configurations live inside one
+configuration is excluded too — ``src.data.split`` is explicit that many
+tilt configurations live inside one
 scenario; a scenario is the environment and the mobility realisation, not a
 network configuration.
 
@@ -34,7 +34,7 @@ under a new id rather than silently colliding or silently diverging. See
 Where this sits
 ----------------
 Below ``src.radio`` and ``src.mobility``, not inside either of them:
-``src.radio`` will need scenario identity for the section 12.1 environment
+``src.radio`` will need scenario identity for the environment
 perturbations, and may not import ``src.mobility``; ``src.mobility`` produces
 trajectories and calls this module rather than defining identity itself, so
 the same id is available to a future radio-side perturbation without a second

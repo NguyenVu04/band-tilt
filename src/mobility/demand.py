@@ -7,7 +7,7 @@ rather than being reimplemented against ``sumolib.net`` directly:
 reimplementing route generation against a 47.7 MB network would duplicate
 roughly 900 lines SUMO already owns, and it would produce demand that is not
 comparable to anything else in the SUMO ecosystem — which matters because
-PROJECT.md section 12.2 perturbs this demand and a report has to defend the
+the perturbed scenarios vary this demand and a report has to defend the
 perturbation, not a bespoke generator's behaviour.
 
 Three seeds, not one

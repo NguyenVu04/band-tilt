@@ -1,13 +1,13 @@
 """Tests for the angle convention — small, and worth more than they look.
 
-PROJECT.md section 22.2 fixes the conversion between the radio convention and the
-Sionna-RT simulation convention. A sign error in it does not raise. It produces
+:mod:`src.radio.geometry` fixes the conversion between the radio convention
+and the Sionna-RT simulation convention. A sign error in it does not raise. It produces
 a complete, plausible radio map with every beam pointing at the sky, KPIs that
 are internally consistent, and an optimizer that converges confidently on the
 wrong answer.
 
 These assertions are the only thing standing between that and a result nobody
-can reproduce. See PROJECT.md section 22.2.
+can reproduce. See :mod:`src.radio.geometry`.
 
 Every expected value below is computed by hand from the spec, not from the
 implementation.
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skip(reason="implement src/radio/geometry.py first")
 
 
 def test_absolute_tilt_is_the_sum_of_electrical_and_mechanical() -> None:
-    """PROJECT.md section 8: ``tilt = eTilt + mTilt``.
+    """The absolute tilt is the sum: ``tilt = eTilt + mTilt``.
 
     The sum, not either component, is the optimization variable.
     """

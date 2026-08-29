@@ -6,14 +6,14 @@ may split data.
 
 Split by scenario
 -----------------
-PROJECT.md section 12.3 and Decision 8 require the boundary to fall between
-**scenarios**, not between records. A scenario is one environment — buildings,
-dimensions, materials — together with one UE mobility realisation from SUMO.
+The boundary must fall between **scenarios**, not between records. A scenario
+is one environment — buildings, dimensions, materials — together with one UE
+mobility realisation from SUMO.
 Everything generated inside a scenario shares those, so any split that cuts
 through one leaks them.
 
 That matters more here than ordinary leakage would, because the question this
-project asks of its held-out data is a sim-to-reality question (section 12):
+project asks of its held-out data is a sim-to-reality question:
 does the surrogate, and the configuration it led to, survive an environment it
 was not fitted on? A record-level split cannot answer that at all — it measures
 interpolation within one scene and reports it as generalisation.
@@ -21,7 +21,7 @@ interpolation within one scene and reports it as generalisation.
 Why record-level splitting fails
 --------------------------------
 MDT records are correlated along two axes at once, and a random split ignores
-both (PROJECT.md section 25.5):
+both:
 
 *Spatially.* Consecutive points on one trajectory are metres apart. Two
 neighbouring points see almost the same propagation environment, so a random

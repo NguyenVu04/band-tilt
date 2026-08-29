@@ -1,4 +1,4 @@
-"""Strongest signal, serving cell, and dominant cell-band — PROJECT.md section 4.1.
+"""Strongest signal, serving cell, and dominant cell-band.
 
 Three related quantities, each feeding a different KPI, and each defined over a
 different axis of the RSRP array. Keeping them straight matters because they
@@ -7,16 +7,17 @@ look interchangeable and are not.
 ``max_rsrp``      the strongest signal from ANY cell-band at a location.
                   Feeds hole rate and weak rate (sections 10 and 11).
 ``serving_cell``  the strongest CELL, after aggregating its bands.
-                  Feeds overlap rate (section 12), which is a cell-level
+                  Feeds overlap rate, which is a cell-level
                   concept: two bands of one cell are not interfering
                   neighbours of each other.
 ``dominant_band`` the band of the strongest cell-band pair.
-                  Feeds the Band Priority Score (section 14).
+                  Feeds the Band Priority Score.
 
 The open question, stated plainly
 ---------------------------------
-PROJECT.md section 22.2 lists the cell-level aggregation rule across bands
-as still to be determined. It is the difference between "a cell is as strong as
+The cell-level aggregation rule across bands is still to be determined — it is
+one of the open parameters ``configs/kpi.yaml`` carries as a ``<placeholder>``.
+It is the difference between "a cell is as strong as
 its best band" and "a cell combines its bands", and it changes the overlap KPI
 directly. This module takes the rule from ``cfg.kpi`` rather than assuming one,
 and the choice must be recorded before results are compared.
@@ -40,8 +41,8 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This is ``R_max(x) = max over (i, b) of R_ib(x)`` from PROJECT.md
-        section 10 — the quantity the hole and weak thresholds are applied to.
+        This is ``R_max(x) = max over (i, b) of R_ib(x)`` over the radio map —
+        the quantity the hole and weak thresholds are applied to.
 
         Locations with no signal at all stay ``-inf``, which compares correctly
         against the hole threshold with no special case.
@@ -101,9 +102,9 @@ def serving_cell(per_cell: np.ndarray) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        ``s(x) = argmax over i of R_i(x)`` from PROJECT.md section 4.1.
-        Accessibility plays no part in this selection — PROJECT.md section 2.3
-        excludes it from the formulation entirely. See docs/adr/0002.
+        ``s(x) = argmax over i of R_i(x)``. Accessibility plays no part in this
+        selection — it is excluded from the formulation entirely. See
+        docs/adr/0001.
 
         Locations with no coverage still return an index, because ``argmax`` of
         an all ``-inf`` column is well defined and arbitrary. Callers must gate
@@ -130,7 +131,7 @@ def dominant_band(rsrp: np.ndarray, table: pd.DataFrame) -> np.ndarray:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        PROJECT.md section 4.7 defines the dominant band directly as the band of
+        The Band Priority Score defines the dominant band directly as the band of
         ``argmax over (i, b) of R_ib(g)`` — the single strongest pair, with no
         cell-level aggregation in between. This is deliberately a different rule
         from :func:`serving_cell`, so do not implement one in terms of the

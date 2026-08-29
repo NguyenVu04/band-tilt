@@ -1,6 +1,6 @@
 """Draw absolute tilt configurations for the surrogate dataset.
 
-PROJECT.md section 16 Phase 3 needs a set of configurations whose radio maps
+Phase 3 of the pipeline needs a set of configurations whose radio maps
 become the surrogate training data. The set has to cover the tilt space well
 enough that the surrogate is accurate where the optimizer will actually look —
 which is not where uniform random sampling concentrates.

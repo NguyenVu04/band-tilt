@@ -1,28 +1,27 @@
 # @package mobility
-# UE mobility generation — PROJECT.md section 9.1 and section 16 Phase 2.
+# UE mobility generation — pipeline Phase 2.
 #
 # SUMO moves UEs over the road network; Sionna-RT propagates through the 3D
 # geometry of the same place. This file declares the mobility half of a
 # SCENARIO: which network, how many UEs, when they arrive, how they are routed,
 # how often they are sampled, and the seed that makes all of it reproducible
-# (PROJECT.md section 22.4).
+# and auditable.
 #
-# Every key below is fixed scenario configuration, never an observation
-# (section 22.3), and PROJECT.md section 12.2 perturbs exactly these keys to
-# ask whether the optimized configuration survives a mobility model it was not
+# Every key below is fixed scenario configuration, never an observation, and
+# a perturbed scenario varies exactly these keys to ask whether the optimized configuration survives a mobility model it was not
 # tuned on. That is why this block — and nothing outside it — feeds
 # scenario_id in src/data/scenario.py: a scenario is identified by what was
 # varied.
 #
-# There are no <placeholder> values here. Section 9.1 names these as axes a
-# scenario may vary, not as parameters left undetermined; unlike the band
+# There are no <placeholder> values here. These are axes a scenario may vary,
+# not parameters left undetermined; unlike the band
 # table in configs/radio.yaml, every one of them has a defensible default.
 #
 # src/mobility/ is the only code that reads this block, except
 # src.data.scenario, which reads it read-only to compute scenario_id.
 
 # --- Network -----------------------------------------------------------------
-# Built by `task scene:build` (scripts/build_scene.py): netconvert --proj.utm
+# Built by `task scene:build` (src/mobility/scene_build.py): netconvert --proj.utm
 # puts the network in UTM zone 48N metres, then --offset.x/--offset.y shift it,
 # and the shift is recorded in the net file's <location netOffset>. Never
 # hardcode that offset anywhere — src/mobility/frame.py reads it back.
@@ -37,8 +36,8 @@ network:
 
 # --- Coordinate frame --------------------------------------------------------
 # The transform from SUMO network coordinates to the Sionna-RT scene local
-# frame (PROJECT.md section 9.1). Both frames are EPSG:32648 metres, so the
-# transform is a pure translation — but the translation is DERIVED at run
+# frame. Both frames are EPSG:32648 metres, so the transform is a pure
+# translation — but the translation is DERIVED at run
 # time, from the net file's <location netOffset/projParameter> and the scene
 # file's scenegen_center_lat/lon and scenegen_UTM_zone (via
 # src.radio.scene.scene_metadata). It is never a literal.
@@ -60,13 +59,13 @@ frame:
 # count is the number of UEs inserted over the whole run. SUMO's demand tools
 # take an insertion PERIOD rather than a count, so src/mobility/demand.py
 # derives period = (run.end_s - run.begin_s) / count and records both in the
-# manifest. Section 12.2 perturbs count and density; changing count changes
+# manifest. A perturbed scenario varies count and density; changing count changes
 # scenario_id.
 #
 # mode selects the SUMO demand class. `vehicle` is the only one the delivered
 # network supports: scene.net.xml was built without --sidewalks.guess and has
 # zero walkingareas, so pedestrians cannot cross junctions on it. Rebuilding
-# the network for `pedestrian` is a scripts/build_scene.py change, not a
+# the network for `pedestrian` is a src/mobility/scene_build.py change, not a
 # config one.
 #
 # vehicle_class selects the SUMO vClass the routes must be legal for.
@@ -88,8 +87,7 @@ ue:
 #   binomial  up to `binomial_n` departures per second (--binomial)
 #   random    departures spread randomly over the window (--random-depart)
 #
-# The arrival process is one of the six mobility perturbations in section
-# 12.2. Prefer `poisson` for anything meant to look like traffic and `uniform`
+# The arrival process is one of the mobility perturbations. Prefer `poisson` for anything meant to look like traffic and `uniform`
 # when a run must be comparable to another at the same count.
 #
 # depart_offset_s adds a per-vehicle random offset (sumo --random-depart-offset)
@@ -102,7 +100,7 @@ arrival:
 # --- Routing ---------------------------------------------------------------
 # randomTrips.py samples origin/destination edge pairs; duarouter turns them
 # into routes. The weights below shape WHERE the UEs are, which is what the
-# UE-weighted Band Priority Score is weighted by (section 4.7) — so they are a
+# UE-weighted Band Priority Score is weighted by — so they are a
 # modelling choice, not a nuisance parameter.
 #
 # fringe_factor biases trips towards edges that leave the network, which is
@@ -220,7 +218,7 @@ clip:
 
 # --- Output --------------------------------------------------------------------
 # Trajectories are written under data/interim/, partitioned by scenario_id,
-# with a manifest beside them (PROJECT.md section 22.4). data/ is DVC-tracked.
+# with a manifest beside them. data/ is DVC-tracked.
 # Excluded from scenario_id (src.data.scenario.scenario_id) — a path is not
 # part of what a scenario is.
 #
@@ -246,7 +244,7 @@ output:
 seed: ${seed}
 
 # --- Perturbation --------------------------------------------------------------
-# The mobility half of a PROJECT.md section 12.2 perturbed scenario. `null` is
+# The mobility half of a perturbed scenario. `null` is
 # the base scenario. When set, it is a free-form label recorded in the
 # manifest and folded into scenario_id, so two scenarios that differ only in
 # their perturbation label are still distinct artifacts.

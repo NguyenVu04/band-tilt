@@ -1,9 +1,10 @@
-"""UE spatial distribution over the evaluation grid — PROJECT.md section 9.
+"""UE spatial distribution over the evaluation grid.
 
 The target area is discretised into grid cells ``g``. For each one, ``rho(g)``
 is the number of MDT observations that fall inside it. That count is the
-spatial importance weight in the UE-weighted Band Priority Score (PROJECT.md
-section 14): improving coverage where a thousand users were measured should
+spatial importance weight in the UE-weighted Band Priority Score
+(:mod:`src.kpi.band_priority`): improving coverage where a thousand users
+were measured should
 count for more than improving it where nobody was.
 
 Why the grid is shared, not rebuilt
@@ -40,7 +41,7 @@ def build_grid(cfg: DictConfig) -> pd.DataFrame:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This is the definition of ``G`` in PROJECT.md section 10. Every KPI is a
+        This is the definition of the evaluation grid ``G``. Every KPI is a
         sum over these cells, so the resolution changes every reported number: a
         coarse grid averages small holes away, a fine one multiplies ray-tracing
         cost. Fix it once, before generating the first surrogate sample.
@@ -71,7 +72,7 @@ def ue_density(df: pd.DataFrame, cfg: DictConfig) -> np.ndarray:
 
     Notes:
         All grid cells have equal area, so ``rho(g)`` is the raw count ``n_g``
-        and needs no area normalisation (PROJECT.md section 9).
+        and needs no area normalisation.
 
         Cells with zero observations are kept as zeros, not dropped. They are
         real parts of the area that simply had no measurements, and the Band

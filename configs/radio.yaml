@@ -4,18 +4,18 @@
 # This file is the only place the set of frequency bands is declared. No module
 # in src/ hardcodes the number of bands B: every one of them derives the
 # cell-band table from here via src/radio/cell_band.py. Adding a band is an
-# edit to this file. See PROJECT.md section 8.
+# edit to this file.
 
 # --- Bands -----------------------------------------------------------------
-# PROJECT.md section 22.2 lists the band set, the priority weights and the tilt
-# bounds as parameters that must be fixed experimentally. They are placeholders
+# The band set, the priority weights and the tilt bounds must be fixed
+# experimentally. They are placeholders
 # until the multi-band cell configuration lands.
 #
-# priority_weight is w_b from PROJECT.md section 4.7. Higher means "prefer this
-# band to dominate where UEs actually are". The conceptual ordering in the spec
-# is w_low < w_mid < w_high; only the ordering is fixed, not the values.
+# priority_weight is w_b in the Band Priority Score. Higher means "prefer this
+# band to dominate where UEs actually are". The intended ordering is
+# w_low < w_mid < w_high; only the ordering is fixed, not the values.
 #
-# tilt.min / tilt.max are tilt_min and tilt_max from PROJECT.md section 3.1.
+# tilt.min / tilt.max are tilt_min and tilt_max, read by src/optim/space.py.
 # They bound the absolute tilt, which is the optimization variable itself — so
 # these two numbers are the whole feasible set. Getting them wrong does not
 # produce an error, it produces a quietly wrong answer.
@@ -39,8 +39,8 @@ cells:
   overrides: {}
 
 # --- Antenna ---------------------------------------------------------------
-# Parameters required to construct the transmitter in Sionna-RT (PROJECT.md
-# section 4.2). Applied to every cell-band unless the cell configuration
+# Parameters required to construct the transmitter in Sionna-RT.
+# Applied to every cell-band unless the cell configuration
 # carries a per-cell value.
 antenna:
   pattern: <sionna antenna pattern name>
@@ -49,7 +49,7 @@ antenna:
   num_cols: <horizontal elements>
 
 # --- Evaluation grid -------------------------------------------------------
-# The spatial grid G from PROJECT.md section 10. Every KPI is a sum over this
+# The spatial evaluation grid G. Every KPI is a sum over this
 # grid, so its resolution changes every reported number: a coarse grid hides
 # small holes, a fine one multiplies ray-tracing cost. Fix it once, before the
 # first surrogate sample is generated, and record a change as an ADR.
@@ -74,7 +74,7 @@ ray_tracing:
 
 # --- Tilt sampling ---------------------------------------------------------
 # How candidate configurations are drawn to build the surrogate dataset
-# (PROJECT.md section 16 Phase 3). Used by src/radio/sampling.py.
+# (pipeline Phase 3). Used by src/radio/sampling.py.
 #
 # strategy: sobol | lhs | uniform | grid
 #   Prefer a low-discrepancy sequence (sobol, lhs) over uniform sampling: the

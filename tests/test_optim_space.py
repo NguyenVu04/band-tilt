@@ -1,9 +1,8 @@
 """Tests for the shared search space.
 
-:mod:`src.optim.space` is what makes the comparison in PROJECT.md section 17
-valid: BO and MARL must search the same set, or the experiment measures two
-search spaces rather than two methods. These tests pin down the properties both
-optimizers rely on.
+:mod:`src.optim.space` is what makes the method comparison valid: BO and MARL
+must search the same set, or the experiment measures two search spaces rather
+than two methods. These tests pin down the properties both optimizers rely on.
 
 The round trip is the one that matters
 --------------------------------------
@@ -27,7 +26,7 @@ pytestmark = pytest.mark.skip(reason="implement src/optim/space.py first")
 
 
 def test_dimension_is_cells_times_bands(cell_bands: pd.DataFrame, cfg: DictConfig) -> None:
-    """One decision variable per cell-band pair — PROJECT.md section 3."""
+    """One decision variable per cell-band pair."""
     assert TiltSpace(cell_bands, cfg).n_dims == len(cell_bands)
 
 

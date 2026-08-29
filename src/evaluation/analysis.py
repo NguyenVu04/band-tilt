@@ -1,11 +1,11 @@
-"""Spatial maps — PROJECT.md section 16 Phase 8.
+"""Spatial maps — pipeline Phase 8.
 
 A KPI table says hole rate fell from 8% to 5%. It does not say whether the
 remaining holes moved to the edge of the area or opened up in the town centre,
 and those are very different outcomes for the same number. These maps are how
 that gets seen.
 
-The recommended set, from PROJECT.md section 16 Phase 8: baseline RSRP, optimized
+The recommended set: baseline RSRP, optimized
 RSRP, hole, weak, overlap, UE density, and dominant band.
 
 Plot on the evaluation grid, not on scattered points

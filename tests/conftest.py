@@ -30,8 +30,7 @@ def cell_bands() -> pd.DataFrame:
     Notes:
         Three cells, not two. Mean overlap neighbours can never exceed one with
         two cells, so a two-cell fixture cannot tell that KPI apart from overlap
-        rate — which is precisely the distinction PROJECT.md section 4.6 adds it
-        to make.
+        rate — which is precisely the distinction that KPI exists to make.
 
         Two bands per cell is likewise the minimum that separates the three
         aggregations that look alike: over bands within a cell, over cells, and

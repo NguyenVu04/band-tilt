@@ -39,5 +39,5 @@ docstrings and configs are written first so that the structure of the problem
 is settled before any method body is. Fill them in deliberately, one module at
 a time — do not treat a raise as a bug to be silenced.
 
-See PROJECT.md for the problem formulation and docs/adr/ for the decisions.
+See README.md for the problem framing and docs/adr/ for the decisions.
 """

@@ -1,4 +1,4 @@
-"""Compare baseline, BO and MARL on identical terms — PROJECT.md section 17.
+"""Compare baseline, BO and MARL on identical terms.
 
 Four dimensions, and a comparison that reports only the first is incomplete:
 
@@ -36,7 +36,7 @@ from omegaconf import DictConfig
 
 
 def kpi_table(results: dict, cfg: DictConfig) -> pd.DataFrame:
-    """Build the baseline vs. BO vs. MARL KPI table — PROJECT.md section 20.
+    """Build the baseline vs. BO vs. MARL KPI table.
 
     Args:
         results: Validation output per method, from
@@ -70,7 +70,7 @@ def kpi_table(results: dict, cfg: DictConfig) -> pd.DataFrame:
 
 
 def cost_table(results: dict) -> pd.DataFrame:
-    """Build the computational cost comparison — PROJECT.md section 17.
+    """Build the computational cost comparison.
 
     Args:
         results: Per-method run records carrying evaluation counts and timings.
@@ -101,7 +101,7 @@ def cost_table(results: dict) -> pd.DataFrame:
 
 
 def stability_table(runs: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """Summarise across seeds — PROJECT.md section 17.
+    """Summarise across seeds.
 
     Args:
         runs: One row per (method, seed) with its validated KPIs.

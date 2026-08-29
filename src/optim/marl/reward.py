@@ -1,4 +1,4 @@
-"""The MARL reward — PROJECT.md section 14.5.
+"""The MARL reward.
 
 The scalar reward is::
 
@@ -24,9 +24,9 @@ rather than assumed.
 
 A weighted sum is a lossy encoding of the priority
 --------------------------------------------------
-PROJECT.md section 5 states a strict order; a weighted sum will always trade
-some hole rate for enough of everything else. Section 23 acknowledges this and
-allows a hierarchical or lexicographic reward instead. If the trained policy
+``cfg.kpi.order`` states a strict order; a weighted sum will always trade
+some hole rate for enough of everything else. A hierarchical or lexicographic
+reward is allowed instead. If the trained policy
 turns out to accept coverage holes in exchange for band-priority gains, that is
 this trade-off appearing, not a bug — reach for
 :func:`src.kpi.vector.lexicographic_better` rather than re-tuning the weights.

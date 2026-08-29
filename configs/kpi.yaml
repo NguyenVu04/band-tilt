@@ -2,38 +2,38 @@
 # The five KPIs, their thresholds, and the priority that orders them.
 #
 # These thresholds are the definition of the objective. Every number below is
-# fixed by PROJECT.md sections 4.2 to 4.7 and is NOT a tuning knob: changing one
+# the definition of the objective and is NOT a tuning knob: changing one
 # changes what "better" means, so every result produced before the change
 # becomes incomparable. A change here needs an ADR.
 #
 # src/kpi/ is the only code that reads this block. TuRBO, MARL, the
 # surrogate-predicted radio maps and the final Sionna-RT validation all score
 # through the same functions, so all four are guaranteed to be measuring the same
-# thing (PROJECT.md sections 15 and 17). Never re-derive a threshold at a call
+# thing. Never re-derive a threshold at a call
 # site.
 #
-# The surrogate predicts a radio map, not these KPIs (section 11, Decision 6), so
+# The surrogate predicts a radio map, not these KPIs, so
 # this evaluator sits downstream of both the simulator and the model and there is
 # exactly one implementation of each threshold below.
 
 # --- Thresholds ------------------------------------------------------------
 # A location is a hole when the strongest signal from any cell-band is at or
-# below this level (PROJECT.md section 4.2).
+# below this level.
 hole_dbm: -120.0
 
 # A location is weak coverage when the strongest signal is above hole_dbm and
-# at or below this level (PROJECT.md section 4.3). The two bands partition the
+# at or below this level. The two bands partition the
 # covered area: hole < weak < good.
 weak_dbm: -90.0
 
 # A neighbour overlaps the serving cell when the serving cell is itself covered
 # (serving RSRP > hole_dbm), the neighbour is also above hole_dbm, and the two
-# are within this margin of each other (PROJECT.md section 4.4). The condition is
+# are within this margin of each other. The condition is
 # inclusive: a difference of exactly this many dB counts as overlap.
 overlap_margin_db: 6.0
 
 # --- Priority --------------------------------------------------------------
-# PROJECT.md section 5. The strict ordering is
+# The strict ordering is
 #
 #     HoleRate > OverlapRate > MeanOverlapNeighbors > BPS > WeakRate
 #
@@ -44,7 +44,7 @@ overlap_margin_db: 6.0
 #
 # Weak rate is LAST, not third. It was third under the previous formulation, and
 # the change means a configuration may now trade weak coverage for better band
-# coordination — which the old order forbade. See docs/adr/0002.
+# coordination — which the old order forbade. See docs/adr/0001.
 #
 # mode: lexicographic | scalarized
 #   lexicographic  optimise in `order`, using `tolerance` to decide when one
@@ -60,9 +60,9 @@ order:
   - band_priority_score
   - weak_rate
 
-# Directions are fixed by PROJECT.md section 4 and are stated here so that no
-# call site has to remember which way each KPI points. The canonical minimisation
-# form of the objective negates BPS (section 5):
+# Directions are fixed and are stated here so that no call site has to
+# remember which way each KPI points. The canonical minimisation form of the
+# objective negates BPS:
 #
 #     J = [hole_rate, overlap_rate, mean_overlap_neighbors, -bps, weak_rate]
 direction:
@@ -86,12 +86,12 @@ tolerance:
   band_priority_score: <absolute slack in score units>
 
 # --- Scalarization ---------------------------------------------------------
-# Used when mode: scalarized, and by the MARL reward (PROJECT.md section 14.5).
+# Used when mode: scalarized, and by the MARL reward.
 #
 # The weights are applied to NORMALIZED KPIs, never raw ones. Hole rate and
 # mean overlap neighbours are on different scales entirely, so weighting raw
 # values silently reorders the priority — this is the specific failure
-# PROJECT.md section 25.3 warns about. The constraint the weights must satisfy
+# this ordering exists to prevent. The constraint the weights must satisfy
 # follows `order`:
 #
 #     lambda_hole > lambda_overlap > lambda_overlap_neighbors

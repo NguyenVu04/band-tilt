@@ -15,8 +15,8 @@ Two schemas, one validator
 ``schema.cell_config``, because the two inputs are different shapes. Both are
 checked by the same functions; the caller says which contract applies. The cell
 configuration must currently be validated with ``strict=False`` — the
-multi-band columns PROJECT.md section 8 requires are declared but not yet
-present in the export (PROJECT.md section 8).
+multi-band columns the cell-band table requires are declared but not yet
+present in the export.
 
 What must NOT go here
 ---------------------

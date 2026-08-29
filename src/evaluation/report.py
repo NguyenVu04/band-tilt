@@ -1,4 +1,4 @@
-"""The final deliverable — PROJECT.md section 19.
+"""The final deliverable — the tilt table.
 
 The tilt table is what a network engineer actually receives::
 
@@ -10,9 +10,9 @@ The offset is derived here and nowhere else
 -------------------------------------------
 ``delta = tilt* - current_tilt`` is computed after optimization, purely to
 communicate how far each antenna has to move. It is not a decision variable, not
-a KPI, and carries no penalty — PROJECT.md section 3.1 and 2.3 are explicit
-that the research question is network quality, not minimal reconfiguration. See
-PROJECT.md Decision 1.
+a KPI, and carries no penalty: the research question is network quality, not
+minimal reconfiguration. Absolute tilt is the decision variable — see
+:mod:`src.optim.space`.
 
 If a deployment caps how far a tilt may move in one step, that is an operational
 constraint on the feasible set: narrow the bounds in ``configs/radio.yaml`` and
@@ -22,9 +22,9 @@ validated.
 
 State the provenance
 --------------------
-Every reported KPI comes from Sionna-RT (PROJECT.md section 16 Phase 7). Where a
-surrogate prediction is shown, label it. A table that mixes the two without
-saying so is the single most misleading artifact this project can produce.
+Say where each number came from. Where a surrogate prediction is shown, label
+it. A table that mixes a prediction and a ray-traced result without saying so is
+the single most misleading artifact this project can produce.
 """
 
 from pathlib import Path
@@ -35,7 +35,7 @@ from omegaconf import DictConfig
 
 
 def tilt_table(optimized_tilt: np.ndarray, table: pd.DataFrame) -> pd.DataFrame:
-    """Build the per-cell-band tilt report — PROJECT.md section 19.
+    """Build the per-cell-band tilt report.
 
     Args:
         optimized_tilt: The optimized configuration in degrees, in cell-band table

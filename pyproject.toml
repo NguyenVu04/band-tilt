@@ -58,8 +58,7 @@ torch = ["torch>=2.4"]
 # reference point: if a neural surrogate cannot beat it on KPI prediction
 # error, the extra machinery is not paying for itself.
 xgboost = ["xgboost>=2.1"]
-# Radio-frequency ray tracing. src/radio/ is the only package that imports it;
-# Sionna-RT is the ground truth for every reported KPI (see docs/adr/0003).
+# Radio-frequency ray tracing. src/radio/ is the only package that imports it.
 rt = ["sionna-rt>=2.0"]
 # UE mobility simulation (src/mobility/). Eclipse SUMO is a system package with
 # its own installer, but the PyPI wheel ships the same binaries plus `sumolib`
@@ -80,7 +79,7 @@ sumo = ["eclipse-sumo>=1.27", "pyproj>=3.6"]
 # Bayesian Optimization over the absolute-tilt space (src/optim/bo/).
 bo = ["ax-platform>=0.4", "botorch>=0.12", "gpytorch>=1.13"]
 # Multi-Agent RL over the same space (src/optim/marl/). Ray/RLlib is
-# deliberately not used — see PROJECT.md sections 13 and 14.
+# deliberately not used — see configs/optim/marl.yaml.
 marl = ["torchrl>=0.6", "tensordict>=0.6", "gymnasium>=1.0"]
 # Plotting, used by notebooks and src/evaluation/analysis.py.
 viz = ["matplotlib>=3.9", "seaborn>=0.13"]
@@ -104,7 +103,7 @@ packages = ["src", "app"]
 line-length = 100
 target-version = "py311"
 # Notebooks are formatted by nbstripout + review, not by ruff; Markdown is
-# prose (PROJECT.md is a hand-written spec) and must not be reflowed.
+# hand-written prose and must not be reflowed.
 extend-exclude = ["notebooks", "*.md"]
 
 [tool.ruff.lint]

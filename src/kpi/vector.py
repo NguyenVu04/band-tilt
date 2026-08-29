@@ -1,11 +1,11 @@
-"""Assemble, normalise and order the KPI vector — PROJECT.md sections 4 to 5.
+"""Assemble, normalise and order the KPI vector.
 
 The complete objective, in priority order, is::
 
     K = [K_H, K_O, K_ON, K_BPS, K_W]
 
 minimising all but ``K_BPS``, which is maximised. The canonical all-minimising
-form negates it (PROJECT.md section 5)::
+form negates it::
 
     J = [K_H, K_O, K_ON, -K_BPS, K_W]
 
@@ -14,7 +14,7 @@ two candidates are compared.
 
 Lexicographic, with slack
 -------------------------
-PROJECT.md section 5 states the priority as ``Hole > Overlap > MeanOverlap-
+``cfg.kpi.order`` states the priority as ``Hole > Overlap > MeanOverlap-
 Neighbors > BPS > Weak``. Implemented literally, that degenerates: hole rate is
 continuous, exact ties essentially never happen, and the comparison never
 reaches the second objective. So each objective carries a tolerance from
@@ -23,7 +23,7 @@ comparison moves on.
 
 Note that weak rate is **last**. Under the previous formulation it ranked third,
 above overlap severity and band coordination; a configuration may now trade weak
-coverage for either of those, which it previously could not. See docs/adr/0002.
+coverage for either of those, which it previously could not. See docs/adr/0001.
 
 Choosing those tolerances is a real decision, not a formality. Too tight and
 this is single-objective optimization on hole rate; too loose and the priority
@@ -43,13 +43,14 @@ Normalise before weighting. Always.
 Hole rate is a percentage, mean overlap neighbours is a small count, and the
 Band Priority Score is on whatever scale the band weights happen to use.
 Applying weights to raw values silently reorders the priority regardless of what
-the weights say — the exact failure PROJECT.md section 25.3 warns about.
+the weights say — the exact failure ``configs/kpi.yaml`` warns about where it
+declares ``weights``.
 """
 
 import numpy as np
 from omegaconf import DictConfig
 
-#: Canonical KPI order — PROJECT.md section 5. Every array in this module follows
+#: Canonical KPI order. Every array in this module follows
 #: it, and it must stay identical to ``cfg.kpi.order`` — which
 #: :func:`src.config.validate_config` is specified to check, at TODO(5).
 #:
@@ -84,8 +85,8 @@ def kpi_vector(rsrp: np.ndarray, rho: np.ndarray, table: object, cfg: DictConfig
     Notes:
         The single entry point for scoring a configuration. Bayesian
         Optimization, MARL, the surrogate labels and the final validation all
-        call this one function, which is what makes the comparison in PROJECT.md
-        section 25 valid.
+        call this one function, which is what makes the comparison between the
+        two optimizers valid.
 
         Returns a mapping rather than an array so a caller cannot silently
         misread position 3 as position 4. :func:`as_array` converts when a
@@ -179,8 +180,9 @@ def scalarize(kpis: dict, cfg: DictConfig) -> float:
     Notes:
         Normalise first, then weight — see the module docstring.
 
-        Check the weight ordering rather than trusting it. PROJECT.md
-        section 23 requires ``lambda_H > lambda_O > lambda_W``, and a config
+        Check the weight ordering rather than trusting it.
+        ``configs/kpi.yaml``'s ``weights`` block requires
+        ``lambda_H > lambda_O > lambda_W``, and a config
         that violates it produces an objective that silently contradicts the
         stated priority while every individual KPI still looks correct.
 
@@ -210,7 +212,7 @@ def lexicographic_better(left: dict, right: dict, cfg: DictConfig) -> bool:
         NotImplementedError: Always — implement this module first.
 
     Notes:
-        This is the authoritative statement of PROJECT.md section 5. Walk
+        This is the authoritative statement of the lexicographic priority. Walk
         ``cfg.kpi.order``; at each objective, treat a difference smaller than
         its tolerance as a tie and continue; otherwise return on the first
         objective that separates them.

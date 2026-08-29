@@ -1,6 +1,6 @@
 """The radio-map surrogate itself — f_sur: (x, tilt) -> R_hat.
 
-PROJECT.md section 22.2 leaves the architecture open, so this module
+The architecture is left open by ``configs/surrogate.yaml``, so this module
 defines the interface rather than a particular model. The concrete class is
 instantiated from ``configs/surrogate.yaml`` through Hydra's ``_target_``, which
 makes swapping architectures a config edit and an ablation a sweep.
@@ -8,7 +8,7 @@ makes swapping architectures a config edit and an ablation a sweep.
 It predicts a map, not five numbers
 -----------------------------------
 The output is RSRP in dBm over the whole evaluation grid, indexed
-``(cell_band, grid_cell)`` — PROJECT.md section 10 and Decision 6. The five KPIs
+``(cell_band, grid_cell)``. The five KPIs
 are then derived from the prediction by :mod:`src.kpi`, the same code that
 derives them from a ray-traced map. One evaluator, two possible maps underneath
 it.

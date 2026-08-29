@@ -1,4 +1,4 @@
-"""The MARL training loop — PROJECT.md section 14 and 11.4.
+"""The MARL training loop.
 
 Also runs as a script: ``python -m src.optim.marl.train optim=marl`` (or
 ``task marl``).
@@ -20,7 +20,7 @@ reasonable if some carry bands that others do not.
 
 Compare against BO honestly
 ---------------------------
-PROJECT.md section 17 compares the two methods on computational cost, and MARL
+The two methods are compared on computational cost, and MARL
 carries a training cost that BO does not. Report the training cost as part of
 the method cost, not as a fixed setup expense excluded from the comparison — a
 policy that transfers across networks amortises it, and one that does not, does
@@ -30,7 +30,7 @@ Validate the policy, not the training curve
 -------------------------------------------
 A converged reward curve says the agent learned to maximise the surrogate. The
 result that matters is the KPI vector of the configuration it produces, measured
-with Sionna-RT (PROJECT.md section 16 Phase 7).
+with Sionna-RT (Phase 7).
 """
 
 from typing import Any
@@ -84,7 +84,8 @@ class MARLTrainer:
         """
         # TODO(1): collect rollouts, update the policy per cfg.optim.algorithm
         # TODO(2): log reward AND the five KPIs per iteration via src.utils.tracking
-        # TODO(3): track wall-clock and environment-step counts for section 25.2
+        # TODO(3): track wall-clock and environment-step counts for the
+        #          cost comparison against BO
         raise NotImplementedError("src.optim.marl.train.MARLTrainer.train")
 
     def extract_policy_configuration(self) -> Any:
@@ -126,7 +127,7 @@ def main(cfg: DictConfig) -> float | None:
 
     Notes:
         Run over ``cfg.optim.seeds`` and report mean, standard deviation, best
-        and worst (PROJECT.md section 17). A single-seed result for a
+        and worst. A single-seed result for a
         stochastic method is an anecdote, and MARL varies more across seeds than
         BO does.
 

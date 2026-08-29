@@ -8,18 +8,18 @@ the old one.
 
 The point is not process. It is that in two years someone will ask why a
 coverage hole is defined at −120 dBm, why a hole outranks an overlap rather
-than being traded off against it, or why a reported KPI may not come from the
-surrogate — and the answer will otherwise have left with whoever made the call.
+than being traded off against it, or why the split falls between scenarios
+rather than records — and the answer will otherwise have left with whoever made
+the call.
 
-## Relationship to PROJECT.md
+## Relationship to the rest of the repository
 
-`PROJECT.md` is the specification. It states the current formulation and is
-revised as the research progresses.
+There is no separate specification document. The code, the configs and
+`README.md` state *what* the system does, and they are kept current.
 
-These records are the history. Where they overlap, PROJECT.md says *what* and the
-ADR says *why*, including the alternative that was rejected and what rejecting it
-cost. PROJECT.md section 21 lists the confirmed decisions in a table; most rows
-of that table have a record here.
+These records are the history. They say *why*, including the alternative that was
+rejected and what rejecting it cost — the part that does not belong in a document
+that has to stay current, because a rejected alternative never stops being true.
 
 ## When to write one
 
@@ -67,11 +67,13 @@ stay as they were written, because they are the historical account.
 
 ### Revision in place — the exception, not the practice
 
-0002 and 0003 were **revised in place** on 2026-08-28 to follow the PROJECT.md
-rewrite, at the maintainer's direction, rather than superseded by new records.
-That is a departure from the rule above and is recorded as such: each carries a
-`Revised` line in its header and a *Revision note* section stating exactly what
-changed and why. The pre-revision text is in Git history at `abcdf6c`.
+0001 was **revised in place** on 2026-08-28, at the maintainer's direction,
+rather than superseded by a new record. The surviving records were revised
+in place again on 2026-08-29, also at the maintainer's direction, to remove the
+citations to a specification document that is no longer treated as a source of
+truth. Both are departures from the rule above and are recorded as such: each
+carries a `Revised` line in its header and a *Revision note* section stating
+exactly what changed and why. The pre-revision text is in Git history.
 
 Prefer superseding. Revision in place loses the shape of the original argument,
 which is the thing these records exist to preserve.
@@ -80,27 +82,28 @@ which is the thing these records exist to preserve.
 
 | # | Title | Status | Date | Revised |
 |---|---|---|---|---|
-| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
-| [0002](0002-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-08-28 |
-| [0003](0003-sionna-rt-is-ground-truth.md) | Sionna-RT is ground truth; the surrogate only accelerates | Accepted | 2026-08-28 | 2026-08-28 |
+| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | 2026-08-29 |
+| [0001](0001-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-08-29 |
 
 ### Records referenced but never written
 
-`configs/`, `src/`, `tests/` and `pyproject.toml` cited five records that were
-never written. Those 28 citations now point at the PROJECT.md section that
-actually carries each decision, so nothing dangles; the records themselves are
-still owed and are listed in the README.md roadmap.
+`configs/`, `src/`, `tests/` and `pyproject.toml` cite records that were never
+written. **0002 and 0003 are withdrawn numbers** — 0002 was renumbered to 0001
+and 0003 was removed — and per the lifecycle rule above they are not reused,
+which is why the absolute-tilt record below is numbered 0010. Those citations now point at the module or config that actually
+owns each decision, so nothing dangles; the records themselves are still owed and
+are listed in the README.md roadmap.
 
-| Would-be # | Decision it was cited for | Cited as, now |
+| Would-be # | Decision it was cited for | Owned by, now |
 |---|---|---|
-| 0001 | Absolute tilt is the decision variable; the offset is derived | PROJECT.md Decision 1 |
-| 0004 | Coordinate and angle conventions | PROJECT.md section 22.2 |
-| 0005 | Band-generic design and the multi-band cell configuration contract | PROJECT.md section 8 |
-| 0006 | Choosing TorchRL over Ray/RLlib, and the optimizer frameworks generally | PROJECT.md sections 13 and 14 |
-| 0007 | The split scheme — now scenario-level | PROJECT.md section 12.3 |
+| 0010 | Absolute tilt is the decision variable; the offset is derived | `src/optim/space.py`, `src/radio/cell_band.py` |
+| 0004 | Coordinate and angle conventions | `src/radio/geometry.py` |
+| 0005 | Band-generic design and the multi-band cell configuration contract | `configs/radio.yaml`, `src/radio/cell_band.py` |
+| 0006 | Choosing TorchRL over Ray/RLlib, and the optimizer frameworks generally | `configs/optim/bo.yaml`, `configs/optim/marl.yaml` |
+| 0007 | The split scheme — now scenario-level | `src/data/split.py`, `src/data/scenario.py` |
 
-0004 is the one worth writing soonest. The PROJECT.md rewrite **dropped** the
-coordinate-and-angle-conventions section entirely, so `src/radio/geometry.py` is
-now the only place the convention is stated anywhere in the project. A sign error
-there produces a plausible, entirely wrong radio map and no test that does not
-already know the answer can catch it.
+0004 is the one worth writing soonest. `src/radio/geometry.py` and
+`tests/test_geometry.py` are the only place the convention is stated anywhere in
+the project — no document restates it. A sign error there produces a plausible,
+entirely wrong radio map and no test that does not already know the answer can
+catch it.

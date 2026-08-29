@@ -1,4 +1,4 @@
-"""Tests for SUMO UE mobility generation — PROJECT.md section 9.1, Phase 2.
+"""Tests for SUMO UE mobility generation — pipeline Phase 2.
 
 Unlike every other test module in this repository, most of this module is
 **not** skipped. ``src/mobility/`` is implemented, not a stub, so most of its
@@ -246,7 +246,7 @@ def _raw_fcd(cfg: DictConfig) -> pd.DataFrame:
 def test_the_trajectory_frame_has_the_declared_columns_and_dtypes(
     cfg: DictConfig, scene_frame: Any
 ) -> None:
-    """``tidy()`` produces exactly section 9.3's record, minus the radio columns."""
+    """``tidy()`` produces exactly the MDT record, minus the radio columns."""
     out = tidy(_raw_fcd(cfg), cfg, "scn_test", scene_frame)
     assert out.columns.tolist() == [
         "scenario_id",

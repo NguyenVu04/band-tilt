@@ -1,11 +1,11 @@
-"""Turn an absolute tilt configuration into an RSRP array — PROJECT.md section 10.
+"""Turn an absolute tilt configuration into an RSRP array.
 
 This is the ground truth of the whole project::
 
     tilt -> Sionna-RT -> radio map -> RSRP
 
 Everything downstream — the five KPIs, the surrogate labels, the final
-validation — is computed from the array this module returns. See docs/adr/0003.
+validation — is computed from the array this module returns.
 
 The array contract
 ------------------
@@ -56,7 +56,7 @@ def set_tilt(scene: Any, table: pd.DataFrame, tilt: np.ndarray) -> Any:
         Convert through :func:`src.radio.geometry.orientations` and nowhere
         else. Writing the ``90 - azimuth`` or ``-tilt`` conversion here would
         create a second copy of the convention, which is the failure
-        PROJECT.md section 22.2 exists to prevent.
+        :mod:`src.radio.geometry` exists to prevent.
 
         Mutate the existing transmitters rather than removing and re-adding
         them: re-adding invalidates the acceleration structure and costs a full

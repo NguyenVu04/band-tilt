@@ -1,4 +1,4 @@
-"""Re-evaluate an optimized configuration with Sionna-RT — PROJECT.md section 16 Phase 7.
+"""Re-evaluate an optimized configuration with Sionna-RT — pipeline Phase 7.
 
 The validation flow::
 
@@ -85,7 +85,7 @@ def validate_many(tilts: dict, cfg: DictConfig) -> Any:
 
     Notes:
         Always include the baseline. Every reported improvement is stated
-        relative to the current network (PROJECT.md section 20), and a
+        relative to the current network, and a
         baseline evaluated in a different run, against a different scene build
         or a different grid, is not a valid reference.
 

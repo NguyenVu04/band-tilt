@@ -1,10 +1,10 @@
 """The SUMO-network to Sionna-RT scene coordinate transform — single owner.
 
 SUMO and Sionna-RT describe the same place in two different local metric
-frames (PROJECT.md section 9.1). A wrong or a hardcoded transform does not
-raise: it silently places every UE in the wrong street, and every KPI computed
-downstream is then about a network that does not exist. This module is the
-one place that transform may be derived, applied or checked.
+frames. A wrong or a hardcoded transform does not raise: it silently places
+every UE in the wrong street, and every KPI computed downstream is then about
+a network that does not exist. This module is the one place that transform may
+be derived, applied or checked.
 
 Derived at run time, never a literal
 -------------------------------------
@@ -19,7 +19,7 @@ from two small XML headers every time it is needed:
   (``src.radio.scene.scene_metadata``).
 
 A network rebuilt with different ``--offset.x``/``--offset.y``
-(``scripts/build_scene.py``), or a scene regenerated over a different study
+(``src/mobility/scene_build.py``), or a scene regenerated over a different study
 area, changes one of these files and this module picks it up automatically.
 A hardcoded ``(dx, dy)`` would keep applying the stale shift instead.
 :data:`configs/mobility.yaml`'s ``mobility.frame.expected_offset`` is a

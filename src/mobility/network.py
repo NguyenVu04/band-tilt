@@ -238,7 +238,8 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess:
 
     Returns:
         The completed process (stdout/stderr are not captured; they pass
-        through to this process's own, matching ``scripts/build_scene.py``).
+        through to this process's own, matching
+        ``src/mobility/scene_build.py``).
 
     Raises:
         subprocess.CalledProcessError: When the command exits nonzero.

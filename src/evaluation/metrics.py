@@ -8,15 +8,15 @@ about the network.
 Per KPI, never averaged
 -----------------------
 A surrogate that is excellent on weak rate and useless on hole rate is useless,
-because hole rate is the highest-priority objective (PROJECT.md section 5). A
+because hole rate is the highest-priority objective (``cfg.kpi.order``). A
 mean over the five KPIs hides exactly the failure that matters, and it is
 reported in units that mean nothing.
 
 In the units of each KPI
 ------------------------
 Percentage points for the three rates, neighbours for overlap severity, score
-units for the Band Priority Score. The acceptance test in PROJECT.md
-section 19 Step 6 is a comparison against the improvement a result claims, and a
+units for the Band Priority Score. Acceptance is a comparison against the
+improvement a result claims, and a
 dimensionless normalised error cannot be compared against anything.
 
 Ranking matters more than absolute accuracy

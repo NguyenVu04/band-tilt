@@ -2,8 +2,8 @@
 
 Every check here returns the violating rows, not a boolean. "Passed" or
 "failed" throws away exactly the information a scenario report needs — how
-many, how bad, and where — and PROJECT.md section 12 asks precisely that
-question about a perturbed scenario's mobility model. An empty frame is a
+many, how bad, and where — and that is precisely what a perturbed scenario's
+mobility model has to be reported on. An empty frame is a
 clean pass; a nonempty one is not automatically a defect in this module, since
 a real road network has UEs that legitimately exceed a posted limit briefly or
 arrive in bursts — it is something for a scenario report to look at and
@@ -24,7 +24,7 @@ from src.mobility import demand
 #: (a "teleport" — SUMO relocating a stuck vehicle, or a clipping artefact).
 #: Not a KPI threshold and not scenario-tunable, so it stays a constant here
 #: rather than a configs/mobility.yaml key: it is a sanity bound on the
-#: simulation output, not a modelling choice PROJECT.md section 12.2 varies.
+#: simulation output, not a modelling choice a perturbed scenario varies.
 _MAX_PLAUSIBLE_SPEED_MPS = 55.0  # ~198 km/h
 
 

@@ -1,4 +1,4 @@
-"""Run SUMO and collect one tidy UE trajectory frame — PROJECT.md section 9.1.
+"""Run SUMO and collect one tidy UE trajectory frame.
 
 The generation pipeline is three subprocesses of the resolved SUMO
 installation, in order: ``randomTrips.py`` then ``duarouter``
@@ -20,14 +20,14 @@ and was verified here (on this platform) to crash on every run —
 this against a newer SUMO release before switching back to Parquet; do not
 assume the fix has landed.
 
-Deliberately §9.3's MDT record, minus three columns
+Deliberately the MDT record, minus three columns
 -------------------------------------------------------
-The tidy frame this module produces is PROJECT.md section 9.3's minimal MDT
-record with ``gcell_id``, ``band_id`` and ``rsrp`` missing — exactly the
-columns the blocked ``src.radio.mdt`` stage would add once the multi-band cell
-configuration arrives. Two names are resolved in favour of
+The tidy frame this module produces is the minimal MDT record declared by
+``configs/data.yaml``'s ``schema.mdt``, with ``gcell_id``, ``band_id`` and
+``rsrp`` missing — exactly the columns the blocked ``src.radio.mdt`` stage
+would add once the multi-band cell configuration arrives. Two names are resolved in favour of
 ``configs/data.yaml``'s schema, which is the contract ``src.data.schema``
-actually enforces, rather than section 9.3's prose: ``date`` (not
+actually enforces: ``date`` (not
 ``timestamp``) and ``gcell_id`` (not ``cell_id``, added by the MDT stage).
 """
 
@@ -210,7 +210,7 @@ def tidy(
         ``edge_id`` is derived from SUMO's lane id by dropping the trailing
         ``_<lane index>`` — kept (rather than dropped entirely) because
         :mod:`src.mobility.checks` needs it to look up a speed limit, and
-        because PROJECT.md section 12.2 perturbs speed via the vehicle type,
+        because a perturbed scenario varies speed via the vehicle type,
         which would otherwise have to be re-derived from the network later,
         at which point it could disagree with what SUMO actually simulated.
 

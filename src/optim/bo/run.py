@@ -1,4 +1,4 @@
-"""The TuRBO loop — PROJECT.md section 13.
+"""The TuRBO loop.
 
 The loop is::
 
@@ -21,18 +21,18 @@ With ``objective.source: surrogate``, the GP is being fitted to KPIs derived
 from the predictions of another model. That is legitimate and it is what makes
 the search affordable, but it stacks two error sources, and it is why
 ``cfg.optim.objective.validate_top_k`` exists: the best candidates are re-run
-through Sionna-RT before anything is reported (PROJECT.md section 13 and 16 Phase 7).
+through Sionna-RT before anything is reported (Phase 7).
 
 The trust region
 ----------------
 TuRBO maintains ``T_t``, a box centred on the best configuration found so far
-and contained in ``X`` (PROJECT.md section 13.2). The GP is fitted and the
+and contained in ``X``. The GP is fitted and the
 acquisition maximised inside it. Repeated success expands the region, repeated
 failure contracts it, and a region that collapses below its minimum size is
 restarted elsewhere.
 
 Two things this must not do. It must not let ``T_t`` extend outside the feasible
-box — the tilt bounds are hard constraints (section 25.2), and a trust region is
+box — the tilt bounds are hard constraints, and a trust region is
 a search heuristic, not a relaxation of them. And it must not treat a restart as
 a fresh problem: observations carry over, and the reported evaluation count is
 the total across restarts, not the last one.
@@ -41,8 +41,8 @@ Dimensionality
 --------------
 One dimension per cell-band: 26 today, more as bands are added. Standard
 GP-based BO becomes unreliable in the tens of dimensions, well before MARL does
-— which is the reason the trust region is here at all. PROJECT.md section 17
-asks for exactly this comparison, so record where it degrades rather than
+— which is the reason the trust region is here at all. The method comparison
+asks for exactly this, so record where it degrades rather than
 quietly limiting the experiment to sizes where it looks good.
 
 Multi-objective or scalarized
@@ -153,15 +153,12 @@ class BayesianOptimizer:
             NotImplementedError: Always — implement this module first.
 
         Notes:
-            The returned KPIs must come from Sionna-RT, not the surrogate.
-            PROJECT.md section 16 Phase 7 is explicit: the reported performance is the
-            high-fidelity result. Return the surrogate prediction alongside it
-            so the two can be compared — that comparison is itself a result
-            (PROJECT.md section 16 Phase 5).
+            Return the surrogate prediction alongside the Sionna-RT result
+            so the two can be compared — that comparison is itself a result.
 
             Return the whole history, not just the winner. The convergence
-            trace and the evaluation count are what PROJECT.md section 17 and
-            25.3 compare against MARL.
+            trace and the evaluation count are what the comparison against
+            MARL is built from.
 
         Example:
             >>> result = optimizer.run()
@@ -190,7 +187,7 @@ def main(cfg: DictConfig) -> float | None:
 
     Notes:
         Run over ``cfg.optim.seeds`` and report mean, standard deviation, best
-        and worst (PROJECT.md section 17). Persist the trial history as well
+        and worst. Persist the trial history as well
         as the winner: the convergence trace and the Sionna-RT evaluation count
         are what the comparison against MARL is built from.
 

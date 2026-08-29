@@ -1,4 +1,4 @@
-"""Synthetic MDT — evaluate RSRP along UE trajectories. PROJECT.md section 9.2.
+"""Synthetic MDT — evaluate RSRP along UE trajectories.
 
 .. note::
    **Blocked on the multi-band cell configuration.** ``src.radio.cell_band.
@@ -18,14 +18,14 @@
 
 Why per-position ray tracing, not a radio map
 ------------------------------------------------
-PROJECT.md section 9.2 evaluates propagation *at each UE position and time*.
+Synthetic MDT evaluates propagation *at each UE position and time*.
 ``src.radio.radiomap.compute_radiomap`` instead samples a fixed plane on the
 ``cfg.radio.grid`` lattice — cheap because it is solved once and reused for
 every KPI evaluation, but a UE rarely sits exactly on a grid point. Reading
 its RSRP off the nearest grid cell instead of ray-tracing its actual position
-is precisely the substitution PROJECT.md section 25.4 names as a failure
-mode: it silently replaces the measurement the spec asks for with computing
-the wrong thing that happens to look similar. So this module uses
+is precisely the substitution this module exists to avoid: it silently
+replaces the measurement with a cheaper one that happens to look similar. So
+this module uses
 ``sionna.rt.PathSolver`` directly, with one ``Receiver`` per UE sample, not
 ``RadioMapSolver``.
 
@@ -169,7 +169,7 @@ def build_mdt(
     tilt: np.ndarray,
     cfg: DictConfig,
 ) -> pd.DataFrame:
-    """Assemble the synthetic MDT record — PROJECT.md section 9.3.
+    """Assemble the synthetic MDT record.
 
     Args:
         trajectories: UE positions to evaluate, in the scene local frame —
@@ -185,7 +185,8 @@ def build_mdt(
 
     Returns:
         One row per ``(trajectory sample, cell-band)`` pair above the
-        reportable RSRP floor, with columns matching the section 9.3 record —
+        reportable RSRP floor, with columns matching ``schema.mdt`` in
+        ``configs/data.yaml`` —
         ``ue_id``, ``sim_x``, ``sim_y``, ``date``, ``gcell_id``, ``band``,
         ``rsrp``, ``ue_height`` — plus ``scenario_id``, carried through from
         ``trajectories`` because ``src.data.split``'s scenario-level method

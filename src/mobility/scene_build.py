@@ -1,25 +1,29 @@
 """Download the OSM extract and build the SUMO network and polygon layer.
 
-Phase 2 of PROJECT.md section 16 needs a SUMO road network before UE
-trajectories can be generated. This script is the three-command sequence that
-produces one: ``osmGet.py`` fetches the OpenStreetMap extract for the study
-area, ``netconvert`` turns it into a SUMO network, and ``polyconvert`` extracts
-the buildings and land-use polygons that go with it.
+``src/mobility/`` needs a SUMO road network before UE trajectories can be
+generated. This module is the three-command sequence that produces one:
+``osmGet.py`` fetches the OpenStreetMap extract for the study area,
+``netconvert`` turns it into a SUMO network, and ``polyconvert`` extracts the
+buildings and land-use polygons that go with it.
 
 Rationale
 ---------
-The offsets applied by ``netconvert`` are the reason this is a script rather
+The offsets applied by ``netconvert`` are the reason this is a module rather
 than a note in a README. ``--proj.utm`` puts the network in UTM metres, and
 ``--offset.x`` / ``--offset.y`` then shift that origin onto the local frame of
 the Sionna-RT scene declared as ``data.scene_file`` in ``configs/data.yaml``.
-PROJECT.md section 9.1 requires SUMO coordinates to be mapped into that frame;
-getting the shift wrong does not raise, it silently places every UE in the
-wrong part of the scene. The two numbers therefore belong somewhere they can be
-reviewed and changed once, not retyped per invocation.
+SUMO coordinates must land in that frame; getting the shift wrong does not
+raise, it silently places every UE in the wrong part of the scene. The two
+numbers therefore belong somewhere they can be reviewed and changed once, not
+retyped per invocation. ``src/mobility/frame.py`` reads the resulting shift
+back out of the net file rather than assuming it.
 
-This script shells out to SUMO's own binaries and does not import ``src``: it
-produces an input to the pipeline, it is not a stage of it. There is no
-``src/mobility/`` package yet and this script does not create one.
+This module shells out to SUMO's own binaries and imports nothing from ``src``:
+it produces an input to the pipeline, it is not a stage of it. It lives beside
+the modules that consume its output, and — unlike them — takes plain
+command-line arguments rather than Hydra configuration, because the study area
+and the scene offsets are properties of the delivered scene rather than of a
+scenario.
 
 Requires a SUMO installation: ``SUMO_HOME`` must be set, and ``netconvert`` and
 ``polyconvert`` must be on ``PATH``. Neither is declared in ``pyproject.toml``

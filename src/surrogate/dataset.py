@@ -1,12 +1,12 @@
-"""Build and load D_sur, the surrogate training set — PROJECT.md section 11.
+"""Build and load D_sur, the surrogate training set.
 
 The dataset is::
 
     D_sur = {(x_k, tilt_k, R_k)} for k = 1..N
 
 with ``x`` the scenario, network and MDT-derived features, ``tilt`` an absolute
-tilt configuration, and ``R`` the reference Sionna-RT radio map (PROJECT.md
-section 11.2). The target is the map itself, not the five KPIs — those are
+tilt configuration, and ``R`` the reference Sionna-RT radio map. The target
+is the map itself, not the five KPIs — those are
 derived from it by :mod:`src.kpi` at scoring time.
 
 Building it is the expensive part of the project
@@ -27,12 +27,12 @@ split that puts some cells of a configuration in train and others in test
 reports an error far below the real one, and the surrogate then looks accurate
 right up to the point where an optimizer relies on it.
 
-Holding out whole *configurations* fixes that but is still not enough. PROJECT.md
-section 12.3 and Decision 8 require the split to be at **scenario** level: one
+Holding out whole *configurations* fixes that but is still not enough. The
+split must be at **scenario** level (:mod:`src.data.split`): one
 scenario is one environment plus one UE mobility realisation, and every
 configuration inside it shares the same buildings, materials and trajectories.
-Splitting within a scenario leaks exactly the structure the sim-to-reality study
-of section 12 exists to measure, and the reported generalisation is then a claim
+Splitting within a scenario leaks exactly the structure the sim-to-reality
+study exists to measure, and the reported generalisation is then a claim
 about tilts dressed up as a claim about environments.
 """
 

@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="<project-name> API",
-    description="Prediction service. See PROJECT.md for the project conventions.",
+    description="Prediction service. See README.md for the project conventions.",
     version="0.1.0",
     lifespan=lifespan,
 )

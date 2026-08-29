@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
+- **Revised:** 2026-08-29 — revised in place to remove the citations to a
+  specification document that is no longer treated as a source of truth.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -10,14 +12,14 @@
 
 This project makes decisions that shape it for years: which quantity is
 optimised, what "better coverage" means numerically, which approximations are
-allowed to stand behind a reported result. Today that reasoning lives in
-PROJECT.md, in chat history, and in the memory of whoever was in the room.
+allowed to stand behind a reported result. Today that reasoning lives in the
+README, in chat history, and in the memory of whoever was in the room.
 
-PROJECT.md is a specification: it states *what* the system does. It is also
-revised as the research progresses, so it records the current position rather
-than the history — read it in a year and you cannot tell which of its statements
-were obvious, which were contested, and which were chosen against a real
-alternative that has since become more attractive.
+The README, the configs and the docstrings are descriptive: they state *what* the
+system does. They are also revised as the research progresses, so they record the
+current position rather than the history — read them in a year and you cannot
+tell which of their statements were obvious, which were contested, and which were
+chosen against a real alternative that has since become more attractive.
 
 The code has the same problem in sharper form. `pitch = deg2rad(-tilt)` records
 a convention and never the fact that the opposite sign produces a plausible,
@@ -31,9 +33,9 @@ per decision, numbered sequentially and written at the time the decision is made
 Records are immutable once accepted: a decision that no longer holds is
 superseded by a new record rather than edited.
 
-PROJECT.md remains the specification and stays current. The ADRs are the
-history, and where they overlap, an ADR explains *why* the specification says
-what it says.
+The README, the configs and the code stay current and remain the description of
+record. The ADRs are the history, and where they overlap, an ADR explains *why*
+the description says what it says.
 
 The criteria for significance, and the process, are in [README.md](README.md).
 
@@ -44,8 +46,8 @@ The criteria for significance, and the process, are in [README.md](README.md).
 - The reasoning behind the formulation is discoverable from the repository.
 - A change to the KPI definitions, the tilt bounds or the angle convention is
   visibly a change to a recorded decision, not a routine edit.
-- New contributors can read the history rather than reconstruct it from
-  PROJECT.md revisions.
+- New contributors can read the history rather than reconstruct it from the
+  revision history of the descriptive documents.
 
 **Negative**
 
@@ -57,16 +59,19 @@ The criteria for significance, and the process, are in [README.md](README.md).
 **Neutral**
 
 - Records accumulate and are never deleted. Superseded records stay as history.
-- Some duplication with PROJECT.md is expected and accepted: the specification
-  states the decision, the ADR states the alternatives and the cost.
+- Some duplication with the README and the docstrings is expected and accepted:
+  the description states the decision, the ADR states the alternatives and the
+  cost.
 
 ## Alternatives considered
 
-**Keep the reasoning in PROJECT.md alone.** One document, already the source of
-truth, and section 21 already lists the confirmed decisions in a table. Rejected
-because that table records conclusions without alternatives or costs — it says
-absolute tilt is the optimization variable, not what using tilt offset would have
-cost. It is also revised in place, so it cannot carry history.
+**Keep the reasoning in a single specification document.** One document as the
+source of truth, listing the confirmed decisions in a table. Rejected because
+such a table records conclusions without alternatives or costs — it says absolute
+tilt is the optimization variable, not what using tilt offset would have cost. It
+is also revised in place, so it cannot carry history. A document of exactly this
+kind was tried and has since been retired as a source of truth, which is the
+concrete form this objection took.
 
 **Keep the reasoning in commit messages and pull request threads.** Nothing extra
 to maintain, and it is already where the discussion happens. Rejected because it
@@ -78,7 +83,7 @@ design, and easier to write in. Rejected because it drifts from the code — it 
 not reviewed with the change, so it is accurate only until the first thing that
 contradicts it merges.
 
-**Record nothing; rely on the code and PROJECT.md.** Zero cost, and works well
+**Record nothing; rely on the code and the README.** Zero cost, and works well
 enough for a single-author project. Rejected because it fails precisely when it
 matters most: at handover, when a result is disputed, and when someone revisits
 the formulation after the multi-band data arrives.

@@ -8,12 +8,10 @@ Modules
 - ``metrics``  surrogate prediction error
 - ``analysis`` the spatial maps
 
-The one rule this package enforces
-----------------------------------
-Reported KPIs come from Sionna-RT, never from the surrogate (PROJECT.md
-section 26, docs/adr/0003). The surrogate makes the search affordable; it does
-not make the claim. Where a surrogate prediction appears in a report, it is
-labelled as such and shown beside the ground truth, because the gap between them
+Labelling predictions
+---------------------
+Where a surrogate prediction appears in a report, it is
+labelled as such and shown beside the Sionna-RT result, because the gap between them
 is itself a result.
 
 Note the division with :mod:`src.kpi`: that package DEFINES the KPIs, this one

@@ -1,4 +1,4 @@
-"""SUMO UE mobility — PROJECT.md section 9.1 and section 16 Phase 2.
+"""SUMO UE mobility — pipeline Phase 2.
 
 Modules
 -------
@@ -12,10 +12,10 @@ Modules
 The mobility model is an input to the objective, not scenery
 --------------------------------------------------------------
 Two of the five KPIs are weighted by where UEs actually are. The UE-weighted
-Band Priority Score (PROJECT.md section 4.7) asks whether *users* are on the
-right frequency layer, not whether *area* is — so a mobility model that puts
-every UE on one arterial road produces a score about that road. Section 12.2
-perturbs exactly these parameters, and notebook 06 has to report whether the
+Band Priority Score (:mod:`src.kpi.band_priority`) asks whether *users* are on
+the right frequency layer, not whether *area* is — so a mobility model that
+puts every UE on one arterial road produces a score about that road. The
+perturbed scenarios vary exactly these parameters, and notebook 06 has to report whether the
 optimized configuration survived it.
 
 The frame transform is the silent failure

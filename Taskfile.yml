@@ -95,7 +95,7 @@ tasks:
   scene:build:
     desc: 'Fetch OSM and build the SUMO network + polygons (needs SUMO_HOME; notebook 01)'
     cmds:
-      - uv run python scripts/build_scene.py {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.mobility.scene_build {{.CLI_ARGS}}
 
   mobility:frame:
     desc: 'Print the derived SUMO-network to Sionna-scene transform and the clip bounds'

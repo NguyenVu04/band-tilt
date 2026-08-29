@@ -1,10 +1,13 @@
-# 2. Five KPIs under lexicographic priority
+# 1. Five KPIs under lexicographic priority
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
-- **Revised:** 2026-08-28 — revised in place to follow the PROJECT.md rewrite.
-  The priority order and the Mean Overlap Neighbors denominator changed; see
-  *Revision note* below.
+- **Revised:** 2026-08-28 — revised in place to follow a change in the
+  formulation. The priority order and the Mean Overlap Neighbors denominator
+  changed; see *Revision note* below.
+- **Revised:** 2026-08-29 — revised in place to remove the citations to a
+  specification document that is no longer treated as a source of truth. No
+  decision changed.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -74,7 +77,7 @@ serving-cell or dominant-band criterion.
 The definitions live in `src/kpi/` and nowhere else. TuRBO, MARL, the
 surrogate-predicted radio maps and the final Sionna-RT validation all score
 through the same functions, and no call site re-derives a threshold. The
-surrogate predicts a radio map rather than these KPIs (see 0003), so there is one
+surrogate predicts a radio map rather than these KPIs, so there is one
 evaluator and it sits downstream of both the simulator and the model.
 
 ## Consequences
@@ -86,7 +89,7 @@ evaluator and it sits downstream of both the simulator and the model.
 - The priority is explicit, so a configuration that fills holes at the cost of
   overlap is unambiguously better rather than a matter of taste.
 - One implementation means TuRBO and MARL cannot be scoring subtly different
-  things, which is what makes the PROJECT.md section 17 comparison valid.
+  things, which is what makes the TuRBO-versus-MARL comparison valid.
 - Excluding accessibility keeps the formulation about radio coverage, where the
   MDT data and the ray-tracing simulation both have something to say.
 
@@ -168,7 +171,7 @@ record is never rewritten; the original text is recoverable from Git history at
 | Mean overlap neighbours | mean of `N_ov` over **overlapping locations only** | mean of `N_ov` over **all** locations, `(1/\|G\|)·Σ N_ov(g)` |
 | Scalarized constraint | `lambda_H > lambda_O > lambda_W` | `lambda_H > lambda_O > lambda_ON > lambda_BPS > lambda_W` |
 
-Both changes follow the PROJECT.md rewrite (sections 4.6 and 5). The demotion of
+Both changes follow the 2026-08-28 change in the formulation. The demotion of
 weak rate to last is the larger practical change: under the original order a
 configuration could not trade weak coverage for band coordination, and now it
 can. The denominator change is recorded as a cost under *Consequences →

@@ -1,6 +1,6 @@
 """Turn scenario features and a tilt configuration into the surrogate input tensor.
 
-The surrogate learns ``f_sur: (x, tilt) -> R_hat`` (PROJECT.md section 11).
+The surrogate learns ``f_sur: (x, tilt) -> R_hat``.
 ``tilt`` is fixed by the problem — one absolute tilt per cell-band — but what
 goes into ``x`` is an open choice, declared in ``cfg.surrogate.features``.
 
@@ -19,19 +19,20 @@ The fitted state travels with the model artifact, not with the code. A
 surrogate loaded in notebook 05a or 05b must transform new tilt configurations
 exactly as it did during training — refitting at inference time silently changes
 the input distribution and the predictions with it. The surrogate is frozen for
-the whole optimization phase (PROJECT.md section 11.4), so this transform is
-fixed from the moment it is accepted.
+the whole optimization phase, so this transform is fixed from the moment it is
+accepted.
 
 What is worth including
 -----------------------
 Tilt alone makes the surrogate memorise configurations rather than learn the
 geometry, and it cannot generalise to a network whose cells have moved. Cell
 geometry, band identity, UE density and the neighbour structure are all
-candidates (PROJECT.md section 14.1 lists the analogous set for the MARL state).
+candidates (:mod:`src.optim.marl.env` lists the analogous set for the MARL
+state).
 Each is a config switch, so the ablation is a sweep rather than a rewrite.
 
-Scene features are the ones the sim-to-reality study depends on. PROJECT.md
-section 12 perturbs buildings, dimensions and materials between scenarios; a
+Scene features are the ones the sim-to-reality study depends on. The perturbed
+scenarios vary buildings, dimensions and materials between scenarios; a
 surrogate whose input never describes the environment cannot generalise across
 those perturbations, it can only memorise the scenario it trained on — and the
 held-out-scenario error in ``cfg.surrogate.acceptance`` is then measuring
