@@ -61,6 +61,22 @@ xgboost = ["xgboost>=2.1"]
 # Radio-frequency ray tracing. src/radio/ is the only package that imports it;
 # Sionna-RT is the ground truth for every reported KPI (see docs/adr/0003).
 rt = ["sionna-rt>=2.0"]
+# UE mobility simulation (src/mobility/). Eclipse SUMO is a system package with
+# its own installer, but the PyPI wheel ships the same binaries plus `sumolib`
+# and `traci` as importable modules — which is what makes `import sumolib` work
+# in Colab and on a machine where SUMO_HOME is not set. Without this extra,
+# sumolib resolves only through a global PYTHONPATH pointing at $SUMO_HOME/tools,
+# which is not recorded anywhere and not reproducible.
+#
+# pyproj is not optional: sumolib.net.Net.getGeoProj raises RuntimeError
+# ("Network does not provide geo-projection or pyproj not installed.") without
+# it, and src/mobility/frame.py derives the network-to-scene translation through
+# exactly that call. A missing pyproj must fail at install time, not at run time.
+#
+# The floor is the version this was verified against: SUMO 1.27.1 writes FCD
+# output directly as Parquet (--output.format), which is how the trajectory
+# frame is read back. Older versions emit XML only.
+sumo = ["eclipse-sumo>=1.27", "pyproj>=3.6"]
 # Bayesian Optimization over the absolute-tilt space (src/optim/bo/).
 bo = ["ax-platform>=0.4", "botorch>=0.12", "gpytorch>=1.13"]
 # Multi-Agent RL over the same space (src/optim/marl/). Ray/RLlib is

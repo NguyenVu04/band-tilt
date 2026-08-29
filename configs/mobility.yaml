@@ -1,0 +1,256 @@
+# @package mobility
+# UE mobility generation — PROJECT.md section 9.1 and section 16 Phase 2.
+#
+# SUMO moves UEs over the road network; Sionna-RT propagates through the 3D
+# geometry of the same place. This file declares the mobility half of a
+# SCENARIO: which network, how many UEs, when they arrive, how they are routed,
+# how often they are sampled, and the seed that makes all of it reproducible
+# (PROJECT.md section 22.4).
+#
+# Every key below is fixed scenario configuration, never an observation
+# (section 22.3), and PROJECT.md section 12.2 perturbs exactly these keys to
+# ask whether the optimized configuration survives a mobility model it was not
+# tuned on. That is why this block — and nothing outside it — feeds
+# scenario_id in src/data/scenario.py: a scenario is identified by what was
+# varied.
+#
+# There are no <placeholder> values here. Section 9.1 names these as axes a
+# scenario may vary, not as parameters left undetermined; unlike the band
+# table in configs/radio.yaml, every one of them has a defensible default.
+#
+# src/mobility/ is the only code that reads this block, except
+# src.data.scenario, which reads it read-only to compute scenario_id.
+
+# --- Network -----------------------------------------------------------------
+# Built by `task scene:build` (scripts/build_scene.py): netconvert --proj.utm
+# puts the network in UTM zone 48N metres, then --offset.x/--offset.y shift it,
+# and the shift is recorded in the net file's <location netOffset>. Never
+# hardcode that offset anywhere — src/mobility/frame.py reads it back.
+#
+# poly_file is the buildings and land use polyconvert extracted. It is used
+# only to eyeball trajectories against footprints in notebook 01. Its
+# convBoundary spans roughly 60 km while the network spans 7 km: the polygon
+# layer covers far more ground than the roads do.
+network:
+  net_file: data/external/simulation_map/scene.net.xml
+  poly_file: data/external/simulation_map/scene.poly.xml
+
+# --- Coordinate frame --------------------------------------------------------
+# The transform from SUMO network coordinates to the Sionna-RT scene local
+# frame (PROJECT.md section 9.1). Both frames are EPSG:32648 metres, so the
+# transform is a pure translation — but the translation is DERIVED at run
+# time, from the net file's <location netOffset/projParameter> and the scene
+# file's scenegen_center_lat/lon and scenegen_UTM_zone (via
+# src.radio.scene.scene_metadata). It is never a literal.
+#
+# Why: a network rebuilt with different --offset.x/--offset.y produces a net
+# file whose netOffset says so. A hardcoded translation would keep applying
+# the old shift, silently, and put every UE in the wrong street.
+#
+# expected_offset is a GUARD, not the source. Set it to the [dx, dy] a
+# previous run reported; src/mobility/frame.py raises when the runtime
+# derivation moves by more than tolerance_m — which is what catches a network
+# rebuilt against a different scene without anyone noticing. Computed by hand
+# and independently confirmed via sumolib against the delivered files.
+frame:
+  expected_offset: [244.7237, 129.4592]
+  tolerance_m: 1.0
+
+# --- UE population -------------------------------------------------------------
+# count is the number of UEs inserted over the whole run. SUMO's demand tools
+# take an insertion PERIOD rather than a count, so src/mobility/demand.py
+# derives period = (run.end_s - run.begin_s) / count and records both in the
+# manifest. Section 12.2 perturbs count and density; changing count changes
+# scenario_id.
+#
+# mode selects the SUMO demand class. `vehicle` is the only one the delivered
+# network supports: scene.net.xml was built without --sidewalks.guess and has
+# zero walkingareas, so pedestrians cannot cross junctions on it. Rebuilding
+# the network for `pedestrian` is a scripts/build_scene.py change, not a
+# config one.
+#
+# vehicle_class selects the SUMO vClass the routes must be legal for.
+#
+# height_m is the UE antenna height above ground, metres. It MUST equal
+# radio.grid.height_m — the radio map is solved on a plane at that height and
+# a measurement taken at a different one is not comparable to it. Asserted in
+# src/mobility/simulate.py rather than assumed.
+ue:
+  count: 200
+  mode: vehicle
+  vehicle_class: passenger
+  height_m: ${radio.grid.height_m}
+
+# --- Arrival process -----------------------------------------------------------
+# process: uniform | poisson | binomial | random
+#   uniform   one departure every `period` seconds — the deterministic baseline
+#   poisson   Poisson-distributed departures at rate 1/period (--poisson)
+#   binomial  up to `binomial_n` departures per second (--binomial)
+#   random    departures spread randomly over the window (--random-depart)
+#
+# The arrival process is one of the six mobility perturbations in section
+# 12.2. Prefer `poisson` for anything meant to look like traffic and `uniform`
+# when a run must be comparable to another at the same count.
+#
+# depart_offset_s adds a per-vehicle random offset (sumo --random-depart-offset)
+# so a uniform process does not put every UE on the same simulation step.
+arrival:
+  process: poisson
+  binomial_n: 4
+  depart_offset_s: 0.0
+
+# --- Routing ---------------------------------------------------------------
+# randomTrips.py samples origin/destination edge pairs; duarouter turns them
+# into routes. The weights below shape WHERE the UEs are, which is what the
+# UE-weighted Band Priority Score is weighted by (section 4.7) — so they are a
+# modelling choice, not a nuisance parameter.
+#
+# fringe_factor biases trips towards edges that leave the network, which is
+# how through-traffic is represented. 1.0 is no bias; large values make the
+# network look like a corridor rather than a neighbourhood.
+#
+# min_distance_m / max_distance_m reject trips too short to produce a useful
+# trajectory and too long to stay inside the scene.
+#
+# weight_by_lanes / weight_by_length make busy roads more likely origins,
+# which is a crude but defensible stand-in for a real O/D matrix. Say so in
+# the report rather than letting it read as calibrated.
+#
+# validate: true makes duarouter fail loudly (nonzero exit) on any trip it
+# cannot route; false passes --ignore-errors and drops those trips instead.
+# false is the default here because it was verified against the delivered
+# network: scene.net.xml is a large, unfiltered OSM extract (20,799 edges)
+# that includes disconnected fringe components, so a randomly sampled
+# origin/destination pair is routinely unroutable — that is a property of
+# this network, not a bug in the sampled demand. Set true for a smaller or
+# more curated network where an unroutable trip should be treated as a
+# defect worth stopping the run over.
+#
+# threads is pinned to 1 deliberately: duarouter and randomTrips both
+# parallelise, and multithreaded routing is not bit-reproducible across runs.
+# Reproducibility beats wall-clock here — this stage runs once per scenario.
+routing:
+  fringe_factor: 2.0
+  min_distance_m: 300.0
+  max_distance_m: 6000.0
+  weight_by_lanes: true
+  weight_by_length: true
+  remove_loops: true
+  validate: false
+  threads: 1
+
+# --- Run ---------------------------------------------------------------------
+# begin_s / end_s bound the simulation clock in seconds. step_length_s is the
+# integration step; it is NOT the sampling interval and should stay at SUMO's
+# default unless car-following behaviour is being studied.
+#
+# collector: fcd | traci
+#   fcd    one `sumo --fcd-output` subprocess, no Python in the simulation
+#          loop. The default, and the only one implemented.
+#
+#          Written as CSV (`--output.format csv`), not Parquet: SUMO 1.27.1's
+#          own `--output.format parquet` writer is undocumented-experimental
+#          and was verified here to crash on every run on this platform
+#          (`IOError: Appending to file not implemented`, nonzero exit),
+#          parquet output enabled or not, `--device.fcd.period` set or not —
+#          this is not a maybe. CSV with the same `--fcd-output.attributes`
+#          was verified to exit 0 and parse cleanly. Re-check this against a
+#          newer SUMO release before switching back; do not assume the fix
+#          landed.
+#   traci  step the simulation from Python. Costs a round trip per step and
+#          buys nothing here, because nothing needs to influence the
+#          simulation while it runs. Reserved for a scenario that does —
+#          closed-loop rerouting, for instance.
+#
+# teleport_s is SUMO's --time-to-teleport. A teleport moves a UE
+# discontinuously and produces exactly the artefact src/mobility/checks.py
+# looks for, so it is disabled (-1) rather than left at the default 300 s.
+run:
+  begin_s: 0.0
+  end_s: 3600.0
+  step_length_s: 1.0
+  collector: fcd
+  teleport_s: -1
+
+# --- Sampling ------------------------------------------------------------------
+# interval_s is how often a UE's position is recorded — SUMO's
+# --device.fcd.period. This is a COST decision as much as a fidelity one:
+# under the eventual PathSolver-per-position MDT stage (src/radio/mdt.py),
+# halving it doubles the number of ray-tracing solves notebook 02 has to
+# perform.
+#
+# 200 UEs over 3600 s at 1.0 s is at most 720,000 samples before clipping. At
+# 10.0 s it is 72,000. Start coarse.
+#
+# attributes are the SUMO FCD columns requested. Adding one here without
+# adding it to the schema in src/mobility/simulate.tidy() silently widens the
+# output.
+sampling:
+  interval_s: 10.0
+  attributes: [id, x, y, speed, angle, type, lane]
+  skip_empty_timesteps: true
+
+# --- Clipping ------------------------------------------------------------------
+# The road network is LARGER than the ray-tracing scene on all four sides. In
+# the scene frame the network spans roughly x [-3553, 3843], y [-4121, 3234],
+# while the scene ground plane spans roughly x [-3007, 3005], y [-3228, 3228].
+# Positions outside the scene are therefore expected, not exceptional, and
+# asserting they cannot happen would simply be false.
+#
+# policy: drop_samples | drop_ues | error
+#   drop_samples  drop the individual samples outside the bounds. Keeps the
+#                 most data; leaves a UE's trajectory with holes in it, which
+#                 src/mobility/checks.py's step-distance test will flag as
+#                 discontinuities. Prefer it when the UE distribution is the
+#                 product being measured.
+#   drop_ues      drop every sample of any UE that ever leaves the scene.
+#                 Keeps trajectories contiguous at the cost of biasing the
+#                 population towards UEs that stay in the middle — a bias the
+#                 report has to state.
+#   error         raise. Only useful once a network is built to match the
+#                 scene.
+#
+# max_clipped_fraction is a guard on the RESULT, not a filter: if more than
+# this fraction of samples fell outside, the network and the scene probably do
+# not describe the same place and the run should fail loudly rather than
+# quietly return a fraction of the trajectories.
+clip:
+  policy: drop_samples
+  max_clipped_fraction: 0.5
+
+# --- Output --------------------------------------------------------------------
+# Trajectories are written under data/interim/, partitioned by scenario_id,
+# with a manifest beside them (PROJECT.md section 22.4). data/ is DVC-tracked.
+# Excluded from scenario_id (src.data.scenario.scenario_id) — a path is not
+# part of what a scenario is.
+#
+# epoch anchors the simulation clock to a wall-clock timestamp so the `date`
+# column matches the datetime64[ns, UTC] contract in
+# configs/data.yaml schema.mdt.columns.date. It is arbitrary but must be
+# fixed: a run whose epoch is `now` cannot be reproduced.
+#
+# keep_sumo_inputs stores the generated trips and routes beside the output.
+# They are regenerable from the seed, so this is off by default; turn it on
+# when a route set has to be inspected or diffed.
+output:
+  dir: data/interim/trajectories
+  epoch: "2026-03-12T00:00:00Z"
+  keep_sumo_inputs: false
+
+# --- Seed --------------------------------------------------------------------
+# Interpolates the global seed by default, exactly as radio.sampling.seed
+# does. src/utils/seed.set_seed cannot reach a subprocess, so
+# src/mobility/demand.py derives three explicit seeds from this one —
+# randomTrips, duarouter and sumo — and records all three verbatim in the
+# manifest. Never pass --random.
+seed: ${seed}
+
+# --- Perturbation --------------------------------------------------------------
+# The mobility half of a PROJECT.md section 12.2 perturbed scenario. `null` is
+# the base scenario. When set, it is a free-form label recorded in the
+# manifest and folded into scenario_id, so two scenarios that differ only in
+# their perturbation label are still distinct artifacts.
+#
+# The perturbations themselves are ordinary overrides on the keys above:
+#   task mobility:generate -- mobility.ue.count=400 mobility.perturbation=dense
+perturbation: null

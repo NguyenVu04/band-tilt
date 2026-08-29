@@ -10,6 +10,8 @@ against hand-built inputs with hand-computed answers — no simulator, no GPU, n
 minutes-long scene load. :func:`rsrp_grid` is that input.
 """
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -208,6 +210,129 @@ def mdt_df() -> pd.DataFrame:
 
 
 @pytest.fixture
+def scene_frame() -> Any:
+    """A hand-checkable SUMO-to-scene transform: dx=100, dy=-50, bounds +/-500 m.
+
+    Returns:
+        A :class:`src.mobility.frame.SceneFrame` with round numbers, so a
+        test can predict a translated or clipped position by hand rather than
+        recomputing :func:`src.mobility.frame.derive_frame`'s real UTM
+        projection.
+
+    Notes:
+        Imports :mod:`src.mobility.frame` inside the fixture body, not at
+        module scope — that module stays importable without ``pyproj``
+        (see its own module docstring), but this fixture is still only
+        requested by tests that declare the ``sumo`` extra as a prerequisite.
+    """
+    from src.mobility.frame import SceneFrame
+
+    return SceneFrame(
+        dx=100.0,
+        dy=-50.0,
+        bounds=(-500.0, -500.0, 500.0, 500.0),
+        net_offset=(-1000.0, -2000.0),
+        proj_parameter="+proj=utm +zone=48 +ellps=WGS84 +datum=WGS84 +units=m +no_defs",
+        scene_centre_lonlat=(105.77, 20.97),
+        utm_zone="EPSG:32648",
+    )
+
+
+@pytest.fixture
+def sumo_fcd_frame() -> pd.DataFrame:
+    """Three UEs over four 10 s samples, in SUMO network-local coordinates.
+
+    Built against :func:`scene_frame` (``dx=100``, ``dy=-50``, bounds
+    +/-500 m): exactly one sample (``ue_2`` at ``t=20``) lands outside the
+    scene bounds once translated, and exactly one consecutive pair (``ue_3``,
+    ``t=0`` -> ``t=10``) implies a 900 m / 10 s = 90 m/s jump — a teleport
+    under :data:`src.mobility.checks._MAX_PLAUSIBLE_SPEED_MPS` (55 m/s).
+    Every other sample and every other consecutive pair is unremarkable by a
+    wide margin (at most ~40 m/s), so a test can assert an exact count rather
+    than an inequality.
+
+    Returns:
+        Twelve rows: ``ue_id``, ``t``, ``sim_x``, ``sim_y`` — SUMO
+        network-local metres, not yet translated into the scene frame.
+    """
+    return pd.DataFrame(
+        {
+            "ue_id": ["ue_1"] * 4 + ["ue_2"] * 4 + ["ue_3"] * 4,
+            "t": [0.0, 10.0, 20.0, 30.0] * 3,
+            "sim_x": [
+                0.0,
+                10.0,
+                20.0,
+                30.0,  # ue_1 - steady, well inside after translation
+                0.0,
+                10.0,
+                410.0,
+                30.0,  # ue_2 - t=20 lands outside after translation
+                -550.0,
+                350.0,
+                360.0,
+                370.0,  # ue_3 - t=0 -> t=10 is the 900 m jump
+            ],
+            "sim_y": [
+                0.0,
+                10.0,
+                20.0,
+                30.0,
+                0.0,
+                10.0,
+                0.0,
+                30.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    )
+
+
+class _FakeEdge:
+    """A minimal stand-in for a ``sumolib.net.Edge`` exposing only ``getSpeed``."""
+
+    def __init__(self, speed_mps: float) -> None:
+        self._speed_mps = speed_mps
+
+    def getSpeed(self) -> float:
+        return self._speed_mps
+
+
+class _FakeNet:
+    """A minimal stand-in for ``sumolib.net.Net`` exposing only ``getEdge``.
+
+    Duck-typed rather than a real ``sumolib.net.Net``, so
+    :func:`src.mobility.checks.speed_within_limits` — which only ever calls
+    ``net.getEdge(edge_id).getSpeed()`` — can be tested without SUMO or a
+    network file, matching this module's rule that no fixture may depend on a
+    real dataset or a simulator.
+    """
+
+    def __init__(self, limits: dict[str, float]) -> None:
+        self._limits = limits
+
+    def getEdge(self, edge_id: str) -> _FakeEdge:
+        return _FakeEdge(self._limits[edge_id])
+
+
+@pytest.fixture
+def edge_speed_limits() -> _FakeNet:
+    """A fake SUMO net exposing three edges at 50/30/100 km/h speed limits.
+
+    Returns:
+        An object with ``getEdge(edge_id).getSpeed()``, matching the surface
+        :func:`src.mobility.checks.speed_within_limits` calls on a real
+        ``sumolib.net.Net``. Edges: ``"edge_50"`` (13.89 m/s = 50 km/h),
+        ``"edge_30"`` (8.33 m/s = 30 km/h), ``"edge_100"`` (27.78 m/s =
+        100 km/h).
+    """
+    return _FakeNet({"edge_50": 13.89, "edge_30": 8.33, "edge_100": 27.78})
+
+
+@pytest.fixture
 def cfg() -> DictConfig:
     """A minimal config matching the fixtures above.
 
@@ -274,6 +399,50 @@ def cfg() -> DictConfig:
                         }
                     },
                 },
+            },
+            "mobility": {
+                "network": {
+                    "net_file": "data/external/simulation_map/scene.net.xml",
+                    "poly_file": "data/external/simulation_map/scene.poly.xml",
+                },
+                "frame": {"expected_offset": [244.7237, 129.4592], "tolerance_m": 1.0},
+                "ue": {
+                    "count": 20,
+                    "mode": "vehicle",
+                    "vehicle_class": "passenger",
+                    "height_m": 0.5,
+                },
+                "arrival": {"process": "uniform", "binomial_n": 4, "depart_offset_s": 0.0},
+                "routing": {
+                    "fringe_factor": 2.0,
+                    "min_distance_m": 300.0,
+                    "max_distance_m": 6000.0,
+                    "weight_by_lanes": True,
+                    "weight_by_length": True,
+                    "remove_loops": True,
+                    "validate": False,
+                    "threads": 1,
+                },
+                "run": {
+                    "begin_s": 0.0,
+                    "end_s": 100.0,
+                    "step_length_s": 1.0,
+                    "collector": "fcd",
+                    "teleport_s": -1,
+                },
+                "sampling": {
+                    "interval_s": 10.0,
+                    "attributes": ["id", "x", "y", "speed", "angle", "type", "lane"],
+                    "skip_empty_timesteps": True,
+                },
+                "clip": {"policy": "drop_samples", "max_clipped_fraction": 0.5},
+                "output": {
+                    "dir": "data/interim/trajectories",
+                    "epoch": "2026-03-12T00:00:00Z",
+                    "keep_sumo_inputs": False,
+                },
+                "seed": 42,
+                "perturbation": None,
             },
             "radio": {
                 "bands": {

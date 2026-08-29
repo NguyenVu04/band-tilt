@@ -7,6 +7,9 @@ Modules
 - ``scene``     build the Sionna-RT scene from the 3D map and materials
 - ``radiomap``  turn an absolute tilt configuration into an RSRP array
 - ``sampling``  draw valid tilt configurations for the surrogate dataset
+- ``mdt``       evaluate RSRP along UE trajectories to build synthetic MDT —
+                blocked on the multi-band cell configuration; see its module
+                docstring
 
 This package owns the only dependency on Sionna-RT. Everything downstream
 consumes plain NumPy arrays, which is what lets the KPI code score a surrogate

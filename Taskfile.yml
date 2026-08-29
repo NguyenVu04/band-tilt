@@ -34,6 +34,11 @@ tasks:
     cmds:
       - uv sync --extra dev --extra notebooks --extra viz
 
+  sync:mobility:
+    desc: Install the base + dev environment plus SUMO (notebook 01)
+    cmds:
+      - uv sync --extra dev --extra notebooks --extra viz --extra sumo
+
   lock:
     desc: Resolve dependencies and write uv.lock
     cmds:
@@ -91,6 +96,16 @@ tasks:
     desc: 'Fetch OSM and build the SUMO network + polygons (needs SUMO_HOME; notebook 01)'
     cmds:
       - uv run python scripts/build_scene.py {{.CLI_ARGS}}
+
+  mobility:frame:
+    desc: 'Print the derived SUMO-network to Sionna-scene transform and the clip bounds'
+    cmds:
+      - uv run python -m {{.PKG}}.mobility.frame {{.CLI_ARGS}}
+
+  mobility:generate:
+    desc: 'Generate SUMO UE trajectories for one scenario (needs SUMO; notebook 01)'
+    cmds:
+      - uv run python -m {{.PKG}}.mobility.simulate {{.CLI_ARGS}}
 
   clean:data:
     desc: 'LEGACY - clean the retired operator MDT export (no notebook; see CLAUDE.md)'

@@ -22,12 +22,18 @@
 # when it does, point `cell_config_path` at it and fill in the placeholder
 # columns under `schema.cell_config` below.
 #
+# Two copies of this export exist with genuinely different sim_x/sim_y — not a
+# constant offset apart, so not the same coordinate frame. `external/` is used
+# here because it sits beside `data.scene_file` and was delivered on the same
+# date; `raw/gcell_conf.csv` is the other candidate and has not been reconciled
+# against the scene.
+#
 # `mdt_path` points at the retired operator export. Under PROJECT.md sections 6
 # and 9 this is generated instead — SUMO trajectories through Sionna-RT — and
 # the generation stage does not exist yet. Do not treat the file below as the
 # spec'd input; see CLAUDE.md, Known gaps.
 mdt_path: data/raw/measurement_data.csv
-cell_config_path: data/raw/gcell_conf.csv
+cell_config_path: data/external/gcell_conf.csv
 
 # The Sionna-RT scene (PROJECT.md section 7). Read by src/radio/scene.py.
 scene_dir: data/external/simulation_map
@@ -141,6 +147,12 @@ schema:
         max: 200.0
         nullable: false
         source: UE above ground level; upper bound is the scene building height
+      scenario_id:
+        dtype: string
+        nullable: false
+        source: src.data.scenario.scenario_id; a deterministic hash of the
+          scenario definition (PROJECT.md section 12.3). What split.scenario_col
+          below names.
 
   # Cell configuration — PROJECT.md section 8.
   cell_config:

@@ -18,6 +18,11 @@ Nothing in this package may learn from the data. Any transform fitted on
 observations — a scaler, an imputer, a learned encoder — belongs in
 ``src.surrogate.features``, fitted on the training split only.
 
-Nothing in this package may import ``src.radio``, ``src.kpi``,
-``src.surrogate`` or ``src.optim``. Data handling sits below all of them.
+Nothing in this package may import ``src.kpi``, ``src.surrogate`` or
+``src.optim``. Data handling sits below all of them. The single exception is
+``src.radio.scene.scene_bounds`` (and its sibling ``scene_metadata``), which
+own the scene extent this package clips and grids against — see
+``src.data.clean.drop_outside_scene`` and ``src.data.ue_density.build_grid``.
+Both stay import-safe without the ``rt`` extra: ``src.radio.scene`` imports
+Sionna-RT lazily, inside ``load_scene``, not at module scope.
 """

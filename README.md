@@ -28,9 +28,11 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 >    has no band, carrier frequency, transmit power, or electrical/mechanical tilt
 >    split — so the central quantity, one tilt per `(cell, band)` pair, cannot be
 >    formed from real data.
-> 2. **UE mobility generation is unbuilt.** The specification generates UE
->    trajectories with SUMO and derives synthetic MDT from them; there is no
->    `src/mobility/` package, no SUMO dependency and no configuration for it.
+> 2. **Synthetic MDT is unbuilt.** `src/mobility/` generates UE trajectories
+>    with SUMO and is implemented — `task mobility:generate` runs against the
+>    real data. Turning those trajectories into RSRP measurements
+>    (`src/radio/mdt.py`) is what needs the multi-band cell configuration from
+>    item 1, so it is still a contract-first stub.
 > 3. **The code is contract-first.** Function bodies raise `NotImplementedError`
 >    with their own dotted path; the docstrings, configs, tests and decision
 >    records were written first so the shape of the problem is settled before any
@@ -177,7 +179,7 @@ ground-truth score comparable at all.
 
 | Component | Responsibility | Location |
 |---|---|---|
-| Mobility | SUMO UE trajectories, mapped into the scene frame | **not built** — see Implementation status |
+| Mobility | SUMO UE trajectories, mapped into the scene frame | [`src/mobility/`](src/mobility/) |
 | Data | Load and validate MDT, split by scenario, build the UE density grid | [`src/data/`](src/data/) |
 | Radio | Scene construction, the cell-band table, radio-map generation, tilt sampling | [`src/radio/`](src/radio/) |
 | KPI | The five KPIs, their priority, and candidate comparison — the objective | [`src/kpi/`](src/kpi/) |
@@ -195,7 +197,7 @@ The dependency direction between these is one-way and is documented in
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Ray-traced radio maps — the ground truth for every reported KPI | **Critical** | `--extra rt`; no reported result exists without it |
-| [Eclipse SUMO](https://eclipse.dev/sumo/) | UE mobility; the trajectories synthetic MDT is sampled along | **Critical** | **no extra, no module, not yet integrated** |
+| [Eclipse SUMO](https://eclipse.dev/sumo/) | UE mobility; the trajectories synthetic MDT is sampled along | **Critical** | `--extra sumo` (or a system SUMO with `SUMO_HOME` set); `src/mobility/` is implemented and runs against the real data |
 | 3D scene and road network | Propagation geometry, materials, and the streets UEs drive on | **Critical** | supplied externally, not in the repository |
 | Multi-band cell configuration | Band, carrier, power and tilt bounds per cell-band | **Critical** | **not yet available** |
 | [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and acquisition TuRBO is built on | Degraded | `--extra bo`; MARL still runs without it |
@@ -213,7 +215,7 @@ The dependency direction between these is one-way and is documented in
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
 | CUDA GPU | — | optional, but Sionna-RT ray tracing is impractically slow without one |
-| [SUMO](https://eclipse.dev/sumo/) | 1.19+ | for UE mobility; not yet wired into the project |
+| [SUMO](https://eclipse.dev/sumo/) | 1.27+ | for UE mobility (`task mobility:generate`); floor is the version FCD-CSV output was verified against — see `src/mobility/simulate.py` |
 | Scene + cell configuration | — | supplied externally; `data/` is DVC-tracked and not in the clone |
 
 ### Install
@@ -250,14 +252,15 @@ Expected output:
 uv run ruff check .
 All checks passed!
 uv run ruff format --check .
-56 files already formatted
+70 files already formatted
 uv run pytest
-69 skipped
+29 passed, 72 skipped
 ```
 
-**69 skipped is the correct result.** Every test is a contract awaiting its
-module — the skip reason names which one. A collection *error*, not a skip, is a
-real failure.
+**29 passed, 72 skipped is the correct result.** `src/mobility/` is
+implemented, not a stub, so most of `tests/test_mobility.py` actually runs;
+everything else is a contract awaiting its module — the skip reason names
+which one. A collection *error*, not a skip, is a real failure.
 
 To confirm the package tree is intact:
 
@@ -312,7 +315,7 @@ call the same functions in `src/`, so they cannot diverge.
 | Phase | Notebook | Script |
 |---|---|---|
 | 1 — Scenario: scene, materials, cell-band table, tilt bounds | [`00_scenario`](notebooks/00_scenario.ipynb) | — |
-| 2 — UE mobility with SUMO | [`01_mobility`](notebooks/01_mobility.ipynb) | — |
+| 2 — UE mobility with SUMO | [`01_mobility`](notebooks/01_mobility.ipynb) | `task mobility:generate` |
 | 3 — Radio maps, synthetic MDT, baseline KPIs | [`02_radiomap_and_mdt`](notebooks/02_radiomap_and_mdt.ipynb) | — |
 | 4 — Surrogate dataset, split by scenario | [`03_surrogate_dataset`](notebooks/03_surrogate_dataset.ipynb) | `task surrogate:dataset` |
 | 5 — Train and freeze the radio-map surrogate | [`04_surrogate_modeling`](notebooks/04_surrogate_modeling.ipynb) | `task surrogate:train` |
@@ -326,9 +329,12 @@ task bo -- optim.search.n_iter=100        # once the pipeline runs
 task dvc:repro                            # the whole pipeline, in order
 ```
 
-**No stage runs end to end today.** `task clean:data` still exists but operates
-on the retired operator MDT export and is labelled legacy; everything else waits
-on SUMO integration and the multi-band cell configuration.
+**No stage runs past Phase 2 today.** `task mobility:generate` runs against the
+real data and writes trajectories (`task mobility:frame` checks the riskiest
+part — the coordinate transform — in isolation, in about a second). Phase 3
+onward waits on the multi-band cell configuration (`src/radio/mdt.py`).
+`task clean:data` still exists but operates on the retired operator MDT export
+and is labelled legacy.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap cell
 clones the repository and installs what Colab does not ship. That cell is
@@ -361,6 +367,8 @@ band-tilt/
 |---|---|
 | Configs, decision records, notebooks, tests | Written, and aligned to the 2026-08-28 specification |
 | `src/utils/plotting.py` | Implemented |
+| `src/mobility/`, `src/data/scenario.py` | Implemented — UE mobility generation, PROJECT.md section 16 Phase 2 |
+| `src/radio/scene.py`'s `scene_bounds`, `scene_metadata` | Implemented; `load_scene`/`add_transmitters` are not |
 | Everything else in `src/` | `NotImplementedError` — contracts, not defects |
 | `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which no longer composes. |
 | CI | None. `task lint` and `task test` run locally only. |
@@ -376,8 +384,8 @@ carries the full list.
 
 | Divergence | Consequence |
 |---|---|
-| No `src/mobility/` | Phase 2 does not exist; synthetic MDT cannot be generated |
-| Nothing produces `scenario_id` | The scenario-level split cannot be performed |
+| `src/radio/mdt.py` is a stub | Blocked on the multi-band cell configuration, not on Phase 2 — `src/mobility/` itself is implemented; see `src/radio/mdt.py`'s module docstring for the intended `PathSolver`-per-position shape |
+| `src/data/split.py`'s `method: scenario` is unimplemented | `scenario_id` now has a producer (`src/data/scenario.py`), so this is unblocked but still not written |
 | `src/surrogate/` predicts KPIs, not radio maps | Contradicts Decision 6; `radio_map_tensor` and `radio_map_error` are referenced by notebooks 03–04 and unwritten |
 | `src/optim/bo/` is generic Ax BO | `cfg.optim.trust_region` is declared and unread — this is not yet TuRBO |
 | `src/data/clean.py`, `split.py` | Written for the retired operator export; `split.method: scenario` has no implementation |
@@ -406,17 +414,21 @@ task check
 | Contract | Every module's interface, against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py::test_hole_rate_matches_hand_computed_value` | locally |
 
-**There is no coverage gate and no CI.** With almost every function body
-unimplemented, a coverage number would measure nothing; adding a threshold now
-would be theatre. The suite is 69 contract tests, all skipped, each naming the
-module that unblocks it — so the skip list doubles as the implementation
-checklist.
+**There is no coverage gate and no CI.** With most function bodies still
+unimplemented, a coverage number would measure little; adding a threshold now
+would be theatre. 72 of the 101 tests are contracts awaiting their module,
+each naming it in its skip reason — so the skip list doubles as the
+implementation checklist. `tests/test_mobility.py` is the exception: most of
+it runs, because `src/mobility/` is implemented.
 
 Two rules the tests hold to:
 
-- **No test touches the network, a real dataset, or Sionna-RT.** A suite that
-  only runs after `dvc pull` stops being run. Fixtures in `tests/conftest.py` are
-  tiny and synthetic.
+- **No test touches the network, a real dataset, Sionna-RT, or SUMO.** A suite
+  that only runs after `dvc pull`, or only with SUMO on `PATH`, stops being run.
+  Fixtures in `tests/conftest.py` are tiny and synthetic; the handful of
+  `tests/test_mobility.py` tests that genuinely need the DVC-tracked scene
+  files or a real SUMO subprocess carry an explicit `@pytest.mark.skip` naming
+  the prerequisite.
 - **Expected KPI values are computed by hand and asserted as literals.** A test
   that derives its expectation from the code under test asserts only that the
   implementation agrees with itself. The values documented on the `rsrp_grid`
@@ -514,10 +526,10 @@ Ordered roughly by what unblocks the most.
 | Multi-band cell configuration | external data delivery | **Blocking most of the below** |
 | Implement `src/kpi/` — including the new `\|G\|` denominator for mean overlap neighbours | re-deriving the `rsrp_grid` fixture literals by hand | Not started; independent of the band data |
 | Re-derive the hand-computed KPI fixtures in `tests/conftest.py` | — | Not started; they are currently wrong |
-| Build `src/mobility/` — SUMO integration, trajectories, scene-frame mapping | a SUMO scenario for the study area | Not started; blocks synthetic MDT and everything after it |
-| Emit `scenario_id`, and generate the perturbed scenarios of PROJECT.md section 12 | the above | Not started; blocks the scenario-level split |
+| Implement `src/radio/mdt.py` — synthetic MDT via `PathSolver`, receiver-batched | the band data, plus measuring a receiver-batch size against the real scene | Not started; `src/mobility/` already produces its input |
+| Generate the perturbed scenarios of PROJECT.md section 12 | `src/mobility/` (done) | Not started |
 | Rework `src/surrogate/` to predict radio maps rather than KPIs | — | Not started; config and docs already specify it |
-| Rework `src/data/split.py` for scenario-level splitting; retire `clean.py` | `scenario_id` | Not started |
+| Rework `src/data/split.py` for scenario-level splitting; retire `clean.py` | `scenario_id` (done — `src/data/scenario.py`) | Not started |
 | Implement the trust-region logic in `src/optim/bo/` — make it TuRBO, not generic BO | — | Not started; `cfg.optim.trust_region` is declared and unread |
 | Fix the open parameters in PROJECT.md section 22.2 — band weights, tilt bounds, grid resolution, KPI tolerances | the band data, plus notebook 00 findings | Not started |
 | Implement `src/radio/` | Sionna-RT access | Not started |

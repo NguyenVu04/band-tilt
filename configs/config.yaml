@@ -11,12 +11,14 @@
 # via src.config.load_config().
 #
 # Each composed file declares its own package (`# @package <name>` header), so
-# the merged config is namespaced: cfg.data.*, cfg.radio.*, cfg.kpi.*,
-# cfg.surrogate.*, cfg.optim.*. Nothing merges into the root except the keys
-# below, which keeps a new config group from silently shadowing an existing key.
+# the merged config is namespaced: cfg.data.*, cfg.mobility.*, cfg.radio.*,
+# cfg.kpi.*, cfg.surrogate.*, cfg.optim.*. Nothing merges into the root except
+# the keys below, which keeps a new config group from silently shadowing an
+# existing key.
 
 defaults:
   - data
+  - mobility
   - radio
   - kpi
   - surrogate
