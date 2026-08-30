@@ -21,12 +21,14 @@ extent, so the cleaning stage, the UE density grid and the radio map all agree
 on where the area is.
 
 ``scene_bounds`` and ``scene_metadata`` are implemented; only Sionna-RT itself
-(``load_scene``, ``add_transmitters``) is not. Neither reads more than the scene
-XML header and the ground mesh, so both stay usable without the ``rt`` extra —
-``src.mobility.frame`` and ``src.data.clean``/``src.data.ue_density`` call them
-without pulling in a propagation simulator. Keep it that way: importing
-``sionna`` anywhere at module scope in this file would make the ``rt`` extra a
-prerequisite for generating UE trajectories, which it must never be.
+(``load_scene``, ``add_transmitters``) is not. ``scene_bounds`` and
+``scene_metadata`` still read no more than the scene XML header and the ground
+mesh — but ``load_scene`` now imports ``mitsuba``/``sionna.rt`` at module
+scope, so importing this module at all, for any reason, now requires the
+``rt`` extra. That is a deliberate departure from the previous rule (see git
+history): ``src.mobility.frame`` and ``src.data.clean``/``src.data.ue_density``
+importing this file therefore also now require the ``rt`` extra, even though
+they only ever call ``scene_bounds``/``scene_metadata``.
 """
 
 import struct
@@ -34,8 +36,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+import mitsuba as mi
 import pandas as pd
 from omegaconf import DictConfig
+from sionna import rt
 
 #: <default name="scenegen_*" value="..."/> entries the scenegen tool writes
 #: into the scene XML — the environment's identity (study area, materials,
@@ -43,7 +47,7 @@ from omegaconf import DictConfig
 _SCENEGEN_PREFIX = "scenegen_"
 
 
-def load_scene(cfg: DictConfig) -> Any:
+def load_scene(cfg: DictConfig) -> mi.Scene:
     """Load the Sionna-RT scene from the 3D map on disk.
 
     Args:
@@ -51,17 +55,20 @@ def load_scene(cfg: DictConfig) -> Any:
             ``cfg.data.scene_dir``.
 
     Returns:
-        The Sionna-RT scene object.
+        The underlying Mitsuba scene (``sionna.rt.Scene.mi_scene``), not the
+        Sionna-RT ``Scene`` wrapper itself.
 
     Raises:
-        NotImplementedError: Always — implement this module first.
-        FileNotFoundError: Once implemented, when the scene XML is missing.
+        FileNotFoundError: When ``cfg.data.scene_file`` does not exist.
+        TypeError: When ``Scene.mi_scene`` returns something other than a
+            ``mitsuba.Scene`` — a Sionna-RT internals change this module has
+            not been updated for.
 
     Notes:
-        Import Sionna-RT inside the function, not at module scope. It is an
-        optional extra (``uv sync --extra rt``) and pulls in a large rendering
-        stack; a module-level import would make ``import src.radio`` fail for
-        anyone doing data work without the simulator installed.
+        ``mitsuba``/``sionna.rt`` are imported at module scope, not lazily
+        inside this function — importing ``src.radio.scene`` at all now
+        requires the ``rt`` extra (``uv sync --extra rt``), including for
+        callers that only want ``scene_bounds``/``scene_metadata``.
 
         The materials are declared in the scene XML. Overriding them in code
         would make the propagation environment depend on Python state that the
@@ -71,10 +78,10 @@ def load_scene(cfg: DictConfig) -> Any:
     Example:
         >>> scene = load_scene(cfg)
     """
-    # TODO(1): import sionna.rt inside the function body
-    # TODO(2): load cfg.data.scene_file
-    # TODO(3): raise a message naming the rt extra when the import fails
-    raise NotImplementedError("src.radio.scene.load_scene")
+    scene = rt.load_scene(cfg.data.scene_file).mi_scene
+    if not isinstance(scene, mi.Scene):
+        raise TypeError(f"expected a mitsuba.Scene from Scene.mi_scene, got {type(scene)!r}")
+    return scene
 
 
 def scene_metadata(cfg: DictConfig) -> dict[str, str]:
