@@ -151,7 +151,7 @@ schema:
         dtype: string
         nullable: false
         source: src.data.scenario.scenario_id; a deterministic hash of the
-          scenario definition (ADR 0009). What split.scenario_col below names.
+          scenario definition. What split.scenario_col below names.
 
   # Cell configuration.
   cell_config:

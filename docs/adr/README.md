@@ -84,26 +84,3 @@ which is the thing these records exist to preserve.
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | 2026-08-29 |
 | [0001](0001-five-kpis-under-lexicographic-priority.md) | Five KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-08-29 |
-
-### Records referenced but never written
-
-`configs/`, `src/`, `tests/` and `pyproject.toml` cite records that were never
-written. **0002 and 0003 are withdrawn numbers** — 0002 was renumbered to 0001
-and 0003 was removed — and per the lifecycle rule above they are not reused,
-which is why the absolute-tilt record below is numbered 0010. Those citations now point at the module or config that actually
-owns each decision, so nothing dangles; the records themselves are still owed and
-are listed in the README.md roadmap.
-
-| Would-be # | Decision it was cited for | Owned by, now |
-|---|---|---|
-| 0010 | Absolute tilt is the decision variable; the offset is derived | `src/optim/space.py`, `src/radio/cell_band.py` |
-| 0004 | Coordinate and angle conventions | `src/radio/geometry.py` |
-| 0005 | Band-generic design and the multi-band cell configuration contract | `configs/radio.yaml`, `src/radio/cell_band.py` |
-| 0006 | Choosing TorchRL over Ray/RLlib, and the optimizer frameworks generally | `configs/optim/bo.yaml`, `configs/optim/marl.yaml` |
-| 0007 | The split scheme — now scenario-level | `src/data/split.py`, `src/data/scenario.py` |
-
-0004 is the one worth writing soonest. `src/radio/geometry.py` and
-`tests/test_geometry.py` are the only place the convention is stated anywhere in
-the project — no document restates it. A sign error there produces a plausible,
-entirely wrong radio map and no test that does not already know the answer can
-catch it.

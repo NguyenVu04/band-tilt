@@ -28,8 +28,7 @@ network configuration.
 
 ``version`` exists so that changing what goes into the hash is a visible,
 deliberate act — bump it and every previously stored scenario re-identifies
-under a new id rather than silently colliding or silently diverging. See
-``docs/adr/0009``.
+under a new id rather than silently colliding or silently diverging.
 
 Where this sits
 ----------------
@@ -59,7 +58,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.radio import scene
 
 #: Bumped only when the scenario_id payload definition itself changes — never
-#: for an ordinary config value. See the module docstring and docs/adr/0009.
+#: for an ordinary config value. See the module docstring.
 PAYLOAD_VERSION = 1
 
 #: Prefix on every generated id, so a scenario_id is recognisable in a path,

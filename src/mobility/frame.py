@@ -35,7 +35,7 @@ extract than the ray-tracing scene covers. Positions outside the scene are
 therefore the ordinary case, not an exceptional one, and asserting every
 mapped position lies inside the scene bounds (notebook 01's original section 3
 check) is simply false against this data. :func:`clip_to_scene` clips and
-reports the clipped fraction instead of asserting it away — see ADR 0008.
+reports the clipped fraction instead of asserting it away.
 
 Importable without the ``sumo`` extra
 ----------------------------------------

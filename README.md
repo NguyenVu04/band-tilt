@@ -529,7 +529,6 @@ Ordered roughly by what unblocks the most.
 | Implement `src/radio/` | Sionna-RT access | Not started |
 | Build `D_sur` and train the surrogate | the above | Not started |
 | TuRBO and MARL studies, and the comparison | a surrogate that passes acceptance | Not started |
-| Write the five ADRs cited but never recorded — 0001, 0004, 0005, 0006, 0007 | — | Not started; 0004 (angle conventions) is the urgent one, since `src/radio/geometry.py` is the only record of the convention |
 | CI (`task check` on every push) | — | Not started |
 
 ## License

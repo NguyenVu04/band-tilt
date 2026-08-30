@@ -28,8 +28,7 @@ So the conversion exists exactly once, it is unit-tested against hand-computed
 values, and no other module may write ``90.0 -`` or ``-tilt``.
 
 This module and ``tests/test_geometry.py`` are together the authoritative
-record of the convention — no document restates it. ``docs/adr/0004`` is owed
-for the reasoning behind it and has not been written yet.
+record of the convention — no document restates it.
 """
 
 import numpy as np
