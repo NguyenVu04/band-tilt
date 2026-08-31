@@ -1,4 +1,4 @@
-# band-tilt
+# MULTI-BAND TILT COORDINATION FOR COVERAGE EFFICIENT 5G/6G RAN
 
 Research code comparing trust-region Bayesian Optimization (TuRBO) and
 Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
