@@ -92,6 +92,11 @@ tasks:
     cmds:
       - uv run jupyter lab
 
+  simulation:trips:
+    desc: 'Build the SUMO net, routes and sumocfg, then run SUMO for trajectories (needs SUMO)'
+    cmds:
+      - uv run python -m {{.PKG}}.simulation.trip {{.CLI_ARGS}}
+
   scene:build:
     desc: 'Fetch OSM and build the SUMO network + polygons (needs SUMO_HOME; notebook 01)'
     cmds:

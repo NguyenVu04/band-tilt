@@ -1,0 +1,166 @@
+# @package simulation
+# Simulation environment — the Sionna-RT scene and the SUMO road network.
+#
+# Read by src/simulation/network.py, which takes every path and every
+# parameter from this block and never parses the scene XML for them.
+
+scene_dir: data/external/simulation_map
+scene_file: ${simulation.scene_dir}/scene.xml
+
+# Basename for the generated network files: <prefix>.nod.xml, <prefix>.edg.xml.
+prefix: scene
+
+# The study area, restated here from the scene's own scenegen_* block. Keep it
+# in step with scene.xml: a mismatch does not raise, it shifts the whole road
+# network off the geometry it is supposed to sit on.
+#
+# center is the origin of the Sionna-RT scene local frame. Projected into
+# utm_zone at run time, negated, and passed to netconvert as --offset.x/--offset.y,
+# it makes SUMO network coordinates identical to scene coordinates.
+scene:
+  center:
+    lat: 20.965787
+    lon: 105.770059
+  utm_zone: EPSG:32648
+  bbox:
+    min_lon: 105.74156284332275
+    min_lat: 20.937066078186035
+    max_lon: 105.7985544204712
+    max_lat: 20.99450826644897
+
+# OpenStreetMap extract. Downloaded by osmGet.py over scene.bbox, then reused.
+osm:
+  dir: ${simulation.scene_dir}/osm
+  # osmGet.py queried with --bbox composes "<prefix>_bbox" plus the suffix. Other
+  # query modes and other SUMO versions name it differently, so the expected name
+  # is configuration rather than a literal in the code.
+  file: ${simulation.osm.dir}/${simulation.prefix}_bbox.osm.xml
+  refresh: false
+
+network:
+  out_dir: ${simulation.scene_dir}
+  # The compiled network, assembled from the plain XML by
+  # src/simulation/network.build_net. randomTrips.py, duarouter and sumo all
+  # require it; the plain files alone are not enough.
+  net_file: ${simulation.network.out_dir}/${simulation.prefix}.net.xml
+  # Restrict the network to scene.bbox. The OSM extract covers at least the study
+  # area; without this, edges outside the ray-tracing geometry survive into the
+  # network and UEs drive off the scene.
+  clip_to_scene: true
+  # Network cleanup passed through to netconvert verbatim.
+  netconvert_options:
+    - --geometry.remove
+    - --ramps.guess
+    - --junctions.join
+    - --tls.guess-signals
+    - --tls.discard-simple
+
+# --- UE population -----------------------------------------------------------
+# count is the number of UEs inserted over the whole run. SUMO's demand tools
+# take an insertion PERIOD, not a count, so src/simulation/trip.py derives
+# period = (run.end_s - run.begin_s) / count.
+#
+# vehicle_class selects the SUMO vClass the sampled routes must be legal for.
+# `passenger` is the only class the delivered network supports: it was built
+# without --sidewalks.guess and has no walkingareas, so pedestrians cannot
+# cross its junctions. Changing that is a network rebuild, not a config edit.
+ue:
+  count: 200
+  vehicle_class: passenger
+
+# --- Routing -----------------------------------------------------------------
+# randomTrips.py samples origin/destination edge pairs and, through -r, has
+# duarouter turn them into routes. The weights below shape WHERE the UEs are,
+# which is what the UE-weighted KPIs are weighted by — a modelling choice, not
+# a nuisance parameter.
+#
+# fringe_factor biases trips towards edges that leave the network, which is how
+# through-traffic is represented. 1.0 is no bias; large values make the network
+# read as a corridor rather than a neighbourhood.
+#
+# min_distance_m / max_distance_m reject trips too short to produce a useful
+# trajectory and too long to stay near the scene.
+#
+# weight_by_lanes / weight_by_length make busy roads likelier origins — a crude
+# but defensible stand-in for a real origin/destination matrix. Say so in the
+# report rather than letting it read as calibrated.
+#
+# Routes are always validated — there is no config key for it, because a UE
+# with no route is not a scenario anyone wants. randomTrips.py samples endpoints
+# against the distance and loop constraints but never checks that a route
+# between them exists, so a fraction is always unroutable: measured on this
+# network at seed 42, 174 of 200, with 25 of the 26 failures having one endpoint
+# in a small isolated pocket of the PASSENGER-legal subgraph (a cul-de-sac or
+# service loop whose only exit is an edge cars may not use). Only ~9,450 of the
+# network's 24,371 edges are reachable by car from a typical origin.
+#
+# Validation resamples until ue.count routes exist, so the UE population is
+# drawn from the car-navigable component. That is the intent, not a side effect.
+# It costs several extra duarouter passes over the whole network and is the slow
+# part of this stage.
+#
+# threads is pinned to 1 deliberately, and must be set rather than left out:
+# randomTrips.py fills an unset --threads in with half the CPU count and
+# forwards anything above 1 to duarouter as --routing-threads. Multithreaded
+# duarouter is not bit-reproducible across runs, and this stage runs once per
+# scenario, so reproducibility beats wall-clock.
+routing:
+  fringe_factor: 2.0
+  min_distance_m: 300.0
+  max_distance_m: 6000.0
+  weight_by_lanes: true
+  weight_by_length: true
+  remove_loops: true
+  threads: 1
+
+# --- Run ---------------------------------------------------------------------
+# begin_s / end_s bound the simulation clock in seconds. step_length_s is the
+# integration step; it is NOT the sampling interval and should stay at SUMO's
+# default unless car-following behaviour is being studied.
+#
+# teleport_s is SUMO's --time-to-teleport. A teleport moves a UE
+# discontinuously and is an artefact in the trajectory rather than traffic, so
+# it is disabled (-1) rather than left at the default 300 s.
+run:
+  begin_s: 0.0
+  end_s: 3600.0
+  step_length_s: 1.0
+  teleport_s: -1
+
+# --- Sampling ----------------------------------------------------------------
+# interval_s is how often a UE's position is recorded — SUMO's
+# --device.fcd.period. This is a COST decision as much as a fidelity one: under
+# a later per-position ray-tracing stage, halving it doubles the number of
+# solves. 200 UEs over 3600 s is at most 72,000 samples at 10 s and 720,000 at
+# 1 s. Start coarse.
+#
+# attributes are the SUMO FCD columns requested. SUMO emits them under its own
+# names and in its own order, not the order listed here — the CSV header reads
+# timestep_time;vehicle_id;vehicle_x;vehicle_y;vehicle_angle;vehicle_type;
+# vehicle_speed;vehicle_lane. Read columns by name, never by position.
+sampling:
+  interval_s: 10.0
+  attributes: [id, x, y, speed, angle, type, lane]
+  skip_empty_timesteps: true
+
+# --- Output ------------------------------------------------------------------
+# The demand artifacts sit beside the network they are legal for. The
+# trajectory does not: it is the one output the rest of the pipeline consumes,
+# so it lives at the top of data/external/ rather than inside the map bundle.
+#
+# fcd_file is CSV, not Parquet. SUMO 1.27's --output.format parquet writer is
+# undocumented-experimental and was verified here to crash on every run on this
+# platform (IOError: Appending to file not implemented). Re-check against a
+# newer SUMO release before switching back; do not assume the fix landed.
+output:
+  trips_file: ${simulation.scene_dir}/${simulation.prefix}.trips.xml
+  route_file: ${simulation.scene_dir}/${simulation.prefix}.rou.xml
+  sumocfg_file: ${simulation.scene_dir}/${simulation.prefix}.sumocfg
+  fcd_file: data/external/${simulation.prefix}_fcd.csv
+
+# --- Seed --------------------------------------------------------------------
+# src/utils/seed cannot reach a subprocess, so seeding is explicit:
+# src/simulation/trip.py passes this value to randomTrips.py and this value + 1
+# to sumo. Offsets rather than independent draws, so the relationship between
+# the two is itself reproducible. --random is never passed.
+seed: ${seed}

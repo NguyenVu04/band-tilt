@@ -432,7 +432,9 @@ rt = [
 ]
 sumo = [
     { name = "eclipse-sumo" },
+    { name = "libsumo" },
     { name = "pyproj" },
+    { name = "traci" },
 ]
 torch = [
     { name = "torch" },
@@ -444,10 +446,6 @@ viz = [
     { name = "matplotlib" },
     { name = "seaborn" },
 ]
-xgboost = [
-    { name = "xgboost", version = "3.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "xgboost", version = "3.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -458,32 +456,33 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'app'", specifier = ">=0.115" },
     { name = "gpytorch", marker = "extra == 'bo'", specifier = ">=1.13" },
     { name = "gymnasium", marker = "extra == 'marl'", specifier = ">=1.0" },
-    { name = "hydra-core", specifier = ">=1.3" },
+    { name = "hydra-core", specifier = ">=1.3.6" },
     { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=6.29" },
     { name = "joblib", specifier = ">=1.4" },
     { name = "jupyterlab", marker = "extra == 'notebooks'", specifier = ">=4.2" },
+    { name = "libsumo", marker = "extra == 'sumo'", specifier = ">=1.27" },
     { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.9" },
-    { name = "mlflow", marker = "extra == 'tracking'", specifier = ">=2.16" },
+    { name = "mlflow", marker = "extra == 'tracking'", specifier = ">=3.15" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pip", marker = "extra == 'notebooks'", specifier = ">=24.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8" },
-    { name = "pyarrow", specifier = ">=17.0" },
+    { name = "pyarrow", specifier = ">=25.0" },
     { name = "pydantic", marker = "extra == 'app'", specifier = ">=2.9" },
     { name = "pyproj", marker = "extra == 'sumo'", specifier = ">=3.6" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16" },
     { name = "scikit-learn", specifier = ">=1.5" },
     { name = "seaborn", marker = "extra == 'viz'", specifier = ">=0.13" },
     { name = "sionna-rt", marker = "extra == 'rt'", specifier = ">=2.0" },
-    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.38" },
+    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.62" },
     { name = "tensordict", marker = "extra == 'marl'", specifier = ">=0.6" },
-    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.4", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.13", index = "https://download.pytorch.org/whl/cu132" },
     { name = "torchrl", marker = "extra == 'marl'", specifier = ">=0.6" },
+    { name = "traci", marker = "extra == 'sumo'", specifier = ">=1.27" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'app'", specifier = ">=0.30" },
-    { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=2.1" },
 ]
-provides-extras = ["app", "tracking", "dvc", "torch", "xgboost", "rt", "sumo", "bo", "marl", "viz", "notebooks", "dev"]
+provides-extras = ["app", "tracking", "dvc", "torch", "rt", "sumo", "bo", "marl", "viz", "notebooks", "dev"]
 
 [[package]]
 name = "beautifulsoup4"
@@ -1883,16 +1882,16 @@ wheels = [
 
 [[package]]
 name = "hydra-core"
-version = "1.3.5"
+version = "1.3.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "antlr4-python3-runtime" },
     { name = "omegaconf" },
     { name = "packaging" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/e4/69a522676faf88994d93d8a5e69e0666c61cae7f73d1bbcc483222023e74/hydra_core-1.3.5.tar.gz", hash = "sha256:71c441eabbde086062045e4d3fce9e26015244f1a4ac721cf3e444c7edf10633", size = 3264337, upload-time = "2026-08-05T18:33:21.394Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/03/adfa2bf3a9eef568a85f2e7cf18ce1938e7aa0b5257c432e5eb48f89960a/hydra_core-1.3.6.tar.gz", hash = "sha256:8c4c215b6cfba68e9a4e76f565bd7399fc2a86b93cfe8cb7328b046834dfbee5", size = 3272413, upload-time = "2026-08-29T14:36:08.092Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/97/f9d463a6f3c7d0955753eca5cbbf35b596ac471dd13fe357211a53fd37be/hydra_core-1.3.5-py3-none-any.whl", hash = "sha256:a3ff35b4ea6794e4c83d993016f4bde4ac35797ebe7a08f30e83ed9341880331", size = 155768, upload-time = "2026-08-05T18:33:19.834Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/fd/612cc7905787100dc9225ae6ad71b42b60cbc23cd56ca55afcdd1e000f81/hydra_core-1.3.6-py3-none-any.whl", hash = "sha256:55951f49c7e19c29f4281cce2eeaa6e73ef6c5620093a4efb402a7e4b839fc38", size = 163055, upload-time = "2026-08-29T14:36:06.385Z" },
 ]
 
 [[package]]
@@ -2435,6 +2434,35 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/28fff3ab31ccff1fd4f6c7c7b0ceb2b6968d8ea4950663eadcb5720591a0/lark-1.3.1.tar.gz", hash = "sha256:b426a7a6d6d53189d318f2b6236ab5d6429eaf09259f1ca33eb716eed10d2905", size = 382732, upload-time = "2025-10-27T18:25:56.653Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3d/14ce75ef66813643812f3093ab17e46d3a206942ce7376d31ec2d36229e7/lark-1.3.1-py3-none-any.whl", hash = "sha256:c629b661023a014c37da873b4ff58a817398d12635d3bbb2c5a03be7fe5d1e12", size = 113151, upload-time = "2025-10-27T18:25:54.882Z" },
+]
+
+[[package]]
+name = "libsumo"
+version = "1.27.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sumo-data" },
+    { name = "traci" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/c8/622aaec1411cdfeba46b109473b5415576d775572fe4c3572bd85aae6e23/libsumo-1.27.1-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:976035dc63c0c69cdbb627446cb8d11835a5e90e7662aa2372bdaafab3cf9252", size = 5943250, upload-time = "2026-06-25T09:48:54.425Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/3d/5270d15f78cf6b0778e38ce9186cae09b6e9c3a260ee965f5331442d6547/libsumo-1.27.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:188789f289ec48169ff883dcc4c767b03671b44ab6b5f2aa425b2468c922ec45", size = 26884603, upload-time = "2026-06-25T09:48:56.679Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/af/4d1c389982219d54e01379f7a417c2e6354a8db6a0e7633b776937f06fd7/libsumo-1.27.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:88e9915a1350ec0cfbc86eb91a7dd8c2fc2658a88644901783496fcc38f27c66", size = 36289293, upload-time = "2026-06-25T09:49:00.127Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/1d/ecd467bf599d93faca30f024266350e24cdeb1a9bb24ada8a348603f1cbb/libsumo-1.27.1-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:16a585119bd55a28abe62bef2d1be158064ef82c73cc20006d1f34541d7dadca", size = 68010618, upload-time = "2026-06-25T09:49:04.11Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/6b/948951b9993bf883b4e21a1592de4356eebeea150a53f93efd944292c2dd/libsumo-1.27.1-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:ec514a220557fa0f5f3c92afedd68bcb0db9ed5c830a6d1a3bea60f310ae31bc", size = 85426319, upload-time = "2026-06-25T09:49:09.187Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/96/7ee8bd29425d51d2da3170b5b6d392222c7cf0d3c269accde258b6dbf0dd/libsumo-1.27.1-cp311-cp311-win_amd64.whl", hash = "sha256:93211b8406df49d4b473f6ddc0687538c8706d896a4392781673bf371f187503", size = 4634183, upload-time = "2026-06-25T09:49:12.705Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/13/36c0656d40a413d546f3d17b2009704b5ca2bb7401781192a933559c1ba1/libsumo-1.27.1-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:b392e1df876a31e8dc4d13c7242aa520e83f48a2073fcfda18708dff681fd6e2", size = 5964453, upload-time = "2026-06-25T09:49:14.196Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/b1/fe2da42d9f7edec32e128564510d1a9dcf392afdb13c4b476bd5f3529cf3/libsumo-1.27.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:f3fe02105577568319f883ac2e7ae6fe03a006692d2aa3d80c685226260250df", size = 26891270, upload-time = "2026-06-25T09:49:16.318Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/f6/70026c1c85f7dfb7759f9272570c0c2d6129fac00594867466f741322d0a/libsumo-1.27.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f68e551cbd3a73dbfd76c9ace3156c04db5f7dce45af3909c3891cca7c3a36b9", size = 36295109, upload-time = "2026-06-25T09:49:19.567Z" },
+    { url = "https://files.pythonhosted.org/packages/32/34/c0afc726f3aba75df34dac292162791d6245d5316ab3fac7ab920a691c79/libsumo-1.27.1-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:00fb87579bbd89ccb5147c078a452f8acc5a3dfe090102ca6af4270aac3a7c0d", size = 68008898, upload-time = "2026-06-25T09:49:24.076Z" },
+    { url = "https://files.pythonhosted.org/packages/76/68/cdd54c9b628ccb8acc4a57d2c68a2bbe0e8ea6e899e2cb1877b5fb36f6e5/libsumo-1.27.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:b928b617e63cd76fa1eb2e17df4df3ae927dce5353863f25b86caa2d56718890", size = 85425242, upload-time = "2026-06-25T09:49:29.711Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/b4/2b5d6f8beb52b0d8191c5d26ed7e13410776c25525327b9efcf70bdd6e87/libsumo-1.27.1-cp312-cp312-win_amd64.whl", hash = "sha256:749835cb74caa2d1b0373f517ed6c91918cb64994dee0f8aa499b0126eafc409", size = 4636296, upload-time = "2026-06-25T09:49:32.574Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/8a/5895510d76bc7faafde1aed8f59b9d9472d9d50188d4281c153fa675a96d/libsumo-1.27.1-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:04aef20d413bcd27a3e024f01f676681d6224beabcb4a19a42cb53cef8494cd6", size = 5957328, upload-time = "2026-06-25T09:49:34.142Z" },
+    { url = "https://files.pythonhosted.org/packages/33/9c/2ef85ee347a809e8d78ec58517f3777606b71c875e0ddc2b9bc2a707586d/libsumo-1.27.1-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:02cfe36d60981fa6d15b2b23b0872f29cbb3213ea7964b3c3fa99ee0ce91bab2", size = 26890129, upload-time = "2026-06-25T09:49:36.311Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/1b/414c6402f43ce0b04f2404e93861f6d7bc43a788e97e2448d7469574c71a/libsumo-1.27.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c349554a66912b7361a9059dbc3b366659b36fe8e5ac3211b0cae2cd55811150", size = 36294740, upload-time = "2026-06-25T09:49:39.532Z" },
+    { url = "https://files.pythonhosted.org/packages/96/fc/aef38f52d6c75473e4e6a46c8f3d10050a4e977eb88798ddfdee6f586927/libsumo-1.27.1-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:bbe98fa47cfaf28b95d541f2491d74cd5e5ca8a70ebaa3bc703448c85acd0502", size = 68008869, upload-time = "2026-06-30T14:35:29.204Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/64/a31eed94e43a73a3cf15e18f33a7e2ed4a32063a105287aa373b1ae778a4/libsumo-1.27.1-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:e8eede1432e401957f33cb5ba31ab733e297f422eac7e4e5635114e607fc6a48", size = 85424026, upload-time = "2026-06-30T14:35:38.972Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/53/b79d12b0ac7ad2f1664df28c3fd6f8ce9a86095a8da6b69f149024be6381/libsumo-1.27.1-cp313-cp313-win_amd64.whl", hash = "sha256:2716fa2bfac554c812973fb34677b88ecac9d4b89ceff478f176baa88905f5b2", size = 4636557, upload-time = "2026-06-30T14:35:57.501Z" },
 ]
 
 [[package]]
@@ -3194,15 +3222,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/e1/cdc1797eadf82d3a9a575a19b33fdc871a97edbec42c00b5b5e914f4aff4/nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4dca476c50bf4780d46cd0bfbd82e2bc10a08e4fef7950917ce8d7578d22a23f", size = 221051344, upload-time = "2025-09-05T18:49:51.289Z" },
     { url = "https://files.pythonhosted.org/packages/34/7d/2661f2fb3ac4302f3a246f5fc030213ac60c1fe0bce84f9783dbd831dbb7/nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:786ce87568c303fadb5afcc7102d454cd3040d75f6f8626f5db460d1871f4dd0", size = 170148586, upload-time = "2025-09-05T18:50:50.248Z" },
-]
-
-[[package]]
-name = "nvidia-nccl-cu12"
-version = "2.31.2"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/85/b073e54c993cd9f79faa955d7c9bd7356da408935483aebc3cbb53a922ec/nvidia_nccl_cu12-2.31.2-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:f208de397e431631eab0eca946444404a495d43a007535baa333d7de9e510ca2", size = 342026203, upload-time = "2026-08-11T23:23:40.509Z" },
-    { url = "https://files.pythonhosted.org/packages/0f/36/104de52d6368f5b7f886e8fd252e0a438fe73a215e59b1b47f93a80ae2ea/nvidia_nccl_cu12-2.31.2-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:f9b1dc3c2a7e20176054144ebb3b32fea83b40402ee5d7ac7045cd11ecc956c0", size = 342105414, upload-time = "2026-08-11T23:24:24.167Z" },
 ]
 
 [[package]]
@@ -4859,6 +4878,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sumolib"
+version = "1.27.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/9e/fc02e2202b93ecfa3559afa972a5ac50c644a50c51412bdb52f9f76e279e/sumolib-1.27.1.tar.gz", hash = "sha256:0ceaeeb5c9913d8e38e998263e33702c1ed43829d9f961bb3a591d94fbe87018", size = 142135, upload-time = "2026-06-25T09:50:50.978Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/1f/216675079166eec8ae21b22db31e35d524799d26df1eadcc8746053586ba/sumolib-1.27.1-py2.py3-none-any.whl", hash = "sha256:2cc63e75de8db9219ab1a742a4f8870d1d2199881dcc006a0afbcdbb1e463796", size = 236203, upload-time = "2026-06-25T09:50:49.816Z" },
+]
+
+[[package]]
 name = "sympy"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5053,6 +5081,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ffd99576daa5cc077722fc7d5bbc00bd133fa0c698dc6/tqdm-4.70.0.tar.gz", hash = "sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220", size = 795438, upload-time = "2026-07-27T11:33:15.271Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/1c/01bfd571a64e7f270e6bab5e33777debe0edc56759233ce84f27dec92d14/tqdm-4.70.0-py3-none-any.whl", hash = "sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953", size = 80184, upload-time = "2026-07-27T11:33:13.167Z" },
+]
+
+[[package]]
+name = "traci"
+version = "1.27.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sumolib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/63/3b0b1405396f12d977fbe50fe77196a6f8896143ecd75f85283bfdac42af/traci-1.27.1.tar.gz", hash = "sha256:9f5ccc66e02db316c078a3b010fea1c40510f0cb8434a2155bfe6248e9058787", size = 103403, upload-time = "2026-06-25T09:50:59.876Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/26/59f5b3ebdf57efbc45a89d47e95fdbe0d7349cb52e13be1d37722e97413e/traci-1.27.1-py2.py3-none-any.whl", hash = "sha256:b4f4fb1cd145461c318aa62df16cfd48494a46631a8c3b62348b901def670c9e", size = 138897, upload-time = "2026-06-25T09:50:58.734Z" },
 ]
 
 [[package]]
@@ -5512,51 +5552,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6b/ff/b94878f8eed809ca042685276bcea9f24e8c2ca7c9653bb80bbb920a68a5/wrapt-2.3.0-cp313-cp313t-win_amd64.whl", hash = "sha256:c4bded758ad6f03b965830944a2f0bc5b2eb3767fe5a7310134315d1a6610e98", size = 82634, upload-time = "2026-07-28T06:05:18.026Z" },
     { url = "https://files.pythonhosted.org/packages/80/fb/663e1de5332a71685a729754312d327d4cada767c36e1c5a2db4c8de49e6/wrapt-2.3.0-cp313-cp313t-win_arm64.whl", hash = "sha256:d2cc64539da63e39ffb9c7ede849b6e8ddaaf7b3876b5cfb04efd85a5f3f4eb6", size = 81387, upload-time = "2026-07-28T06:05:19.417Z" },
     { url = "https://files.pythonhosted.org/packages/00/39/3daf9f47be208606586de4568ba6713db53ebc8fd7a575aea1fe57983b69/wrapt-2.3.0-py3-none-any.whl", hash = "sha256:d8c7ed08477429752b8c44991f40ad7838b18332a160698740a6bfbc10d998a2", size = 61866, upload-time = "2026-07-28T06:06:12.9Z" },
-]
-
-[[package]]
-name = "xgboost"
-version = "3.2.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.12'",
-]
-dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
-    { name = "nvidia-nccl-cu12", marker = "sys_platform == 'linux'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" } },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/91/bb/1eb0242409d22db725d7a88088e6cfd6556829fb0736f9ff69aa9f1e9455/xgboost-3.2.0.tar.gz", hash = "sha256:99b0e9a2a64896cdaf509c5e46372d336c692406646d20f2af505003c0c5d70d", size = 1263936, upload-time = "2026-02-10T11:03:05.542Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/49/6e4cdd877c24adf56cb3586bc96d93d4dcd780b5ea1efb32e1ee0de08bae/xgboost-3.2.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:2f661966d3e322536d9c448090a870fcba1e32ee5760c10b7c46bac7a342079a", size = 2507014, upload-time = "2026-02-10T10:50:57.44Z" },
-    { url = "https://files.pythonhosted.org/packages/93/f1/c09ef1add609453aa3ba5bafcd0d1c1a805c1263c0b60138ec968f8ec296/xgboost-3.2.0-py3-none-macosx_12_0_arm64.whl", hash = "sha256:eabbd40d474b8dbf6cb3536325f9150b9e6f0db32d18de9914fb3227d0bef5b7", size = 2328527, upload-time = "2026-02-10T10:51:17.502Z" },
-    { url = "https://files.pythonhosted.org/packages/96/9f/d9914a7b8df842832850b1a18e5f47aaa071c217cdd1da2ae9deb291018b/xgboost-3.2.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:852eabc6d3b3702a59bf78dbfdcd1cb9c4d3a3b6e5ed1f8781d8b9512354fdd2", size = 131100954, upload-time = "2026-02-10T11:02:42.704Z" },
-    { url = "https://files.pythonhosted.org/packages/79/98/679de17c2caa4fd3b0b4386ecf7377301702cb0afb22930a07c142fcb1d8/xgboost-3.2.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:99b4a6bbcb47212fec5cf5fbe12347215f073c08967431b0122cfbd1ee70312c", size = 131748579, upload-time = "2026-02-10T10:54:40.424Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/3d/1661dd114a914a67e3f7ab66fa1382e7599c2a8c340f314ad30a3e2b4d08/xgboost-3.2.0-py3-none-win_amd64.whl", hash = "sha256:0d169736fd836fc13646c7ab787167b3a8110351c2c6bc770c755ee1618f0442", size = 101681668, upload-time = "2026-02-10T10:59:31.202Z" },
-]
-
-[[package]]
-name = "xgboost"
-version = "3.4.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-]
-dependencies = [
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" } },
-    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux'" },
-    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" } },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/38/a9/295320f741c5be4be996c73ee65a2a11852028c50daa7229adb0d61c330b/xgboost-3.4.1.tar.gz", hash = "sha256:6968a4c71efdfa859df0dfcad0d99211c95c28c4ffd6aecff46efff77d18026a", size = 1231819, upload-time = "2026-08-15T08:39:21.197Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/ea/0bdcd374241a86f1986e87e272516f0a70d841c3aa86aa9ca167fb651573/xgboost-3.4.1-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:1ea15f15f661825b6a67d87674fb9604a1abb38dd0d4c5cf0486fc85f5203e83", size = 2541584, upload-time = "2026-08-15T08:38:48.484Z" },
-    { url = "https://files.pythonhosted.org/packages/f7/94/e5c37a8972ad780edc1d8459d1931356344ca133f7f99ba9cfda516b5bba/xgboost-3.4.1-py3-none-macosx_12_0_arm64.whl", hash = "sha256:a7afd7dbace0951c93aa85ffe046e54bc40893f5b51cd3e7991eb157bf9c7c7c", size = 2365501, upload-time = "2026-08-15T08:38:52.366Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/11/4ff1f36ca5c32c642c71c88bec1508ee98b2c3b1e9eb169e8c82de303522/xgboost-3.4.1-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:7faaf99de26719c22bfae883a02bd56b5a3c2203122616e563cc72b7191b5c96", size = 57196172, upload-time = "2026-08-15T08:39:03.288Z" },
-    { url = "https://files.pythonhosted.org/packages/99/c7/bd05c5c430feb347aa040fcc8870135d70b256718deee9bc7d2ca74a77ff/xgboost-3.4.1-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:6adf2afa396da2ae8ed30295b50b99d4712eed9a6e0ce6cfe069290e4335e51f", size = 57615456, upload-time = "2026-08-15T08:39:09.983Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/3c/925394671f6a1668e2a71886de66e80be694eaf37f615cec74eefaf43107/xgboost-3.4.1-py3-none-win_amd64.whl", hash = "sha256:2d30fa513673101f542fdcbd18f30c8f96c064046f798635ac08663e9969f81b", size = 48942686, upload-time = "2026-08-15T08:39:16.182Z" },
-    { url = "https://files.pythonhosted.org/packages/90/2f/f2fbe984ca095709fd246546125e78834740f347e3aa7561a22a1e928510/xgboost-3.4.1-py3-none-win_arm64.whl", hash = "sha256:e9312b30e5679d27c1d8b9ee97e092b964d960a672d5d406d9fb3cd0845c9797", size = 2094178, upload-time = "2026-08-15T08:39:19.308Z" },
 ]
 
 [[package]]
