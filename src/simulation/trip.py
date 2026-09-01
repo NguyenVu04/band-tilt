@@ -11,13 +11,22 @@ nothing and cost a great deal.
 
 Two choices that look arbitrary and are not:
 
-FCD is written as CSV, not Parquet
+FCD is written as comma-separated CSV, not Parquet
     SUMO 1.27's ``--output.format parquet`` writer is undocumented-experimental
     and was recorded in this repository's history as crashing on every run on
     this platform (``IOError: Appending to file not implemented``), regardless
     of ``--device.fcd.period`` or ``--fcd-output.skip-empty``. CSV with the same
     attributes exits cleanly. Re-check against a newer SUMO release before
     switching; do not assume the fix landed.
+
+    SUMO's CSV writer defaults to ";", so ``--output.column-separator ,`` is
+    passed explicitly. SUMO also warns that its column formats are experimental.
+
+The ``vehicle_z`` column depends on the network
+    ``sumo`` writes an FCD attribute only when it has a value to write: ``z`` is
+    accepted unconditionally but the column is emitted only for a network
+    carrying elevation. See ``simulation.network.netconvert_options`` for where
+    that elevation comes from and what it does and does not mean.
 
 The run configuration is written by SUMO itself
     :func:`write_sumocfg` hands the option vector to ``sumo -C`` rather than
@@ -346,6 +355,9 @@ def _sumo_options(net: Path, paths: TripPaths, run: RunSpec) -> list[str]:
         str(paths.fcd),
         "--output.format",
         "csv",
+        # SUMO's CSV writer separates with ";" unless told otherwise.
+        "--output.column-separator",
+        ",",
         "--fcd-output.attributes",
         ",".join(run.attributes),
         "--device.fcd.period",

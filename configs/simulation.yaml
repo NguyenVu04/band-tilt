@@ -47,13 +47,38 @@ network:
   # area; without this, edges outside the ray-tracing geometry survive into the
   # network and UEs drive off the scene.
   clip_to_scene: true
-  # Network cleanup passed through to netconvert verbatim.
+  # Passed through to netconvert verbatim: cleanup, then elevation.
+  #
+  # Elevation is SYNTHETIC and RELATIVE, not terrain. --osm.elevation reads OSM
+  # `ele` node tags, of which this extract has none (measured: 0 in
+  # scene_bbox.osm.xml) — it is listed so that an extract which does carry them
+  # is used. Every z value here comes from --osm.layer-elevation instead, and
+  # its provenance is worth knowing before anything trusts a UE height:
+  #
+  # OSM `layer` is an ordering — which way crosses over which — with no metric
+  # meaning. --osm.layer-elevation assigns it one, 4.0 m per level. That value
+  # is chosen, not calibrated (roughly road-bridge clearance); netconvert's own
+  # default is 0, i.e. off.
+  #
+  # netconvert then spreads the result to keep grades legal
+  # (--osm.layer-elevation.max-grade, default 10% at 50 km/h, scaled by road
+  # speed), so the elevation reaches far beyond the layered ways: of the 870
+  # nodes given a z, only 102 lie on a `layer != 0` way. The other 768 are
+  # approach ramps and ordinary streets pulled along — median 111 m from the
+  # nearest layered node, 610 m at the 90th percentile, 2412 m at the furthest.
+  # Do not read z as "bridges are raised, everything else is ground".
+  #
+  # The datum is arbitrary: z = 0 means layer 0, not sea level and not local
+  # ground. Real terrain needs a DEM through --heightmap.geotiff.
   netconvert_options:
     - --geometry.remove
     - --ramps.guess
     - --junctions.join
     - --tls.guess-signals
     - --tls.discard-simple
+    - --osm.elevation
+    - --osm.layer-elevation
+    - "4.0"
 
 # --- UE population -----------------------------------------------------------
 # count is the number of UEs inserted over the whole run. SUMO's demand tools
@@ -136,11 +161,17 @@ run:
 #
 # attributes are the SUMO FCD columns requested. SUMO emits them under its own
 # names and in its own order, not the order listed here — the CSV header reads
-# timestep_time;vehicle_id;vehicle_x;vehicle_y;vehicle_angle;vehicle_type;
-# vehicle_speed;vehicle_lane. Read columns by name, never by position.
+# timestep_time,vehicle_id,vehicle_x,vehicle_y,vehicle_z,vehicle_angle,
+# vehicle_type,vehicle_speed,vehicle_lane. Read columns by name, never by
+# position.
+#
+# `z` is only honoured when the network carries elevation: sumo accepts the
+# attribute on a flat network and silently omits the column. See
+# network.netconvert_options for what the z values mean — they are relative
+# bridge/tunnel heights, not terrain.
 sampling:
   interval_s: 10.0
-  attributes: [id, x, y, speed, angle, type, lane]
+  attributes: [id, x, y, z, speed, angle, type, lane]
   skip_empty_timesteps: true
 
 # --- Output ------------------------------------------------------------------
@@ -148,7 +179,10 @@ sampling:
 # trajectory does not: it is the one output the rest of the pipeline consumes,
 # so it lives at the top of data/external/ rather than inside the map bundle.
 #
-# fcd_file is CSV, not Parquet. SUMO 1.27's --output.format parquet writer is
+# fcd_file is comma-separated CSV. SUMO's CSV writer defaults to ";", so
+# src/simulation/trip.py passes --output.column-separator explicitly.
+#
+# It is CSV rather than Parquet because SUMO 1.27's --output.format parquet writer is
 # undocumented-experimental and was verified here to crash on every run on this
 # platform (IOError: Appending to file not implemented). Re-check against a
 # newer SUMO release before switching back; do not assume the fix landed.
