@@ -1,200 +1,453 @@
 # @package simulation
-# Simulation environment — the Sionna-RT scene and the SUMO road network.
+# Simulation environment — the Sionna-RT scene and the UE population drawn over
+# it.
 #
-# Read by src/simulation/network.py, which takes every path and every
-# parameter from this block and never parses the scene XML for them.
+# Read by src/simulation/, which takes every path and every parameter from this
+# block. The scene's extent is NOT configured: it is read from the loaded scene
+# at run time (src/simulation/scene.py), because a restated bound does not raise
+# when it drifts, it silently samples UEs off the geometry.
 
-scene_dir: data/external/simulation_map
-scene_file: ${simulation.scene_dir}/scene.xml
-
-# Basename for the generated network files: <prefix>.nod.xml, <prefix>.edg.xml.
-prefix: scene
-
-# The study area, restated here from the scene's own scenegen_* block. Keep it
-# in step with scene.xml: a mismatch does not raise, it shifts the whole road
-# network off the geometry it is supposed to sit on.
-#
-# center is the origin of the Sionna-RT scene local frame. Projected into
-# utm_zone at run time, negated, and passed to netconvert as --offset.x/--offset.y,
-# it makes SUMO network coordinates identical to scene coordinates.
 scene:
-  center:
-    lat: 20.965787
-    lon: 105.770059
-  utm_zone: EPSG:32648
-  bbox:
-    min_lon: 105.74156284332275
-    min_lat: 20.937066078186035
-    max_lon: 105.7985544204712
-    max_lat: 20.99450826644897
+  # A scene bundled with sionna-rt, resolved by name against sionna.rt.scene.
+  name: munich
+  # Mitsuba's compute variant. It MUST be a mono_polarized one: sionna-rt packs
+  # a 2x2 Jones matrix into mi.Spectrum, which holds four components only
+  # there. Any other variant loads the scene and rasters it perfectly well and
+  # then fails deep inside the radio solvers with a bare Color3f size error, so
+  # src/simulation/scene.py rejects one up front.
+  #
+  # A CUDA GPU is required: the llvm variants fail to initialise on some hosts,
+  # leaving no CPU fallback, so the variant is stated here rather than left to
+  # sionna-rt's own selection — which is itself only consulted when nothing has
+  # set a variant first.
+  mitsuba_variant: cuda_ad_mono_polarized
+  # Merging shapes that share a radio material speeds the solver up, but it
+  # collapses a city into a handful of per-material blobs, and a building that
+  # is no longer a distinct object cannot be perturbed.
+  merge_shapes: false
 
-# OpenStreetMap extract. Downloaded by osmGet.py over scene.bbox, then reused.
-osm:
-  dir: ${simulation.scene_dir}/osm
-  # osmGet.py queried with --bbox composes "<prefix>_bbox" plus the suffix. Other
-  # query modes and other SUMO versions name it differently, so the expected name
-  # is configuration rather than a literal in the code.
-  file: ${simulation.osm.dir}/${simulation.prefix}_bbox.osm.xml
-  refresh: false
-
-network:
-  out_dir: ${simulation.scene_dir}
-  # The compiled network, assembled from the plain XML by
-  # src/simulation/network.build_net. randomTrips.py, duarouter and sumo all
-  # require it; the plain files alone are not enough.
-  net_file: ${simulation.network.out_dir}/${simulation.prefix}.net.xml
-  # Restrict the network to scene.bbox. The OSM extract covers at least the study
-  # area; without this, edges outside the ray-tracing geometry survive into the
-  # network and UEs drive off the scene.
-  clip_to_scene: true
-  # Passed through to netconvert verbatim: cleanup, then elevation.
-  #
-  # Elevation is SYNTHETIC and RELATIVE, not terrain. --osm.elevation reads OSM
-  # `ele` node tags, of which this extract has none (measured: 0 in
-  # scene_bbox.osm.xml) — it is listed so that an extract which does carry them
-  # is used. Every z value here comes from --osm.layer-elevation instead, and
-  # its provenance is worth knowing before anything trusts a UE height:
-  #
-  # OSM `layer` is an ordering — which way crosses over which — with no metric
-  # meaning. --osm.layer-elevation assigns it one, 4.0 m per level. That value
-  # is chosen, not calibrated (roughly road-bridge clearance); netconvert's own
-  # default is 0, i.e. off.
-  #
-  # netconvert then spreads the result to keep grades legal
-  # (--osm.layer-elevation.max-grade, default 10% at 50 km/h, scaled by road
-  # speed), so the elevation reaches far beyond the layered ways: of the 870
-  # nodes given a z, only 102 lie on a `layer != 0` way. The other 768 are
-  # approach ramps and ordinary streets pulled along — median 111 m from the
-  # nearest layered node, 610 m at the 90th percentile, 2412 m at the furthest.
-  # Do not read z as "bridges are raised, everything else is ground".
-  #
-  # The datum is arbitrary: z = 0 means layer 0, not sea level and not local
-  # ground. Real terrain needs a DEM through --heightmap.geotiff.
-  netconvert_options:
-    - --geometry.remove
-    - --ramps.guess
-    - --junctions.join
-    - --tls.guess-signals
-    - --tls.discard-simple
-    - --osm.elevation
-    - --osm.layer-elevation
-    - "4.0"
+# --- Measurement grid --------------------------------------------------------
+# The scene is rastered into square cells. The grid is what the UE density is
+# defined over and what the UE counts are binned into; a later radio-map stage
+# is expected to share it, so cell_size_m is a decision about KPI spatial
+# resolution as much as about sampling.
+#
+# subsamples_per_cell is the side of the sub-grid cast per cell, so a value of
+# n costs n^2 rays per cell. It buys the FRACTION of a cell that is open
+# ground: a binary centre-hit test would give a half-blocked cell the same
+# weight as an open one, and would drop edge cells whose centre falls outside
+# the scene entirely.
+#
+# free_height_tol_m separates ground from building. The scene's ground is a
+# single flat surface, so a downward ray returns a surface height and anything
+# above this tolerance is a structure standing on it.
+grid:
+  cell_size_m: 20.0
+  subsamples_per_cell: 4
+  free_height_tol_m: 0.5
 
 # --- UE population -----------------------------------------------------------
-# count is the number of UEs inserted over the whole run. SUMO's demand tools
-# take an insertion PERIOD, not a count, so src/simulation/trip.py derives
-# period = (run.end_s - run.begin_s) / count.
+# UEs are WEIGHTS on the radio map, not ray-tracing targets: no solve is run per
+# UE, so count trades against file size rather than against compute. Prefer a
+# count high enough to make the per-cell counts smooth.
 #
-# vehicle_class selects the SUMO vClass the sampled routes must be legal for.
-# `passenger` is the only class the delivered network supports: it was built
-# without --sidewalks.guess and has no walkingareas, so pedestrians cannot
-# cross its junctions. Changing that is a network rebuild, not a config edit.
+# height_m is the plane UEs sit on, and must match the height any later radio
+# map is computed at — a KPI weighted by UEs at one height against a map solved
+# at another is comparing two different surfaces.
 ue:
-  count: 200
-  vehicle_class: passenger
+  count: 5000
+  height_m: 1.5
 
-# --- Routing -----------------------------------------------------------------
-# randomTrips.py samples origin/destination edge pairs and, through -r, has
-# duarouter turn them into routes. The weights below shape WHERE the UEs are,
-# which is what the UE-weighted KPIs are weighted by — a modelling choice, not
-# a nuisance parameter.
+# --- UE spatial density ------------------------------------------------------
+# The density is deliberately NOT uniform. The UE-weighted Band Priority Score
+# asks whether high-frequency layers serve high-demand areas; under a flat
+# density there is no such area, the KPI cannot discriminate, and the optimizer
+# has nothing to exploit.
 #
-# fringe_factor biases trips towards edges that leave the network, which is how
-# through-traffic is represented. 1.0 is no bias; large values make the network
-# read as a corridor rather than a neighbourhood.
+# The field is a mixture: a uniform background over all open ground, plus
+# elliptical Gaussian hotspots.
 #
-# min_distance_m / max_distance_m reject trips too short to produce a useful
-# trajectory and too long to stay near the scene.
+# hotspot_mass_fraction is the share of UEs drawn from the hotspots; the
+# remainder is background. Concentration is parameterised HERE, as one number,
+# rather than through per-hotspot amplitudes — amplitudes interact with the
+# sigmas and the cell count in a way that makes a sweep over them
+# uninterpretable. With this key, n_hotspots and the sigmas control shape only.
 #
-# weight_by_lanes / weight_by_length make busy roads likelier origins — a crude
-# but defensible stand-in for a real origin/destination matrix. Say so in the
-# report rather than letting it read as calibrated.
+# The background share must stay above zero. At zero, cells outside every
+# hotspot carry no UE weight, the band-priority KPI goes blind to them, and a
+# configuration that abandons coverage there is scored as free.
 #
-# Routes are always validated — there is no config key for it, because a UE
-# with no route is not a scenario anyone wants. randomTrips.py samples endpoints
-# against the distance and loop constraints but never checks that a route
-# between them exists, so a fraction is always unroutable: measured on this
-# network at seed 42, 174 of 200, with 25 of the 26 failures having one endpoint
-# in a small isolated pocket of the PASSENGER-legal subgraph (a cul-de-sac or
-# service loop whose only exit is an edge cars may not use). Only ~9,450 of the
-# network's 24,371 edges are reachable by car from a typical origin.
+# Hotspot centres are drawn per scenario, weighted by built_volume_radius_m
+# worth of surrounding building volume, and restricted to cells with open
+# ground. Weighting by built volume puts demand in dense street canyons, where
+# propagation is worst — that tension between where users are and where
+# coverage is cheap is the coverage-and-capacity problem. Hotspots placed in
+# open squares would remove it. The open-ground restriction guards a centre
+# landing inside a building, which would leave its mass on a ring of whatever
+# open cells happen to surround the block.
 #
-# Validation resamples until ue.count routes exist, so the UE population is
-# drawn from the car-navigable component. That is the intent, not a side effect.
-# It costs several extra duarouter passes over the whole network and is the slow
-# part of this stage.
-#
-# threads is pinned to 1 deliberately, and must be set rather than left out:
-# randomTrips.py fills an unset --threads in with half the CPU count and
-# forwards anything above 1 to duarouter as --routing-threads. Multithreaded
-# duarouter is not bit-reproducible across runs, and this stage runs once per
-# scenario, so reproducibility beats wall-clock.
-routing:
-  fringe_factor: 2.0
-  min_distance_m: 300.0
-  max_distance_m: 6000.0
-  weight_by_lanes: true
-  weight_by_length: true
-  remove_loops: true
-  threads: 1
+# The sigma ranges are drawn from uniformly, minor clamped to at most major.
+density:
+  hotspot_mass_fraction: 0.7
+  n_hotspots: 6
+  sigma_major_m: [80.0, 200.0]
+  sigma_minor_m: [40.0, 120.0]
+  built_volume_radius_m: 150.0
 
-# --- Run ---------------------------------------------------------------------
-# begin_s / end_s bound the simulation clock in seconds. step_length_s is the
-# integration step; it is NOT the sampling interval and should stay at SUMO's
-# default unless car-following behaviour is being studied.
+# --- Scene perturbation ------------------------------------------------------
+# What this scenario's city gets wrong about the real one. The perturbations
+# define the SCENARIO: train, validation and test split between whole scenarios
+# so a surrogate is measured on environments it has never seen.
 #
-# teleport_s is SUMO's --time-to-teleport. A teleport moves a UE
-# discontinuously and is an artefact in the trajectory rather than traffic, so
-# it is disabled (-1) rather than left at the default 300 s.
-run:
-  begin_s: 0.0
-  end_s: 3600.0
-  step_length_s: 1.0
-  teleport_s: -1
+# Buildings do not slide sideways or swivel. position_m and orientation_deg
+# model SURVEY ERROR — the footprints a scene is built from carry position and
+# orientation error — and the report must say so rather than describing them as
+# urban change. Keep them small: a large offset drives buildings through each
+# other, which is not an error any survey makes.
+#
+# height_scale is applied about the ground plane, so a building keeps its base
+# and changes its roof. Scaling about the mesh centroid, which is Sionna's own
+# behaviour, would sink the base as far as it raised the roof.
+perturbation:
+  remove:
+    n_buildings: 20
+  jitter:
+    n_buildings: 40
+    height_scale: [0.85, 1.20]
+    position_m: 2.0
+    orientation_deg: 3.0
 
-# --- Sampling ----------------------------------------------------------------
-# interval_s is how often a UE's position is recorded — SUMO's
-# --device.fcd.period. This is a COST decision as much as a fidelity one: under
-# a later per-position ray-tracing stage, halving it doubles the number of
-# solves. 200 UEs over 3600 s is at most 72,000 samples at 10 s and 720,000 at
-# 1 s. Start coarse.
+# --- Radio materials ---------------------------------------------------------
+# The bundled scenes ship ITU materials whose permittivity and conductivity are
+# recomputed from ITU-R P.2040 on every frequency change. That both forbids
+# sub-GHz carriers (P.2040 Table 3 starts at 1 GHz for concrete, brick, marble
+# and metal, and sionna-rt raises rather than extrapolating) and silently
+# discards any perturbation applied to them.
 #
-# attributes are the SUMO FCD columns requested. SUMO emits them under its own
-# names and in its own order, not the order listed here — the CSV header reads
-# timestep_time,vehicle_id,vehicle_x,vehicle_y,vehicle_z,vehicle_angle,
-# vehicle_type,vehicle_speed,vehicle_lane. Read columns by name, never by
-# position.
+# They are therefore replaced with plain materials carrying no frequency-update
+# callback, evaluated per band from the same ITU coefficients with the validity
+# range deliberately not enforced. The extrapolation is mild — the frequency
+# exponent is zero for every material these scenes use, so permittivity is
+# unchanged and only conductivity moves — but it is outside the range P.2040
+# validates, and a report using a sub-GHz band has to say so.
 #
-# `z` is only honoured when the network carries elevation: sumo accepts the
-# attribute on a flat network and silently omits the column. See
-# network.netconvert_options for what the z values mean — they are relative
-# bridge/tunnel heights, not terrain.
-sampling:
-  interval_s: 10.0
-  attributes: [id, x, y, z, speed, angle, type, lane]
-  skip_empty_timesteps: true
+# The scales multiply the ITU value; scattering_coefficient is absolute because
+# ITU defines none. Scattering only reaches the result when the solver runs
+# with diffuse reflection enabled, and is otherwise inert.
+materials:
+  perturbation:
+    relative_permittivity_scale: [0.90, 1.10]
+    conductivity_scale: [0.70, 1.30]
+    scattering_coefficient: [0.0, 0.3]
+
+# --- Transmitters ------------------------------------------------------------
+# Sites sit on a square lattice about the scene centre, each carrying evenly
+# spaced sectors; every band is co-sited, because multi-band tilt COORDINATION
+# is only a problem when the bands share a footprint.
+#
+# Deliberately few sites. Spread too densely over a small scene, every location
+# is strongly served by something, hole rate pins near zero and overlap near
+# one whatever the tilt, and the KPIs stop responding to the decision variable.
+#
+# `sectors` is generated once by `task simulation:layout` against the
+# UNPERTURBED scene and then held fixed: perturbations model our uncertainty
+# about the city, not changes an operator reacts to, and a real mast stays
+# where it was surveyed even when the survey turns out to be wrong.
+transmitters:
+  layout:
+    site_spacing_m: 650.0
+    sectors_per_site: 3
+    azimuth_offset_deg: 0.0
+    # Surface heights that count as a mountable roof, and the mast above it.
+    rooftop_height_range_m: [12.0, 35.0]
+    mast_clearance_m: 3.0
+    snap_radius_m: 60.0
+    # The tilt a freshly generated layout stamps on every sector, per band.
+    # Higher bands start tilted harder, to contain a smaller footprint. This is
+    # only a starting point: the sector table below is the authority, and its
+    # entries are meant to diverge under optimization.
+    default_tilt:
+      b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+      b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+      b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+  # Generated by `task simulation:layout`. z is the mast height above the
+  # scene's ground plane, resolved against the roof each site stands on.
+  #
+  # THIS TABLE IS THE DECISION VARIABLE. One tilt per cell-band pair — 12
+  # sectors times 3 bands — is the vector PROJECT.md 3.1 optimizes, so it is
+  # written out in full rather than derived from a per-band default. Every
+  # sector needs an entry for every band in radio_map.bands; the radio stage
+  # checks that up front and names any gaps.
+  #
+  # baseline_deg must lie inside bounds_deg, or the run starts from a
+  # configuration the optimizer is not allowed to be in.
+  sectors:
+    - name: s0c0
+      x: -382.85
+      y: -410.78
+      z: 19.23
+      azimuth_deg: 0.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s0c1
+      x: -382.85
+      y: -410.78
+      z: 19.23
+      azimuth_deg: 120.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s0c2
+      x: -382.85
+      y: -410.78
+      z: 19.23
+      azimuth_deg: 240.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s1c0
+      x: -404.99
+      y: 248.03
+      z: 15.84
+      azimuth_deg: 0.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s1c1
+      x: -404.99
+      y: 248.03
+      z: 15.84
+      azimuth_deg: 120.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s1c2
+      x: -404.99
+      y: 248.03
+      z: 15.84
+      azimuth_deg: 240.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s2c0
+      x: 260.69
+      y: -407.25
+      z: 16.23
+      azimuth_deg: 0.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s2c1
+      x: 260.69
+      y: -407.25
+      z: 16.23
+      azimuth_deg: 120.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s2c2
+      x: 260.69
+      y: -407.25
+      z: 16.23
+      azimuth_deg: 240.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s3c0
+      x: 257.15
+      y: 239.22
+      z: 22.31
+      azimuth_deg: 0.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s3c1
+      x: 257.15
+      y: 239.22
+      z: 22.31
+      azimuth_deg: 120.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    - name: s3c2
+      x: 257.15
+      y: 239.22
+      z: 22.31
+      azimuth_deg: 240.0
+      tilt:
+        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
+        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
+        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+
+# --- Radio configuration -----------------------------------------------------
+# temperature sits beside the bands rather than inside one because Sionna-RT
+# carries a single scene temperature; with bandwidth it fixes the thermal noise
+# power (Scene.thermal_noise_power = temperature * k_B * bandwidth).
+#
+# Each band is a separate solve. Scene.frequency is a scene-level property, so a
+# scene cannot hold two carriers at once and a tilt configuration costs one
+# solve per band listed here.
+#
+# Frequencies and bandwidths are integers in Hz. Do not rewrite them in
+# scientific notation: YAML 1.1 requires a signed exponent, so `2.6e9` parses as
+# a string and would reach Sionna-RT as one.
+#
+# `name` identifies a band in the per-sector tilt table and in the MDT column
+# names. It is the only place a band's identity is spelled, so the two cannot
+# drift apart.
+#
+# Tilt is NOT here. The decision variable is one absolute tilt per CELL-BAND
+# pair (PROJECT.md 3.1), so it lives on the sector, under transmitters.sectors.
+# A tilt stated per band would force every sector of a band to point alike and
+# would remove exactly the freedom this project optimizes.
+#
+# samples_per_tx and max_depth are a FIDELITY decision, not only a cost one:
+# too few rays leave cells with no path at all, which reads downstream as a
+# coverage hole rather than as an unresolved cell. They were raised until the
+# share of reached cells stopped moving sharply; a lower setting understates
+# coverage everywhere.
+#
+# diffraction and diffuse_reflection are both OFF, and max_depth is modest, so
+# a band solves in about a second. That is a deliberate trade of fidelity for
+# runtime, and it costs two specific things a report must acknowledge:
+#
+#   - Diffracted paths are MISSING. Diffraction matters more as frequency falls
+#     (at 700 MHz the wavelength is 0.43 m), so the low band's coverage
+#     advantage is understated and the band comparison is not complete.
+#   - materials.perturbation.scattering_coefficient is INERT. Scattering only
+#     reaches the result through diffuse reflection, so that component of the
+#     scene perturbation currently does nothing.
+#
+# The cost of turning them on is not marginal: measured on this scene, a band
+# solving in under a second here had not finished after fifteen minutes with
+# diffraction enabled, and a three-band run at max_depth 8 did not complete the
+# first band within eight minutes. A surrogate dataset needs hundreds of such
+# solves, so that is a decision about hardware, not about a config flag.
+#
+# To raise fidelity for a one-off without editing this block:
+#   task simulation:radio -- simulation.radio_map.diffraction=true \
+#       simulation.radio_map.diffuse_reflection=true \
+#       simulation.radio_map.max_depth=8
+# Maps solved at different settings are different ground truths and must never
+# be mixed into one dataset. The settings are recorded inside every
+# radio_map.npz so a stray archive can be identified.
+radio_map:
+  temperature: 298.15
+  samples_per_tx: 10000000
+  max_depth: 5
+  diffraction: false
+  diffuse_reflection: false
+  bands:
+    - name: b2600
+      frequency: 2600000000
+      bandwidth: 100000000
+    - name: b1800
+      frequency: 1800000000
+      bandwidth: 100000000
+    - name: b700
+      frequency: 700000000
+      bandwidth: 100000000
+
+# Antenna arrays, in Sionna-RT's PlanarArray terms. Spacings are in wavelengths,
+# so their metric size follows the band being solved.
+#
+# power_rs is the per-resource-element reference-signal power in dBm, which is
+# what makes a radio map read directly as RSRP rather than as carrier power.
+#
+# The transmit array is cross-polarised (slant +/-45 degrees), which is the
+# standard macro-sector configuration, and has several rows so the vertical
+# pattern is narrow enough for tilt to change coverage — a single element has no
+# beam to tilt. The receive array is a single vertical dipole: a UE is not
+# assumed to beamform.
+antenna:
+  power_rs: 4.85
+
+  transmitter:
+    num_rows: 8
+    num_cols: 8
+    vertical_spacing: 0.5
+    horizontal_spacing: 0.5
+    pattern: "tr38901"
+    polarization: "cross"
+
+  receiver:
+    num_rows: 1
+    num_cols: 1
+    vertical_spacing: 0.5
+    horizontal_spacing: 0.5
+    pattern: "dipole"
+    polarization: "V"
+
+# --- Synthetic MDT -----------------------------------------------------------
+# What a UE reports, as opposed to what is true. The clean radio map is written
+# separately and never touched by this block: the surrogate's LABEL is the
+# ray-traced map, and MDT is a feature, so noising the label would train the
+# model to predict noise.
+#
+# rsrp_noise_sigma_db is receiver measurement error only. Do NOT raise it to
+# stand in for shadow fading: ray tracing already computes the geometric
+# shadowing that log-normal fading is a substitute for, so adding fading on top
+# counts the buildings twice.
+#
+# The noise is independent per measurement, which is the weak choice — a
+# surrogate averages independent noise away, so it tests very little. A
+# spatially correlated residual would be the stronger model.
+#
+# Censoring: a real UE does not report every cell it could hear. drop_fraction
+# of the eligible measurements become blank, EXCEPT the strongest cell and
+# everything within protect_within_db of it. That margin defaults to the KPI's
+# own overlap margin, which makes the censoring KPI-safe by construction: hole
+# rate, weak rate, overlap rate and mean overlap neighbours all depend only on
+# the server and the cells within that margin, so no drop can move them.
+#
+# This models missingness as random. Real reporting is threshold-driven, so what
+# goes unreported is strongly correlated with how weak it is; a surrogate
+# trained on this will not learn that bias.
+mdt:
+  rsrp_noise_sigma_db: 2.0
+  drop_fraction: 0.3
+  protect_within_db: 6.0
+  protect_strongest_n: 1
 
 # --- Output ------------------------------------------------------------------
-# The demand artifacts sit beside the network they are legal for. The
-# trajectory does not: it is the one output the rest of the pipeline consumes,
-# so it lives at the top of data/external/ rather than inside the map bundle.
+# The UE positions carry the grid cell each falls in, so the per-cell counts the
+# band-priority KPI needs are a group-by away rather than a re-derivation
+# against the grid.
 #
-# fcd_file is comma-separated CSV. SUMO's CSV writer defaults to ";", so
-# src/simulation/trip.py passes --output.column-separator explicitly.
+# The manifest records the scenario: its id, its seed, and which buildings were
+# removed and jittered. A scenario must be regenerable from it, because train,
+# validation and test split between whole scenarios.
 #
-# It is CSV rather than Parquet because SUMO 1.27's --output.format parquet writer is
-# undocumented-experimental and was verified here to crash on every run on this
-# platform (IOError: Appending to file not implemented). Re-check against a
-# newer SUMO release before switching back; do not assume the fix landed.
+# The radio map and MDT are derived artifacts rather than scenario inputs, so
+# they sit in data/interim rather than beside the UE table.
 output:
-  trips_file: ${simulation.scene_dir}/${simulation.prefix}.trips.xml
-  route_file: ${simulation.scene_dir}/${simulation.prefix}.rou.xml
-  sumocfg_file: ${simulation.scene_dir}/${simulation.prefix}.sumocfg
-  fcd_file: data/external/${simulation.prefix}_fcd.csv
+  ue_file: data/external/ue_positions.csv
+  manifest_file: data/external/scenario.json
+  radio_map_file: data/interim/radio_map.npz
+  mdt_file: data/interim/mdt.csv
 
 # --- Seed --------------------------------------------------------------------
-# src/utils/seed cannot reach a subprocess, so seeding is explicit:
-# src/simulation/trip.py passes this value to randomTrips.py and this value + 1
-# to sumo. Offsets rather than independent draws, so the relationship between
-# the two is itself reproducible. --random is never passed.
+# Everything drawn — the sub-grid jitter, the perturbation, the hotspots, the UE
+# positions, the material draw and the measurement noise — comes from this
+# value, so a scenario is regenerable from the config alone.
+#
+# The scenario stage IS bit-reproducible. The radio map is not, and cannot be
+# made so here: the solver accumulates ray contributions with GPU atomics, whose
+# ordering varies between runs. Measured on this scene the run-to-run spread is
+# about 1e-5 dB, with an identical no-path pattern; downstream that leaves every
+# censoring decision unchanged and a handful of MDT values differing in the last
+# written digit. Reproducibility is therefore to well below measurement noise,
+# not to the byte — do not treat a checksum mismatch on the radio map as a bug.
 seed: ${seed}

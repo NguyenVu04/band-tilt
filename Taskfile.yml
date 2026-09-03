@@ -34,10 +34,10 @@ tasks:
     cmds:
       - uv sync --extra dev --extra notebooks --extra viz
 
-  sync:mobility:
-    desc: Install the base + dev environment plus SUMO (notebook 01)
+  sync:rt:
+    desc: Install the base + dev environment plus Sionna-RT (needs a CUDA GPU)
     cmds:
-      - uv sync --extra dev --extra notebooks --extra viz --extra sumo
+      - uv sync --extra dev --extra notebooks --extra viz --extra rt
 
   lock:
     desc: Resolve dependencies and write uv.lock
@@ -92,25 +92,32 @@ tasks:
     cmds:
       - uv run jupyter lab
 
-  simulation:trips:
-    desc: 'Build the SUMO net, routes and sumocfg, then run SUMO for trajectories (needs SUMO)'
+  simulation:layout:
+    desc: 'Print the transmitter site table for configs/simulation.yaml (one-off)'
     cmds:
-      - uv run python -m {{.PKG}}.simulation.trip {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.simulation.transmitter {{.CLI_ARGS}}
 
-  scene:build:
-    desc: 'Fetch OSM and build the SUMO network + polygons (needs SUMO_HOME; notebook 01)'
+  simulation:scenario:
+    desc: 'Stage 1 - perturb the scene and draw the UE population (needs a CUDA GPU)'
     cmds:
-      - uv run python -m {{.PKG}}.mobility.scene_build {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.simulation.scenario {{.CLI_ARGS}}
 
-  mobility:frame:
-    desc: 'Print the derived SUMO-network to Sionna-scene transform and the clip bounds'
+  simulation:radio:
+    desc: 'Stage 2 - ray-trace the clean radio map, one solve per band'
     cmds:
-      - uv run python -m {{.PKG}}.mobility.frame {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
 
-  mobility:generate:
-    desc: 'Generate SUMO UE trajectories for one scenario (needs SUMO; notebook 01)'
+  simulation:mdt:
+    desc: 'Stage 3 - sample the radio map at the UEs, add noise and censor'
     cmds:
-      - uv run python -m {{.PKG}}.mobility.simulate {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.simulation.mdt {{.CLI_ARGS}}
+
+  simulation:
+    desc: 'Run all three simulation stages in order'
+    cmds:
+      - task: simulation:scenario
+      - task: simulation:radio
+      - task: simulation:mdt
 
   clean:data:
     desc: 'LEGACY - clean the retired operator MDT export (no notebook; see CLAUDE.md)'

@@ -1,22 +1,52 @@
-"""Simulation environment for UE mobility generation.
+"""Simulation environment: a perturbed scene, its UEs, its radio maps, its MDT.
 
-Four modules, each with one reason to change:
+Three stages, run in order, each a ``python -m`` entry point:
 
-``toolchain``
-    Locates and runs the installed SUMO. The only module that touches
-    ``subprocess``, ``SUMO_HOME`` or ``sumolib``.
-``frame``
-    The Sionna-RT scene's coordinate frame, as netconvert options. The only
-    module that imports ``pyproj``.
-``network``
-    Builds the SUMO road network for the study area from OpenStreetMap, offset
-    onto the scene's local frame so network and scene coordinates coincide:
-    OSM extract, then plain XML, then the compiled ``.net.xml``.
-``trip``
-    Samples UE demand over that network and runs SUMO to record trajectories.
-    ``python -m src.simulation.trip`` runs the whole stage.
+``scenario``
+    Perturbs the delivered scene, rasters it, and draws the UE population over
+    the result. Writes the UE table and a manifest.
+``radio``
+    Rebuilds that scenario, places the transmitters, and ray-traces one clean
+    radio map per band. This artifact is the surrogate's label.
+``mdt``
+    Samples the radio map at the UE positions, adds measurement error and
+    censors, producing what a UE would actually report.
+
+They are separate because the radio map is a function of tilt and must be
+re-solved for every tilt configuration, while the geometry and the UE positions
+must *not* move when tilt does. Fused into one run, every tilt change would
+redraw the UEs and the KPIs would stop being a function of tilt — the property
+the whole optimization rests on.
+
+Supporting modules, each with one reason to change:
+
+``scene``
+    Loads the scene, reads its extent, and reduces the geometry to the surface
+    height above any ``(x, y)``. The only module that touches ``sionna.rt`` or
+    ``mitsuba`` directly for geometry.
+``materials``
+    Frequency-static radio materials and their perturbation, replacing the ITU
+    ones that forbid sub-GHz carriers and silently discard perturbations.
+``perturb``
+    Buildings removed, resized, nudged and turned — this scenario's errors
+    about the real city.
+``grid``
+    Square cells over the scene, and the open-ground and building rasters that
+    one ray-cast pass yields.
+``density``
+    The UE spatial density: a uniform background plus hotspots drawn where the
+    surrounding building volume is greatest.
+``sample``
+    Drawing UE positions from that density, and writing them.
+``transmitter``
+    The site layout and the transmitters built from it. Its own entry point
+    generates the layout; that is a one-off, not part of the chain.
 
 Settings cross the config boundary as frozen dataclasses with ``from_config``
 constructors — the only places ``configs/simulation.yaml``'s key names are
 spelled. Every other function takes just the settings it uses.
+
+The scene's extent is deliberately absent from the config: it is read from the
+loaded scene, because a restated bound does not raise when it drifts from the
+geometry, it silently samples UEs off the scene.
 """
