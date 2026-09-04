@@ -11,15 +11,18 @@ whatever the tilt, and the KPIs stop responding to the decision variable.
 Coverage has to be contested for tilt to be worth optimising.
 
 Masts stand on open ground, not on roofs: a site is placed on a grid tile
-with no building under it and a clear surround, then raised to a fixed mast
-height. Tying the height to the tower rather than to whatever roof happened to
-be nearby keeps the sites comparable to each other and stable across scenes.
+with no building under it and a clear surround, the ground there is confirmed
+by a downward ray, and the mast is raised a fixed height above it. Tying the
+height to the tower rather than to whatever roof happened to be nearby keeps
+the sites comparable to each other and stable across scenes. A site with no
+such tile in reach fails the generator rather than being placed anyway.
 
 Masts are mounted against the **unperturbed** scene and then held fixed.
 Perturbations model our uncertainty about the city, not changes an operator
 reacts to: a real mast stays where it was surveyed even when the survey turns
 out to have been wrong. :func:`validate` reports masts that a perturbation has
-since buried or left unsupported, rather than quietly re-seating them.
+since buried, left standing on a roof, or left unsupported, rather than quietly
+re-seating them.
 
 ``python -m src.simulation.transmitter`` generates the layout and prints it as
 YAML to paste into ``configs/simulation.yaml``. It is a one-off, not part of the
@@ -63,7 +66,8 @@ class LayoutSpec:
         clearance_radius_m: Every tile within this radius must also be free, so
             a mast is not wedged against a facade it would immediately shadow.
         snap_radius_m: How far to look for a free tile when the ideal position
-            has none.
+            has none. Finding none within it fails the site rather than
+            falling back to the ideal position.
     """
 
     site_spacing_m: float
@@ -230,17 +234,17 @@ def generate(
     roi: SceneBounds,
     raster: Raster,
     spec: LayoutSpec,
+    grid_spec: GridSpec,
     default_tilt: dict[str, Tilt],
-) -> tuple[tuple[Sector, ...], tuple[str, ...]]:
-    """Lay sites out on a square lattice and stand each on a free tile.
+) -> tuple[Sector, ...]:
+    """Lay sites out on a square lattice and stand each on open ground.
 
-    Returns one :class:`Sector` per site per sector, and the names of the sites
-    no free tile was found for. Those are placed at their ideal position anyway,
-    on the mast height alone, so the caller gets a complete table together with
-    an explicit account of what is wrong with it rather than a silent gap.
+    Returns one :class:`Sector` per site per sector. Sites whose ideal position
+    is built over are snapped to the nearest open-ground tile within
+    ``spec.snap_radius_m``.
 
-    Sites whose ideal position is built over are snapped to the nearest free
-    tile within ``spec.snap_radius_m``.
+    ``grid_spec`` must be the one ``raster`` was built from, so a mast obeys
+    exactly the open-ground definition the UEs were drawn against.
 
     Every sector is stamped with ``default_tilt`` — the same starting tilt per
     band. That is a starting point, not a constraint: the emitted table is the
@@ -249,9 +253,10 @@ def generate(
 
     Raises:
         ValueError: When the lattice does not fit inside the region of
-            interest. A mast in the margin would sit where the radio map is
-            least trustworthy, and the fix is a config change rather than
-            something to snap away.
+            interest, or when a site finds no open ground within
+            ``spec.snap_radius_m``. Both are config changes rather than
+            something to snap away, and neither may be answered by placing a
+            mast on a building.
     """
     span = (_LATTICE_SIDE - 1) * spec.site_spacing_m
     if span > min(roi.width_m, roi.depth_m):
@@ -271,13 +276,18 @@ def generate(
     ]
 
     sectors: list[Sector] = []
-    unplaced: list[str] = []
     for site_index, (offset_x, offset_y) in enumerate((dx, dy) for dx in offsets for dy in offsets):
-        x, y, z, snapped = _mount(
-            mi_scene, bounds, roi, raster, centre_x + offset_x, centre_y + offset_y, spec
+        x, y, z = _mount(
+            mi_scene,
+            bounds,
+            roi,
+            raster,
+            centre_x + offset_x,
+            centre_y + offset_y,
+            spec,
+            grid_spec.free_height_tol_m,
+            f"s{site_index}",
         )
-        if not snapped:
-            unplaced.append(f"s{site_index}")
         for sector_index in range(spec.sectors_per_site):
             azimuth = spec.azimuth_offset_deg + sector_index * 360.0 / spec.sectors_per_site
             sectors.append(
@@ -290,7 +300,7 @@ def generate(
                     tilt=dict(default_tilt),
                 )
             )
-    return tuple(sectors), tuple(unplaced)
+    return tuple(sectors)
 
 
 def build(scene: Any, sectors: tuple[Sector, ...], band_name: str, power_dbm: float) -> None:
@@ -322,14 +332,24 @@ def build(scene: Any, sectors: tuple[Sector, ...], band_name: str, power_dbm: fl
         )
 
 
-def validate(mi_scene: Any, bounds: SceneBounds, sectors: tuple[Sector, ...]) -> tuple[str, ...]:
-    """Report masts the current geometry has buried. Empty tuple means all clear.
+def validate(
+    mi_scene: Any,
+    bounds: SceneBounds,
+    sectors: tuple[Sector, ...],
+    free_height_tol_m: float,
+) -> tuple[str, ...]:
+    """Report masts the current geometry no longer supports. Empty tuple is all clear.
 
-    A perturbation that raises a building can swallow a mast that was mounted
-    against the delivered scene, and one that removes a building leaves its
-    mast standing on nothing. Both are reported for the run log; neither is
-    silently corrected, because moving a mast to suit a perturbation would
-    defeat the point of holding the layout fixed.
+    Holds the layout to the rule :func:`generate` places it under — a mast
+    stands on open ground, at a measured height above it — against whatever the
+    scene holds now. A perturbation that raises a building can swallow a mast
+    mounted against the delivered scene or leave it standing on a roof, and one
+    that removes a building leaves its mast on nothing. All three are reported
+    for the run log; none is silently corrected, because moving a mast to suit a
+    perturbation would defeat the point of holding the layout fixed.
+
+    ``free_height_tol_m`` is ``simulation.grid.free_height_tol_m``, so ground and
+    building mean the same thing here as everywhere else in the pipeline.
     """
     x = np.array([sector.x for sector in sectors])
     y = np.array([sector.y for sector in sectors])
@@ -337,10 +357,19 @@ def validate(mi_scene: Any, bounds: SceneBounds, sectors: tuple[Sector, ...]) ->
 
     problems = []
     for sector, surface in zip(sectors, height, strict=True):
-        if np.isfinite(surface) and surface > sector.z:
+        if not np.isfinite(surface):
+            problems.append(
+                f"{sector.name}: mast at {sector.z:.1f} m stands over no surface at all"
+            )
+        elif surface > sector.z:
             problems.append(
                 f"{sector.name}: mast at {sector.z:.1f} m is inside geometry "
                 f"reaching {surface:.1f} m"
+            )
+        elif surface > free_height_tol_m:
+            problems.append(
+                f"{sector.name}: mast at {sector.z:.1f} m stands on a building "
+                f"reaching {surface:.1f} m, not on open ground"
             )
     return tuple(problems)
 
@@ -353,16 +382,24 @@ def _mount(
     x: float,
     y: float,
     spec: LayoutSpec,
-) -> tuple[float, float, float, bool]:
-    """Find a free tile at or near ``(x, y)`` and return the mast position on it.
+    free_height_tol_m: float,
+    site_name: str,
+) -> tuple[float, float, float]:
+    """Find open ground at or near ``(x, y)`` and return the mast position on it.
 
-    Returns ``(x, y, z, snapped)``, where ``snapped`` is false when no free tile
-    was found and the ideal position was kept unchanged.
+    Returns ``(x, y, z)``, with ``z`` the measured ground height plus the mast.
 
-    Whether a tile is free is read from the raster rather than re-cast, so a
-    mast obeys exactly the open-ground definition the UEs were drawn against.
-    The ground under the accepted tile is still cast, because the raster records
-    how much of a cell is open and not how high its ground sits.
+    The raster narrows the search to tiles that are open and clear, but it
+    records the open *share* of a cell, so a point inside an accepted cell can
+    still be on a building. Each surviving candidate is therefore cast
+    individually and kept only when the ray comes back at or below
+    ``free_height_tol_m`` — the same open-ground test the UEs were drawn
+    against. That cast also supplies the ground height to stand the mast on.
+
+    Raises:
+        ValueError: When no candidate within ``spec.snap_radius_m`` is open
+            ground. Placing the mast anyway would put it on a building, so the
+            layout fails instead.
     """
     # Concentric rings outward from the ideal position, so the first acceptable
     # tile found is also the nearest.
@@ -376,22 +413,29 @@ def _mount(
 
         usable = _tiles_are_clear(raster, candidates_x, candidates_y, spec)
         usable &= _inside(roi, candidates_x, candidates_y)
-        if usable.any():
-            index = int(np.argmax(usable))
-            ground = scene_module.surface_height(
-                mi_scene,
-                candidates_x[index : index + 1],
-                candidates_y[index : index + 1],
-                bounds.launch_z,
-            )[0]
+        index = np.flatnonzero(usable)
+        if index.size == 0:
+            continue
+
+        ground = scene_module.surface_height(
+            mi_scene, candidates_x[index], candidates_y[index], bounds.launch_z
+        )
+        # A missed ray is a point beyond the ground, not a point at height zero.
+        on_ground = np.isfinite(ground) & (ground <= free_height_tol_m)
+        if on_ground.any():
+            best = int(np.argmax(on_ground))
             return (
-                float(candidates_x[index]),
-                float(candidates_y[index]),
-                float(np.nan_to_num(ground)) + spec.mast_height_m,
-                True,
+                float(candidates_x[index[best]]),
+                float(candidates_y[index[best]]),
+                float(ground[best]) + spec.mast_height_m,
             )
 
-    return x, y, spec.mast_height_m, False
+    raise ValueError(
+        f"site {site_name} at ({x:.1f}, {y:.1f}) found no open ground within "
+        f"simulation.transmitters.layout.snap_radius_m={spec.snap_radius_m}. Raise it, or "
+        f"lower min_free_fraction={spec.min_free_fraction} or "
+        f"clearance_radius_m={spec.clearance_radius_m}; a mast may not stand on a building."
+    )
 
 
 def _inside(roi: SceneBounds, x: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -436,6 +480,7 @@ def main(cfg: DictConfig) -> None:
     scenario.
     """
     spec = LayoutSpec.from_config(cfg)
+    grid_spec = GridSpec.from_config(cfg)
     default_tilt = default_tilts(cfg)
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
 
@@ -443,11 +488,9 @@ def main(cfg: DictConfig) -> None:
     # stream, so "free tile" means one thing across the whole pipeline. It is
     # built here from the unperturbed scene, which is what the layout is
     # surveyed against.
-    raster = grid_module.build(
-        scene.mi_scene, bounds, GridSpec.from_config(cfg), seeds.stream(cfg, "scene")
-    )
+    raster = grid_module.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
     roi = bounds.inset(float(cfg.simulation.area.margin_m))
-    sectors, unplaced = generate(scene.mi_scene, bounds, roi, raster, spec, default_tilt)
+    sectors = generate(scene.mi_scene, bounds, roi, raster, spec, grid_spec, default_tilt)
 
     print(f"# {len(sectors)} sectors over {len(sectors) // spec.sectors_per_site} sites")
     print(f"# {len(sectors) * len(default_tilt)} cell-band tilts, all at the layout default")
@@ -455,8 +498,6 @@ def main(cfg: DictConfig) -> None:
         f"# masts at {spec.mast_height_m} m on tiles at least "
         f"{spec.min_free_fraction:.0%} open, cleared to {spec.clearance_radius_m} m"
     )
-    if unplaced:
-        print(f"# no free tile within snap_radius_m for: {', '.join(unplaced)}")
     print("  sectors:")
     for sector in sectors:
         print(

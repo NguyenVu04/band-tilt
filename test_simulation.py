@@ -3,8 +3,10 @@
 ``python test_simulation.py`` writes to ``reports/figures/``:
 
 ``ue_transmitters.png``
-    UE positions and masts over the scene's building footprint, coloured by the
-    interval each UE was drawn in.
+    Every UE and every sector, rendered by sionna-rt itself as receivers and
+    transmitters over the scene's building footprint — the whole population,
+    never a sample. Receivers are coloured by the interval their UE was drawn
+    in.
 ``rsrp_map_{band}.png``
     One file per configured band: best-server RSRP over that band, rendered
     with sionna-rt's own renderer (:meth:`sionna.rt.Scene.render`) from a
@@ -33,11 +35,14 @@ from typing import Any
 
 import hydra
 import matplotlib
+import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 from src.simulation import grid, perturb, radio, seeds, transmitter  # noqa: E402
 from src.simulation import scene as scene_module  # noqa: E402
@@ -54,10 +59,17 @@ _REPORT_DIR = Path("reports/figures")
 # Long enough to read on the plot, short enough not to cross a cell.
 _BORESIGHT_M = 90.0
 
-# Horizontal field of view of the top-down render camera. Narrow enough that
-# the perspective stays close to orthographic, wide enough to keep the camera
-# (and the clearance it needs above the tallest building) at a sane height.
-_CAMERA_FOV_DEG = 60.0
+# sionna-rt's Camera renderer hard-codes a 10,000 m far clip (see
+# make_render_sensor in sionna.rt.utils.render), so the camera cannot simply be
+# placed arbitrarily high for a straight-down shot. This sits close to that
+# ceiling, with the field of view then solved from the grid extent so the
+# ground is fully framed. At this height-to-extent ratio the camera's
+# perspective is close enough to orthographic that a UE's pixel position and
+# its ground (x, y) agree to a small fraction of a cell, so positions are
+# placed with the same world-metre extent used to frame the render, rather
+# than by simulating the camera's true (very slightly non-linear) projection.
+_CAMERA_HEIGHT_M = 9000.0
+_CAMERA_CLEARANCE_M = 500.0
 
 # Fraction of extra width the camera is backed off by, so the grid's own edge
 # cells are not clipped by the render's field of view.
@@ -81,18 +93,34 @@ def _build_scenario(cfg: DictConfig) -> tuple[Any, Any, grid.Raster]:
     return scene, bounds, raster
 
 
-def _extent(raster: grid.Raster) -> list[float]:
-    """The grid's outer edges, for ``imshow``."""
-    return [
-        raster.origin_x,
-        raster.origin_x + raster.n_cols * raster.cell_size_m,
-        raster.origin_y,
-        raster.origin_y + raster.n_rows * raster.cell_size_m,
-    ]
+def _framed_extent(raster: grid.Raster) -> tuple[float, float, float, float]:
+    """The ground extent the top-down camera actually frames, in world metres.
+
+    ``_CAMERA_MARGIN`` widens the render past the raster's own footprint so
+    the grid's edge cells aren't clipped by the camera's field of view
+    (:func:`_camera`). Anything overlaid on that render — an ``imshow``
+    extent, a scatter of points at their true coordinates — must be placed
+    against this same padded box, not the raster's bare extent, or it
+    silently disagrees with what the camera actually captured: the rendered
+    geometry would be squeezed into a smaller box than it was framed at,
+    shifting it inward relative to anything plotted at its true position.
+    """
+    extent_x = raster.n_cols * raster.cell_size_m
+    extent_y = raster.n_rows * raster.cell_size_m
+    centre_x = raster.origin_x + 0.5 * extent_x
+    centre_y = raster.origin_y + 0.5 * extent_y
+    half_x = 0.5 * _CAMERA_MARGIN * extent_x
+    half_y = 0.5 * _CAMERA_MARGIN * extent_y
+    return (centre_x - half_x, centre_x + half_x, centre_y - half_y, centre_y + half_y)
 
 
-def _draw_sites(axes: plt.Axes, sectors: tuple[transmitter.Sector, ...]) -> None:
-    """Mark each mast and point a stub along every sector's boresight."""
+def _draw_boresights(axes: plt.Axes, sectors: tuple[transmitter.Sector, ...]) -> None:
+    """Point a stub along every sector's boresight.
+
+    Mast positions themselves are already in the backdrop — sionna-rt draws
+    its own transmitter marker there. This only adds the azimuth a top-down
+    device icon cannot show.
+    """
     for sector in sectors:
         angle = math.radians(sector.azimuth_deg)
         axes.plot(
@@ -102,47 +130,101 @@ def _draw_sites(axes: plt.Axes, sectors: tuple[transmitter.Sector, ...]) -> None
             linewidth=1.2,
             zorder=5,
         )
-    axes.scatter(
-        [sector.x for sector in sectors],
-        [sector.y for sector in sectors],
-        marker="^",
-        s=70,
-        color="red",
-        edgecolor="white",
-        linewidth=0.6,
-        zorder=6,
-        label="transmitters",
+
+
+def _render_geometry(
+    scene: Any, camera: Any, fov_deg: float, resolution: tuple[int, int]
+) -> np.ndarray:
+    """Render the scene from the top-down camera, as an RGBA array.
+
+    ``show_devices`` draws every :class:`sionna.rt.Transmitter` and
+    :class:`sionna.rt.Receiver` currently added to ``scene`` natively; the
+    caller is responsible for having added one per sector and per UE first.
+    """
+    import mitsuba as mi
+
+    bitmap = scene.render(
+        camera=camera,
+        fov=fov_deg,
+        resolution=resolution,
+        show_devices=True,
+        return_bitmap=True,
     )
+    image = bitmap.convert(component_format=mi.Struct.Type.UInt8, srgb_gamma=True)
+    return np.array(image)
 
 
-def plot_positions(cfg: DictConfig, raster: grid.Raster) -> Path:
-    """Draw UEs and masts over the building footprint. Returns the file written."""
+def plot_positions(
+    cfg: DictConfig,
+    scene: Any,
+    camera: Any,
+    fov_deg: float,
+    resolution: tuple[int, int],
+    raster: grid.Raster,
+) -> Path:
+    """Render every UE as a receiver and every sector as a transmitter.
+
+    Every row of the UE table becomes a live :class:`sionna.rt.Receiver` and
+    every sector a :class:`sionna.rt.Transmitter`, added to ``scene`` so
+    sionna-rt's own renderer draws both over the building geometry — the
+    whole population and every sector, never a sample. Receivers are removed
+    again once the render is captured, so they do not linger into
+    :func:`plot_rsrp`'s renders. Which band's tilt the transmitters are built
+    at does not matter here: this is a top-down view, and tilt is pitch about
+    the boresight, invisible from directly above.
+
+    Returns the file written.
+    """
+    from sionna.rt import Receiver
+
     ues = pd.read_csv(Path(cfg.simulation.output.ue_file))
     sectors = transmitter.load(cfg)
+    band_name = str(cfg.simulation.radio_map.bands[0].name)
+    power_dbm = float(cfg.simulation.antenna.power_rs)
+
+    radio.configure_arrays(scene, cfg)
+    transmitter.build(scene, sectors, band_name, power_dbm)
+
+    cmap = plt.get_cmap("viridis")
+    norm = mcolors.Normalize(vmin=ues["t_index"].min(), vmax=ues["t_index"].max())
+    names = tuple(f"ue{index}" for index in range(len(ues)))
+    for name, row in zip(names, ues.itertuples(index=False), strict=True):
+        scene.add(
+            Receiver(
+                name=name,
+                position=[row.x, row.y, row.z],
+                color=tuple(float(channel) for channel in cmap(norm(row.t_index))[:3]),
+            )
+        )
+    try:
+        backdrop = _render_geometry(scene, camera, fov_deg, resolution)
+    finally:
+        for name in names:
+            scene.remove(name)
 
     figure, axes = plt.subplots(figsize=(11, 9))
-    axes.imshow(
-        1.0 - raster.free_fraction,
-        extent=_extent(raster),
-        origin="lower",
-        cmap="Greys",
-        vmin=0.0,
-        vmax=1.5,
-        interpolation="nearest",
-    )
+    axes.imshow(backdrop, extent=_framed_extent(raster), origin="upper")
+    _draw_boresights(axes, sectors)
 
-    scatter = axes.scatter(
-        ues["x"],
-        ues["y"],
-        c=ues["t_index"],
-        cmap="viridis",
-        s=3,
-        alpha=0.55,
-        linewidths=0,
-        label="UEs",
+    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    mappable.set_array([])
+    figure.colorbar(mappable, ax=axes, label="interval index (receiver colour)", shrink=0.8)
+    axes.legend(
+        handles=[
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=(1.0, 0.0, 0.0),
+                markeredgecolor="white",
+                markersize=9,
+                label="sectors",
+            )
+        ],
+        loc="upper right",
+        framealpha=0.9,
     )
-    figure.colorbar(scatter, ax=axes, label="interval index", shrink=0.8)
-    _draw_sites(axes, sectors)
 
     intervals = int(ues["t_index"].nunique())
     axes.set_title(
@@ -152,27 +234,28 @@ def plot_positions(cfg: DictConfig, raster: grid.Raster) -> Path:
     return _finish(figure, axes, raster, "ue_transmitters.png")
 
 
-def _camera(raster: grid.Raster, bounds: Any) -> Any:
-    """A top-down camera framing the grid, high enough to clear the tallest building.
+def _camera(raster: grid.Raster, bounds: Any) -> tuple[Any, float]:
+    """A near-orthographic top-down camera framing the grid, and its field of view.
 
     ``sionna.rt.Camera.look_at`` is degenerate for a viewpoint directly above
     its target — the up vector and the view direction are then parallel — and
     handles it internally with a small epsilon offset, so a true top-down view
     is a supported, if edge-case, camera pose rather than something to avoid.
+
+    Returns the camera and the field of view [deg] that frames the grid at
+    its height; ``scene.render`` does not read a camera's own field of view,
+    so this must be passed to every render alongside it.
     """
     from sionna.rt import Camera
 
-    extent_x = raster.n_cols * raster.cell_size_m
-    extent_y = raster.n_rows * raster.cell_size_m
-    centre_x = raster.origin_x + 0.5 * extent_x
-    centre_y = raster.origin_y + 0.5 * extent_y
+    x0, x1, y0, y1 = _framed_extent(raster)
+    centre_x = 0.5 * (x0 + x1)
+    centre_y = 0.5 * (y0 + y1)
 
-    half_fov = math.radians(_CAMERA_FOV_DEG / 2.0)
-    height = max(
-        _CAMERA_MARGIN * 0.5 * extent_x / math.tan(half_fov),
-        bounds.max_z + 50.0,
-    )
-    return Camera(position=(centre_x, centre_y, height), look_at=(centre_x, centre_y, 0.0))
+    height = max(_CAMERA_HEIGHT_M, bounds.max_z + _CAMERA_CLEARANCE_M)
+    fov_deg = math.degrees(2.0 * math.atan(0.5 * (x1 - x0) / height))
+    camera = Camera(position=(centre_x, centre_y, height), look_at=(centre_x, centre_y, 0.0))
+    return camera, fov_deg
 
 
 def _resolution(raster: grid.Raster, long_edge: int = 1000) -> tuple[int, int]:
@@ -188,7 +271,14 @@ def _resolution(raster: grid.Raster, long_edge: int = 1000) -> tuple[int, int]:
     return (max(1, round(long_edge * extent_x / extent_y)), long_edge)
 
 
-def plot_rsrp(cfg: DictConfig, scene: Any, bounds: Any, raster: grid.Raster) -> tuple[Path, ...]:
+def plot_rsrp(
+    cfg: DictConfig,
+    scene: Any,
+    camera: Any,
+    fov_deg: float,
+    resolution: tuple[int, int],
+    raster: grid.Raster,
+) -> tuple[Path, ...]:
     """Render best-server RSRP per band with sionna-rt's own renderer.
 
     Re-solves each band against ``scene`` rather than reading
@@ -212,8 +302,6 @@ def plot_rsrp(cfg: DictConfig, scene: Any, bounds: Any, raster: grid.Raster) -> 
     }
 
     radio.configure_arrays(scene, cfg)
-    camera = _camera(raster, bounds)
-    resolution = _resolution(raster)
 
     _REPORT_DIR.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -234,6 +322,7 @@ def plot_rsrp(cfg: DictConfig, scene: Any, bounds: Any, raster: grid.Raster) -> 
         # dBm, matching the RSRP the radio stage writes to its archive.
         figure = scene.render(
             camera=camera,
+            fov=fov_deg,
             radio_map=radio_map,
             rm_metric="rss",
             rm_db_scale=True,
@@ -249,11 +338,13 @@ def plot_rsrp(cfg: DictConfig, scene: Any, bounds: Any, raster: grid.Raster) -> 
 
 
 def _finish(figure: plt.Figure, axes: plt.Axes, raster: grid.Raster, name: str) -> Path:
-    """Label the axes, save under ``reports/figures/`` and close. Returns the path."""
+    """Label the axes, save under ``reports/figures/`` and close. Returns the path.
+
+    The legend itself is the caller's: it is the one that knows what it drew.
+    """
     axes.set_xlabel("x (m)")
     axes.set_ylabel("y (m)")
     axes.set_aspect("equal")
-    axes.legend(loc="upper right", framealpha=0.9)
 
     _REPORT_DIR.mkdir(parents=True, exist_ok=True)
     path = _REPORT_DIR / name
@@ -275,8 +366,11 @@ def main(cfg: DictConfig) -> None:
         raise FileNotFoundError(f"No {ue_file}. Run `task simulation:scenario` first.")
 
     scene, bounds, raster = _build_scenario(cfg)
-    print(f"positions: {plot_positions(cfg, raster)}")
-    for path in plot_rsrp(cfg, scene, bounds, raster):
+    camera, fov_deg = _camera(raster, bounds)
+    resolution = _resolution(raster)
+
+    print(f"positions: {plot_positions(cfg, scene, camera, fov_deg, resolution, raster)}")
+    for path in plot_rsrp(cfg, scene, camera, fov_deg, resolution, raster):
         print(f"rsrp:      {path}")
 
 

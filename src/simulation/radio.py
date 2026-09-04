@@ -35,6 +35,7 @@ from omegaconf import DictConfig
 from src.simulation import materials, perturb, seeds, transmitter
 from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
+from src.simulation.grid import GridSpec
 from src.simulation.materials import MaterialSpec
 from src.simulation.perturb import PerturbSpec
 from src.simulation.scene import SceneSpec
@@ -156,7 +157,9 @@ def solve(cfg: DictConfig) -> Path:
 
     _check_tilt_table(sectors, bands)
 
-    problems = transmitter.validate(scene.mi_scene, bounds, sectors)
+    problems = transmitter.validate(
+        scene.mi_scene, bounds, sectors, GridSpec.from_config(cfg).free_height_tol_m
+    )
     for problem in problems:
         print(f"WARNING transmitter {problem}")
 
