@@ -9,6 +9,13 @@ and the UE positions must *not* move when tilt does — otherwise the KPIs stop
 being a function of tilt, which is the property the whole optimization rests on.
 A scenario is drawn once and reused across every tilt.
 
+The population carries a time axis: a fresh crowd is drawn every
+``simulation.time.interval_s`` over the horizon, from a mixture whose masses
+shift with the hour (:mod:`src.simulation.traffic`). This costs no extra ray
+tracing. The radio map is solved over a grid, not per UE, so every interval
+reads the same map, and the per-cell weights each component uses are computed
+once and shared across all of them.
+
 Radio materials are not installed here. They have no effect on geometry, and
 nothing in this stage propagates anything; the radio stage installs them per
 band. They remain a pure function of the seed, so the scenario stays
@@ -27,17 +34,28 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from src.simulation import density, grid, perturb, sample
+from src.simulation import density, grid, perturb, sample, seeds, traffic
 from src.simulation import scene as scene_module
 from src.simulation.density import DensitySpec
 from src.simulation.grid import GridSpec
 from src.simulation.perturb import PerturbSpec
 from src.simulation.sample import UeSpec
 from src.simulation.scene import SceneSpec
+from src.simulation.traffic import TrafficSpec
 
 # Config sections that define what a scenario IS. Output paths are excluded on
 # purpose: writing the same population somewhere else is not a new scenario.
-_IDENTITY_KEYS = ("scene", "grid", "ue", "density", "perturbation", "materials", "seed")
+_IDENTITY_KEYS = (
+    "scene",
+    "area",
+    "grid",
+    "ue",
+    "time",
+    "density",
+    "perturbation",
+    "materials",
+    "seed",
+)
 
 
 def scenario_id(cfg: DictConfig) -> str:
@@ -59,18 +77,14 @@ def _resolved(node: Any) -> Any:
 
 
 def generate(cfg: DictConfig) -> tuple[Path, Path]:
-    """Run the scenario stage. Returns ``(ue_file, manifest_file)``.
-
-    Offsets, not independent draws, so the relationship between the streams is
-    itself reproducible: NumPy runs an integer seed through a SeedSequence, so
-    consecutive values give well-separated streams.
-    """
-    seed = int(cfg.simulation.seed)
+    """Run the scenario stage. Returns ``(ue_file, manifest_file)``."""
     grid_spec = GridSpec.from_config(cfg)
     ue = UeSpec.from_config(cfg)
+    density_spec = DensitySpec.from_config(cfg)
+    traffic_spec = TrafficSpec.from_config(cfg)
 
     scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
-    report = perturb.apply(scene, PerturbSpec.from_config(cfg), seed)
+    report = perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
 
     # The grid comes from the DELIVERED extent, not the perturbed one. Jittering
     # a building a couple of metres would otherwise shift the grid origin, and
@@ -80,25 +94,57 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     # a heightened building can now stand above the delivered maximum.
     perturbed = scene_module.bounds_of(scene)
     bounds = dataclasses.replace(delivered, max_z=max(delivered.max_z, perturbed.max_z))
+    roi = bounds.inset(float(cfg.simulation.area.margin_m))
 
-    raster = grid.build(scene.mi_scene, bounds, grid_spec, seed)
-    field = density.field(raster, DensitySpec.from_config(cfg), seed + 1)
-    x, y, component = sample.sample_positions(
-        scene.mi_scene, bounds, raster, field, ue, grid_spec, seed + 2
+    raster = grid.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
+    mask = grid.roi_mask(raster, roi)
+    field = density.field(raster, density_spec, seeds.stream(cfg, "density"), mask)
+    schedule = traffic.build(
+        traffic_spec,
+        ue.count_range,
+        len(field.hotspots),
+        density_spec.hotspot_mass_fraction,
+        seeds.stream(cfg, "traffic"),
+    )
+    interval, x, y, component = sample.sample_positions(
+        scene.mi_scene,
+        bounds,
+        roi,
+        raster,
+        field,
+        schedule,
+        grid_spec,
+        seeds.stream(cfg, "sample"),
     )
 
-    ue_file = sample.write_csv(Path(cfg.simulation.output.ue_file), x, y, component, raster, ue)
-    manifest_file = _write_manifest(cfg, report, raster, bounds, x, y)
+    ue_file = sample.write_csv(
+        Path(cfg.simulation.output.ue_file), interval, schedule, x, y, component, raster, ue
+    )
+    manifest_file = _write_manifest(cfg, report, raster, bounds, roi, field, schedule, x)
 
+    eligible = density.eligible_cells(raster, mask)
     cell_col, cell_row = raster.cell_indices(x, y)
-    open_cells = int(np.count_nonzero(raster.free_fraction > 0.0))
+    hotspot_mass = schedule.component_mass[:, 1:].sum(axis=1)
     print(f"scenario: {scenario_id(cfg)}")
     print(f"removed:  {len(report.removed)} buildings   jittered: {len(report.jittered)}")
-    print(f"grid:     {raster.n_cols} x {raster.n_rows} cells, {open_cells} with open ground")
-    print(f"hotspots: {len(field.hotspots)}")
-    print(f"ue:       {x.size} at z={ue.height_m} m")
     print(
-        f"densest decile holds {sample.densest_decile_share(cell_col, cell_row, raster):.1%} of UEs"
+        f"grid:     {raster.n_cols} x {raster.n_rows} cells, "
+        f"{int(np.count_nonzero(eligible))} eligible inside a "
+        f"{cfg.simulation.area.margin_m} m margin"
+    )
+    print(f"hotspots: {len(field.hotspots)}")
+    print(
+        f"time:     {schedule.n_intervals} intervals of {schedule.interval_s:.0f} s, "
+        f"{int(schedule.count.min())}-{int(schedule.count.max())} UEs each"
+    )
+    print(
+        f"demand:   hotspots hold {hotspot_mass.min():.0%} to {hotspot_mass.max():.0%} "
+        "of the population across intervals"
+    )
+    print(f"ue:       {x.size} rows at z={ue.height_m} m")
+    print(
+        "densest decile holds "
+        f"{sample.densest_decile_share(cell_col, cell_row, raster, eligible):.1%} of UEs"
     )
     print(f"csv:      {ue_file}")
     print(f"manifest: {manifest_file}")
@@ -110,8 +156,10 @@ def _write_manifest(
     report: perturb.PerturbReport,
     raster: grid.Raster,
     bounds: scene_module.SceneBounds,
+    roi: scene_module.SceneBounds,
+    field: density.DensityField,
+    schedule: traffic.Schedule,
     x: np.ndarray,
-    y: np.ndarray,
 ) -> Path:
     """Record what this scenario is, so it can be regenerated and split on."""
     path = Path(cfg.simulation.output.manifest_file)
@@ -121,6 +169,13 @@ def _write_manifest(
         "scenario_id": scenario_id(cfg),
         "seed": int(cfg.simulation.seed),
         "scene": OmegaConf.to_container(cfg.simulation.scene, resolve=True),
+        "area": {
+            "margin_m": float(cfg.simulation.area.margin_m),
+            "min_x": roi.min_x,
+            "max_x": roi.max_x,
+            "min_y": roi.min_y,
+            "max_y": roi.max_y,
+        },
         "perturbation": {
             "removed": list(report.removed),
             "jittered": list(report.jittered),
@@ -135,8 +190,25 @@ def _write_manifest(
             "n_rows": raster.n_rows,
             "launch_z": bounds.launch_z,
         },
+        # The hotspot catalogue and the per-interval masses together pin the
+        # density of every interval exactly. Stored instead of the per-cell
+        # weights, which are a deterministic function of these and the raster
+        # and would be three orders of magnitude larger.
+        "density": {
+            "spec": OmegaConf.to_container(cfg.simulation.density, resolve=True),
+            "hotspots": [dataclasses.asdict(hotspot) for hotspot in field.hotspots],
+        },
+        "time": {
+            "spec": OmegaConf.to_container(cfg.simulation.time, resolve=True),
+            "n_intervals": schedule.n_intervals,
+            "t_s": schedule.t_s.tolist(),
+            "count": schedule.count.tolist(),
+            "component_mass": schedule.component_mass.tolist(),
+            "phase_rad": schedule.phase_rad.tolist(),
+        },
         "ue": {
-            "count": int(x.size),
+            "rows": int(x.size),
+            "count_range": list(cfg.simulation.ue.count_range),
             "height_m": float(cfg.simulation.ue.height_m),
         },
     }
@@ -149,7 +221,7 @@ def main(cfg: DictConfig) -> None:
     """Build the scenario. Entry point for ``task simulation:scenario``.
 
     Example:
-        $ task simulation:scenario -- simulation.ue.count=1000 seed=7
+        $ task simulation:scenario -- simulation.time.horizon_s=3600 seed=7
     """
     generate(cfg)
 

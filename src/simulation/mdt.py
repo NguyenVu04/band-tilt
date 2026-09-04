@@ -1,7 +1,12 @@
 """Stage 3: what a UE reports, as opposed to what is true.
 
 ``python -m src.simulation.mdt`` reads the clean radio map and the UE table and
-writes one row per UE, carrying a measured RSRP per cell-band transmitter.
+writes one row per UE per interval, carrying a measured RSRP per cell-band
+transmitter.
+
+The radio map has no time axis and needs none: geometry and tilt are fixed for
+the whole scenario, so what an interval changes is only *where* the UEs are.
+Each row looks its own position up in the same map.
 
 Two things separate a report from the truth, applied in the order a real
 network applies them:
@@ -40,7 +45,12 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-_POSITION_COLUMNS = ("ue_id", "x", "y", "z", "cell_col", "cell_row")
+from src.simulation import seeds
+
+# No UE identifier: each interval is an independent draw, so a row in one
+# snapshot has no counterpart in the next and an id would invite a join that
+# does not mean what it looks like.
+_POSITION_COLUMNS = ("t_index", "t_s", "x", "y", "z", "cell_col", "cell_row")
 
 
 @dataclass(frozen=True)
@@ -164,7 +174,7 @@ def build(cfg: DictConfig) -> Path:
     columns = [f"rsrp_{tx}_{band}" for tx in tx_names for band in band_labels]
 
     spec = MdtSpec.from_config(cfg)
-    reported = measure(clean, spec, int(cfg.simulation.seed) + 4)
+    reported = measure(clean, spec, seeds.stream(cfg, "mdt"))
 
     frame = pd.concat(
         [ues[list(_POSITION_COLUMNS)], pd.DataFrame(reported, columns=columns, index=ues.index)],
@@ -177,7 +187,12 @@ def build(cfg: DictConfig) -> Path:
     heard = np.isfinite(clean)
     kept = np.isfinite(reported)
     covered = heard.any(axis=1)
+    n_intervals = int(ues["t_index"].nunique())
     print(f"ue:        {len(ues)} rows x {len(columns)} measurements")
+    print(
+        f"intervals: {n_intervals}, "
+        f"{len(ues) / max(n_intervals, 1):.0f} UEs per interval on average"
+    )
     print(f"reachable: {heard.mean():6.1%} of measurements had a path")
     print(f"reported:  {kept.sum() / max(heard.sum(), 1):6.1%} of those survived censoring")
     print(

@@ -115,19 +115,28 @@ class Hotspot:
 
 @dataclass(frozen=True)
 class DensityField:
-    """The mixture the UE positions are drawn from.
+    """Where each mixture component puts its UEs.
+
+    The field carries no component masses. How much of the population a
+    component holds varies per interval and belongs to
+    :class:`src.simulation.traffic.Schedule`; where a component puts what it
+    holds is a property of the scene and is drawn once. Splitting them is what
+    lets a many-interval scenario reuse a single set of per-cell weights.
 
     Attributes:
-        component_mass: Share of UEs per component, summing to 1. Index 0 is
-            the uniform background; the rest are the hotspots in order.
         cell_weights: Per-component distribution over flattened cells, shaped
-            ``[n_components, n_rows * n_cols]``, each row summing to 1.
-        hotspots: The drawn hotspots, in the order they appear above.
+            ``[n_components, n_rows * n_cols]``, each row summing to 1. Row 0
+            is the uniform background; the rest are the hotspots in order.
+        hotspots: The drawn hotspots, in the order their rows appear above.
     """
 
-    component_mass: np.ndarray
     cell_weights: np.ndarray
     hotspots: tuple[Hotspot, ...]
+
+    @property
+    def n_components(self) -> int:
+        """Number of mixture components, background included."""
+        return int(self.cell_weights.shape[0])
 
 
 def built_volume(raster: Raster) -> np.ndarray:
@@ -163,17 +172,32 @@ def neighbourhood_volume(volume: np.ndarray, raster: Raster, radius_m: float) ->
     return total
 
 
+def eligible_cells(raster: Raster, roi: np.ndarray) -> np.ndarray:
+    """Cells that may hold a UE: open ground, inside the region of interest.
+
+    The single definition of eligibility, shared by the hotspot draw and the
+    per-cell weights so the two cannot drift apart.
+    """
+    return (raster.free_fraction > 0.0) & roi
+
+
 def draw_hotspots(
     raster: Raster,
     spec: DensitySpec,
     rng: np.random.Generator,
+    roi: np.ndarray,
 ) -> tuple[Hotspot, ...]:
     """Draw hotspot centres, weighted by surrounding building volume.
 
-    Centres are restricted to cells holding open ground. A centre inside a
-    building would put its mass on whatever ring of open cells happens to
-    surround the block, which is neither the intended shape nor a reproducible
-    one.
+    Centres are restricted to eligible cells. A centre inside a building would
+    put its mass on whatever ring of open cells happens to surround the block,
+    which is neither the intended shape nor a reproducible one; a centre in the
+    margin would put a share of the population where the radio map is least
+    trustworthy.
+
+    The weighting still counts building volume from the *whole* scene, margin
+    included: a hotspot just inside the boundary is genuinely surrounded by the
+    blocks beyond it, and pretending otherwise would bias centres inward twice.
 
     Raises:
         ValueError: When the grid holds fewer eligible cells than
@@ -182,19 +206,21 @@ def draw_hotspots(
     if spec.n_hotspots == 0:
         return ()
 
+    allowed = eligible_cells(raster, roi)
     weight = neighbourhood_volume(built_volume(raster), raster, spec.built_volume_radius_m)
-    weight = np.where(raster.free_fraction > 0.0, weight, 0.0).ravel()
+    weight = np.where(allowed, weight, 0.0).ravel()
 
-    eligible = int(np.count_nonzero(weight))
-    if eligible < spec.n_hotspots:
+    n_eligible = int(np.count_nonzero(weight))
+    if n_eligible < spec.n_hotspots:
         # A scene with no buildings beside its open ground: fall back to
         # placing hotspots uniformly rather than failing outright.
-        weight = (raster.free_fraction > 0.0).astype(np.float64).ravel()
-        eligible = int(np.count_nonzero(weight))
-    if eligible < spec.n_hotspots:
+        weight = allowed.astype(np.float64).ravel()
+        n_eligible = int(np.count_nonzero(weight))
+    if n_eligible < spec.n_hotspots:
         raise ValueError(
-            f"simulation.density.n_hotspots is {spec.n_hotspots} but only {eligible} "
-            "grid cells hold open ground. Lower n_hotspots or the cell size."
+            f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
+            "grid cells hold open ground inside the region of interest. Lower "
+            "n_hotspots, the cell size, or simulation.area.margin_m."
         )
 
     chosen = rng.choice(weight.size, size=spec.n_hotspots, replace=False, p=weight / weight.sum())
@@ -216,7 +242,7 @@ def draw_hotspots(
     return tuple(hotspots)
 
 
-def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
+def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> DensityField:
     """Build the mixture the UE positions are drawn from.
 
     Weights carry the density function alone. They are deliberately NOT scaled
@@ -231,17 +257,13 @@ def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
     the sampled density proportional to the density function times the cell's
     *true* open area, with the estimate used for nothing but eligibility.
 
-    Cells with no open ground at all are excluded, since no position in them
-    could ever be accepted.
-
-    Hotspots share ``spec.hotspot_mass_fraction`` equally; concentration is
-    controlled by that one number, not by per-hotspot amplitudes, so it stays
-    interpretable under a sweep.
+    Cells with no open ground at all are excluded, as are cells outside the
+    region of interest, since no position in either could ever be accepted.
     """
     rng = np.random.default_rng(seed)
-    hotspots = draw_hotspots(raster, spec, rng)
+    hotspots = draw_hotspots(raster, spec, rng, roi)
 
-    eligible = (raster.free_fraction > 0.0).ravel().astype(np.float64)
+    eligible = eligible_cells(raster, roi).ravel().astype(np.float64)
     centre_x, centre_y = raster.cell_centres()
     centre_x = centre_x.ravel()
     centre_y = centre_y.ravel()
@@ -250,15 +272,7 @@ def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
     for hotspot in hotspots:
         weights.append(_normalise(_gaussian(centre_x, centre_y, hotspot) * eligible))
 
-    background_mass = 1.0 - spec.hotspot_mass_fraction
-    per_hotspot = spec.hotspot_mass_fraction / len(hotspots) if hotspots else 0.0
-    component_mass = np.array([background_mass] + [per_hotspot] * len(hotspots), dtype=np.float64)
-
-    return DensityField(
-        component_mass=component_mass,
-        cell_weights=np.vstack(weights),
-        hotspots=hotspots,
-    )
+    return DensityField(cell_weights=np.vstack(weights), hotspots=hotspots)
 
 
 def _gaussian(x: np.ndarray, y: np.ndarray, hotspot: Hotspot) -> np.ndarray:

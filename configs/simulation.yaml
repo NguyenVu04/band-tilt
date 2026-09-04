@@ -26,6 +26,22 @@ scene:
   # is no longer a distinct object cannot be perturbed.
   merge_shapes: false
 
+# --- Region of interest ------------------------------------------------------
+# The scene extent is read from the loaded scene, never restated here. What is
+# stated is how far inside that extent the simulation is allowed to place
+# things.
+#
+# Near the boundary there is no geometry beyond the edge to reflect or block
+# anything, so power leaks outward and the radio map reads optimistically. UEs,
+# hotspot centres and masts are all confined to the interior; the grid and the
+# radio map still span the full extent, so energy arriving from the margin is
+# not lost, it simply is not measured where it is least trustworthy.
+#
+# The margin must leave room for the site lattice: transmitters.layout raises
+# if site_spacing_m no longer fits, and names the largest spacing that does.
+area:
+  margin_m: 200.0
+
 # --- Measurement grid --------------------------------------------------------
 # The scene is rastered into square cells. The grid is what the UE density is
 # defined over and what the UE counts are binned into; a later radio-map stage
@@ -48,15 +64,55 @@ grid:
 
 # --- UE population -----------------------------------------------------------
 # UEs are WEIGHTS on the radio map, not ray-tracing targets: no solve is run per
-# UE, so count trades against file size rather than against compute. Prefer a
-# count high enough to make the per-cell counts smooth.
+# UE, so the count trades against file size rather than against compute.
+#
+# count_range is the inclusive range the per-interval count is drawn uniformly
+# from — a range rather than a fixed number so load varies snapshot to snapshot
+# as it does in a real network. A whole scenario holds roughly the midpoint
+# times time.horizon_s / time.interval_s rows.
+#
+# UEs carry no identifier. Each interval is an independent draw, so a row in one
+# snapshot has no counterpart in the next.
 #
 # height_m is the plane UEs sit on, and must match the height any later radio
 # map is computed at — a KPI weighted by UEs at one height against a map solved
 # at another is comparing two different surfaces.
 ue:
-  count: 5000
+  count_range: [100, 200]
   height_m: 1.5
+
+# --- Time axis ---------------------------------------------------------------
+# A fresh population is drawn every interval_s over horizon_s. A trailing
+# part-interval is dropped. This costs no extra ray tracing: the radio map is
+# solved over a grid rather than per UE, and tilt and geometry are fixed for the
+# whole scenario, so every interval reads the same map.
+#
+# What varies is which mixture component holds the population, never where a
+# component puts it. Hotspot locations are a property of the scene and are drawn
+# once; only their masses move.
+#
+# Demand is correlated in time on purpose. Redrawing each interval independently
+# would make it a white-noise process, and a configuration cannot be tuned
+# against noise. Two mechanisms give it structure:
+#
+#   - diurnal_amplitude, the depth of a deterministic day/night swing. Each
+#     hotspot is given its own peak hour, so demand migrates between them rather
+#     than merely breathing in place. Must stay below 1 to keep every intensity
+#     positive.
+#   - ar1_rho and ar1_sigma, an AR(1) term in the log intensity supplying the
+#     interval-to-interval persistence real traffic has. rho is the correlation
+#     between consecutive intervals and must stay below 1 for the process to be
+#     stationary; sigma 0 leaves the bare diurnal profile.
+#
+# density.hotspot_mass_fraction is honoured in expectation, not per interval:
+# both mechanisms are scaled to unit mean, so an individual interval is free to
+# be more or less concentrated than it. That freedom is the point of the axis.
+time:
+  interval_s: 900.0
+  horizon_s: 86400.0
+  diurnal_amplitude: 0.6
+  ar1_rho: 0.85
+  ar1_sigma: 0.25
 
 # --- UE spatial density ------------------------------------------------------
 # The density is deliberately NOT uniform. The UE-weighted Band Priority Score
@@ -158,9 +214,18 @@ transmitters:
     site_spacing_m: 650.0
     sectors_per_site: 3
     azimuth_offset_deg: 0.0
-    # Surface heights that count as a mountable roof, and the mast above it.
-    rooftop_height_range_m: [12.0, 35.0]
-    mast_clearance_m: 3.0
+    # Masts stand on open ground, not on roofs. A site is placed on a grid tile
+    # with no building under it and a clear surround, then raised to a fixed
+    # mast height. Tying the height to the tower rather than to whatever roof
+    # happened to be nearby keeps the sites comparable to each other.
+    #
+    # min_free_fraction is below 1 because the raster estimates a cell's open
+    # share from a sub-sampled cast, so an unobstructed tile beside a wall can
+    # read slightly short. clearance_radius_m widens the test to the surround,
+    # so a mast is not wedged against a facade it would immediately shadow.
+    mast_height_m: 25.0
+    min_free_fraction: 0.95
+    clearance_radius_m: 20.0
     snap_radius_m: 60.0
     # The tilt a freshly generated layout stamps on every sector, per band.
     # Higher bands start tilted harder, to contain a smaller footprint. This is
@@ -171,93 +236,85 @@ transmitters:
       b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
       b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
   # Generated by `task simulation:layout`. z is the mast height above the
-  # scene's ground plane, resolved against the roof each site stands on.
-  #
-  # THIS TABLE IS THE DECISION VARIABLE. One tilt per cell-band pair — 12
-  # sectors times 3 bands — is the vector PROJECT.md 3.1 optimizes, so it is
-  # written out in full rather than derived from a per-band default. Every
-  # sector needs an entry for every band in radio_map.bands; the radio stage
-  # checks that up front and names any gaps.
-  #
-  # baseline_deg must lie inside bounds_deg, or the run starts from a
-  # configuration the optimizer is not allowed to be in.
+  # scene's ground plane: the ground under the free tile the site stands on,
+  # plus layout.mast_height_m.
   sectors:
     - name: s0c0
-      x: -382.85
+      x: -392.85
       y: -410.78
-      z: 19.23
+      z: 25.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s0c1
-      x: -382.85
+      x: -392.85
       y: -410.78
-      z: 19.23
+      z: 25.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s0c2
-      x: -382.85
+      x: -392.85
       y: -410.78
-      z: 19.23
+      z: 25.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s1c0
-      x: -404.99
-      y: 248.03
-      z: 15.84
+      x: -392.85
+      y: 239.22
+      z: 25.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s1c1
-      x: -404.99
-      y: 248.03
-      z: 15.84
+      x: -392.85
+      y: 239.22
+      z: 25.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s1c2
-      x: -404.99
-      y: 248.03
-      z: 15.84
+      x: -392.85
+      y: 239.22
+      z: 25.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s2c0
-      x: 260.69
-      y: -407.25
-      z: 16.23
+      x: 257.15
+      y: -470.78
+      z: 25.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s2c1
-      x: 260.69
-      y: -407.25
-      z: 16.23
+      x: 257.15
+      y: -470.78
+      z: 25.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
     - name: s2c2
-      x: 260.69
-      y: -407.25
-      z: 16.23
+      x: 257.15
+      y: -470.78
+      z: 25.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -266,7 +323,7 @@ transmitters:
     - name: s3c0
       x: 257.15
       y: 239.22
-      z: 22.31
+      z: 25.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -275,7 +332,7 @@ transmitters:
     - name: s3c1
       x: 257.15
       y: 239.22
-      z: 22.31
+      z: 25.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -284,7 +341,7 @@ transmitters:
     - name: s3c2
       x: 257.15
       y: 239.22
-      z: 22.31
+      z: 25.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -319,36 +376,52 @@ transmitters:
 # share of reached cells stopped moving sharply; a lower setting understates
 # coverage everywhere.
 #
-# diffraction and diffuse_reflection are both OFF, and max_depth is modest, so
-# a band solves in about a second. That is a deliberate trade of fidelity for
-# runtime, and it costs two specific things a report must acknowledge:
+# Every propagation mechanism the solver can model is named below rather than
+# left to a library default. A default that changes between sionna-rt releases
+# would silently change what "ground truth" means, and a flag that is never
+# written down cannot travel with the map it produced. All of them are recorded
+# inside every radio_map.npz.
 #
-#   - Diffracted paths are MISSING. Diffraction matters more as frequency falls
-#     (at 700 MHz the wavelength is 0.43 m), so the low band's coverage
-#     advantage is understated and the band comparison is not complete.
-#   - materials.perturbation.scattering_coefficient is INERT. Scattering only
-#     reaches the result through diffuse reflection, so that component of the
-#     scene perturbation currently does nothing.
+# diffraction, edge_diffraction and diffuse_reflection are ON, which is a
+# deliberate purchase of fidelity with runtime, and the runtime is not a
+# marginal cost — enabling diffraction alone has been observed to turn a
+# sub-second solve into one that does not finish in many minutes on this scene.
+# Budget for it before generating a surrogate dataset, which needs hundreds of
+# solves; that is a decision about hardware, not about a config flag.
 #
-# The cost of turning them on is not marginal: measured on this scene, a band
-# solving in under a second here had not finished after fifteen minutes with
-# diffraction enabled, and a three-band run at max_depth 8 did not complete the
-# first band within eight minutes. A surrogate dataset needs hundreds of such
-# solves, so that is a decision about hardware, not about a config flag.
+# What they buy:
 #
-# To raise fidelity for a one-off without editing this block:
-#   task simulation:radio -- simulation.radio_map.diffraction=true \
-#       simulation.radio_map.diffuse_reflection=true \
-#       simulation.radio_map.max_depth=8
+#   - Diffracted paths exist. Diffraction matters more as frequency falls (at
+#     700 MHz the wavelength is 0.43 m), so without it the low band's coverage
+#     advantage is understated and the band comparison is incomplete.
+#   - materials.perturbation.scattering_coefficient is live. Scattering reaches
+#     the result only through diffuse reflection, so that component of the scene
+#     perturbation does nothing without it.
+#
+# rr_depth and rr_prob are the cost lever to reach for before max_depth: Russian
+# roulette terminates weak paths probabilistically rather than truncating every
+# path at a fixed depth, so it trades variance for time without biasing the
+# result. rr_depth -1 disables it.
+#
+# To lower fidelity for a quick check without editing this block:
+#   task simulation:radio -- simulation.radio_map.diffraction=false \
+#       simulation.radio_map.diffuse_reflection=false \
+#       simulation.radio_map.samples_per_tx=100000
 # Maps solved at different settings are different ground truths and must never
-# be mixed into one dataset. The settings are recorded inside every
-# radio_map.npz so a stray archive can be identified.
+# be mixed into one dataset.
 radio_map:
   temperature: 298.15
   samples_per_tx: 10000000
   max_depth: 5
-  diffraction: false
-  diffuse_reflection: false
+  los: true
+  specular_reflection: true
+  diffuse_reflection: true
+  refraction: true
+  diffraction: true
+  edge_diffraction: true
+  diffraction_lit_region: true
+  rr_depth: -1
+  rr_prob: 0.95
   bands:
     - name: b2600
       frequency: 2600000000

@@ -32,7 +32,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
-from src.simulation import materials, perturb, transmitter
+from src.simulation import materials, perturb, seeds, transmitter
 from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
 from src.simulation.materials import MaterialSpec
@@ -79,19 +79,42 @@ class Band:
 class SolverSpec:
     """Ray-tracing settings. These define the ground truth, not merely its cost.
 
+    Every propagation mechanism the solver can model is named here rather than
+    left to its library default. A default that changes between sionna-rt
+    releases would silently change what "ground truth" means, and a flag that
+    is never written down cannot be recorded alongside the map it produced.
+
     Attributes:
         samples_per_tx: Rays shot per transmitter.
         max_depth: Maximum number of interactions along a path.
-        diffraction: Include diffracted paths. Matters more as frequency falls.
+        los: Include the direct path.
+        specular_reflection: Include mirror-like reflection.
         diffuse_reflection: Include diffuse scattering. Without it the
             materials' scattering coefficient is inert.
+        refraction: Include transmission through surfaces.
+        diffraction: Include diffracted paths. Matters more as frequency falls.
+        edge_diffraction: Also diffract at the edges of finite surfaces, not
+            only at wedges.
+        diffraction_lit_region: Keep diffracted paths where a direct path
+            already exists, instead of only in shadow.
+        rr_depth: Depth at which Russian-roulette path termination starts;
+            ``-1`` disables it. The cost lever to reach for before ``max_depth``,
+            since it shortens weak paths rather than truncating every path.
+        rr_prob: Survival probability once Russian roulette is active.
         temperature_k: Scene temperature, for the thermal noise power.
     """
 
     samples_per_tx: int
     max_depth: int
-    diffraction: bool
+    los: bool
+    specular_reflection: bool
     diffuse_reflection: bool
+    refraction: bool
+    diffraction: bool
+    edge_diffraction: bool
+    diffraction_lit_region: bool
+    rr_depth: int
+    rr_prob: float
     temperature_k: float
 
     @classmethod
@@ -101,15 +124,21 @@ class SolverSpec:
         return cls(
             samples_per_tx=int(radio_map.samples_per_tx),
             max_depth=int(radio_map.max_depth),
-            diffraction=bool(radio_map.diffraction),
+            los=bool(radio_map.los),
+            specular_reflection=bool(radio_map.specular_reflection),
             diffuse_reflection=bool(radio_map.diffuse_reflection),
+            refraction=bool(radio_map.refraction),
+            diffraction=bool(radio_map.diffraction),
+            edge_diffraction=bool(radio_map.edge_diffraction),
+            diffraction_lit_region=bool(radio_map.diffraction_lit_region),
+            rr_depth=int(radio_map.rr_depth),
+            rr_prob=float(radio_map.rr_prob),
             temperature_k=float(radio_map.temperature),
         )
 
 
 def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
-    seed = int(cfg.simulation.seed)
     manifest = _read_manifest(cfg)
     grid_meta = manifest["grid"]
     sectors = transmitter.load(cfg)
@@ -120,7 +149,7 @@ def solve(cfg: DictConfig) -> Path:
     height_m = float(cfg.simulation.ue.height_m)
 
     scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
-    perturb.apply(scene, PerturbSpec.from_config(cfg), seed)
+    perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
     bounds = dataclasses.replace(
         delivered, max_z=max(delivered.max_z, scene_module.bounds_of(scene).max_z)
     )
@@ -141,7 +170,8 @@ def solve(cfg: DictConfig) -> Path:
             band,
             solver_spec,
             material_spec,
-            seed + 3,
+            seeds.stream(cfg, "materials"),
+            seeds.stream(cfg, "solver"),
             grid_meta,
             height_m,
             power_dbm,
@@ -185,8 +215,16 @@ def solve(cfg: DictConfig) -> Path:
         # such files must never be mixed into one dataset.
         samples_per_tx=solver_spec.samples_per_tx,
         max_depth=solver_spec.max_depth,
-        diffraction=solver_spec.diffraction,
+        los=solver_spec.los,
+        specular_reflection=solver_spec.specular_reflection,
         diffuse_reflection=solver_spec.diffuse_reflection,
+        refraction=solver_spec.refraction,
+        diffraction=solver_spec.diffraction,
+        edge_diffraction=solver_spec.edge_diffraction,
+        diffraction_lit_region=solver_spec.diffraction_lit_region,
+        rr_depth=solver_spec.rr_depth,
+        rr_prob=solver_spec.rr_prob,
+        solver_seed=seeds.stream(cfg, "solver"),
         temperature_k=solver_spec.temperature_k,
         bandwidth_hz=np.array([band.bandwidth_hz for band in bands]),
         power_dbm=power_dbm,
@@ -205,7 +243,8 @@ def _solve_band(
     band: Band,
     spec: SolverSpec,
     material_spec: MaterialSpec,
-    seed: int,
+    material_seed: int,
+    solver_seed: int,
     grid_meta: dict[str, Any],
     height_m: float,
     power_dbm: float,
@@ -222,7 +261,7 @@ def _solve_band(
     # registered material's update callback, which would both raise on a carrier
     # outside the material's published ITU range and overwrite this scenario's
     # draw. Installing first switches those callbacks off.
-    materials.install(scene, band.frequency_hz, material_spec, seed)
+    materials.install(scene, band.frequency_hz, material_spec, material_seed)
     scene.frequency = band.frequency_hz
     scene.bandwidth = band.bandwidth_hz
     scene.temperature = spec.temperature_k
@@ -251,8 +290,19 @@ def _solve_band(
         cell_size=mi.Point2f(grid_meta["cell_size_m"], grid_meta["cell_size_m"]),
         samples_per_tx=spec.samples_per_tx,
         max_depth=spec.max_depth,
-        diffraction=spec.diffraction,
+        los=spec.los,
+        specular_reflection=spec.specular_reflection,
         diffuse_reflection=spec.diffuse_reflection,
+        refraction=spec.refraction,
+        diffraction=spec.diffraction,
+        edge_diffraction=spec.edge_diffraction,
+        diffraction_lit_region=spec.diffraction_lit_region,
+        rr_depth=spec.rr_depth,
+        rr_prob=spec.rr_prob,
+        # Passed explicitly: the solver seeds its own Monte-Carlo stream and
+        # otherwise runs at a fixed library default, so without this the map
+        # would ignore simulation.seed entirely.
+        seed=solver_seed,
     )
     elapsed = time.time() - started
 
