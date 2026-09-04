@@ -160,11 +160,11 @@ def solve(cfg: DictConfig) -> Path:
     for problem in problems:
         print(f"WARNING transmitter {problem}")
 
-    _configure_arrays(scene, cfg)
+    configure_arrays(scene, cfg)
     maps = []
     centres = None
     for band in bands:
-        rsrp, elapsed, centres = _solve_band(
+        rsrp, elapsed, centres, _radio_map = solve_band(
             scene,
             sectors,
             band,
@@ -237,7 +237,7 @@ def solve(cfg: DictConfig) -> Path:
     return path
 
 
-def _solve_band(
+def solve_band(
     scene: Any,
     sectors: tuple[transmitter.Sector, ...],
     band: Band,
@@ -248,11 +248,17 @@ def _solve_band(
     grid_meta: dict[str, Any],
     height_m: float,
     power_dbm: float,
-) -> tuple[np.ndarray, float, np.ndarray]:
+) -> tuple[np.ndarray, float, np.ndarray, Any]:
     """Solve one band.
 
-    Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, the elapsed seconds, and
-    the solver's own cell centres for the alignment check.
+    Public so that a renderer can re-solve a band against the same scene and
+    keep the live :class:`sionna.rt.RadioMap` the solver returns — the array
+    written by :func:`solve` is a numpy copy that cannot be rendered with
+    :meth:`sionna.rt.Scene.render`.
+
+    Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, the elapsed seconds, the
+    solver's own cell centres for the alignment check, and the solver's
+    :class:`sionna.rt.RadioMap`.
     """
     import mitsuba as mi
     from sionna.rt import RadioMapSolver
@@ -312,7 +318,7 @@ def _solve_band(
     with np.errstate(divide="ignore", invalid="ignore"):
         rsrp = 10.0 * np.log10(rss) + 30.0
     centres = np.asarray(radio_map.cell_centers, dtype=np.float64)
-    return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres
+    return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
 
 
 def _check_tilt_table(sectors: tuple[transmitter.Sector, ...], bands: tuple[Band, ...]) -> None:
@@ -338,7 +344,7 @@ def _check_tilt_table(sectors: tuple[transmitter.Sector, ...], bands: tuple[Band
         )
 
 
-def _configure_arrays(scene: Any, cfg: DictConfig) -> None:
+def configure_arrays(scene: Any, cfg: DictConfig) -> None:
     """Attach the transmit and receive arrays described by ``simulation.antenna``."""
     from sionna.rt import PlanarArray
 

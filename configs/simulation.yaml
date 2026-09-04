@@ -40,7 +40,7 @@ scene:
 # The margin must leave room for the site lattice: transmitters.layout raises
 # if site_spacing_m no longer fits, and names the largest spacing that does.
 area:
-  margin_m: 200.0
+  margin_m: 100.0
 
 # --- Measurement grid --------------------------------------------------------
 # The scene is rastered into square cells. The grid is what the UE density is
@@ -78,7 +78,7 @@ grid:
 # map is computed at — a KPI weighted by UEs at one height against a map solved
 # at another is comparing two different surfaces.
 ue:
-  count_range: [100, 200]
+  count_range: [20, 50]
   height_m: 1.5
 
 # --- Time axis ---------------------------------------------------------------
@@ -108,7 +108,7 @@ ue:
 # both mechanisms are scaled to unit mean, so an individual interval is free to
 # be more or less concentrated than it. That freedom is the point of the axis.
 time:
-  interval_s: 900.0
+  interval_s: 1800.0
   horizon_s: 86400.0
   diurnal_amplitude: 0.6
   ar1_rho: 0.85
@@ -144,8 +144,8 @@ time:
 #
 # The sigma ranges are drawn from uniformly, minor clamped to at most major.
 density:
-  hotspot_mass_fraction: 0.7
-  n_hotspots: 6
+  hotspot_mass_fraction: 0.9
+  n_hotspots: 3
   sigma_major_m: [80.0, 200.0]
   sigma_minor_m: [40.0, 120.0]
   built_volume_radius_m: 150.0
@@ -223,7 +223,7 @@ transmitters:
     # share from a sub-sampled cast, so an unobstructed tile beside a wall can
     # read slightly short. clearance_radius_m widens the test to the surround,
     # so a mast is not wedged against a facade it would immediately shadow.
-    mast_height_m: 25.0
+    mast_height_m: 30.0
     min_free_fraction: 0.95
     clearance_radius_m: 20.0
     snap_radius_m: 60.0
@@ -242,7 +242,7 @@ transmitters:
     - name: s0c0
       x: -392.85
       y: -410.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -251,7 +251,7 @@ transmitters:
     - name: s0c1
       x: -392.85
       y: -410.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -260,7 +260,7 @@ transmitters:
     - name: s0c2
       x: -392.85
       y: -410.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -269,7 +269,7 @@ transmitters:
     - name: s1c0
       x: -392.85
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -278,7 +278,7 @@ transmitters:
     - name: s1c1
       x: -392.85
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -287,7 +287,7 @@ transmitters:
     - name: s1c2
       x: -392.85
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -296,7 +296,7 @@ transmitters:
     - name: s2c0
       x: 257.15
       y: -470.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -305,7 +305,7 @@ transmitters:
     - name: s2c1
       x: 257.15
       y: -470.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -314,7 +314,7 @@ transmitters:
     - name: s2c2
       x: 257.15
       y: -470.78
-      z: 25.00
+      z: 30.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -323,7 +323,7 @@ transmitters:
     - name: s3c0
       x: 257.15
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 0.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -332,7 +332,7 @@ transmitters:
     - name: s3c1
       x: 257.15
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 120.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -341,7 +341,7 @@ transmitters:
     - name: s3c2
       x: 257.15
       y: 239.22
-      z: 25.00
+      z: 30.00
       azimuth_deg: 240.0
       tilt:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
@@ -415,10 +415,10 @@ radio_map:
   max_depth: 5
   los: true
   specular_reflection: true
-  diffuse_reflection: true
+  diffuse_reflection: false
   refraction: true
-  diffraction: true
-  edge_diffraction: true
+  diffraction: false
+  edge_diffraction: false
   diffraction_lit_region: true
   rr_depth: -1
   rr_prob: 0.95

@@ -1,24 +1,27 @@
 """Plot a solved scenario: where everything is, and what the radio map says.
 
-``python test_simulation.py`` writes two figures to ``reports/figures/``:
+``python test_simulation.py`` writes to ``reports/figures/``:
 
 ``ue_transmitters.png``
     UE positions and masts over the scene's building footprint, coloured by the
     interval each UE was drawn in.
-``rsrp_map.png``
-    Best-server RSRP over the same grid, from the ray-traced radio map.
+``rsrp_map_{band}.png``
+    One file per configured band: best-server RSRP over that band, rendered
+    with sionna-rt's own renderer (:meth:`sionna.rt.Scene.render`) from a
+    top-down :class:`sionna.rt.Camera`, overlaid on the rendered scene geometry.
 
-Both are drawn in scene metres on the same axes, so a hole in the second figure
-can be read directly against the geometry and the sites in the first.
-
-The backdrop is the building raster rather than a 3D render, for that reason:
-a perspective view of the scene would not line up with a top-down radio map.
 The scene is rebuilt exactly as :mod:`src.simulation.radio` rebuilds it —
 loaded, then perturbed with the same seed — so the footprint is the one the map
-was solved against, not the delivered city.
+is solved against, not the delivered city. The RSRP figures re-run
+:func:`src.simulation.radio.solve_band` rather than read
+``simulation.output.radio_map_file``: sionna-rt's renderer needs the live
+:class:`sionna.rt.RadioMap` the solver returns, and that object cannot be
+recovered from the numpy array the radio stage writes to disk. This repeats
+the radio stage's ray tracing at its full configured fidelity, so it costs
+the same as ``task simulation:radio``.
 
-Requires the scenario and radio stages to have run, and a CUDA GPU, since the
-footprint comes from casting rays at the scene.
+Requires the scenario stage to have run, and a CUDA GPU, since both the
+footprint and the radio map come from casting rays at the scene.
 """
 
 from __future__ import annotations
@@ -30,17 +33,18 @@ from typing import Any
 
 import hydra
 import matplotlib
-import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from src.simulation import grid, perturb, seeds, transmitter  # noqa: E402
+from src.simulation import grid, perturb, radio, seeds, transmitter  # noqa: E402
 from src.simulation import scene as scene_module  # noqa: E402
 from src.simulation.grid import GridSpec  # noqa: E402
+from src.simulation.materials import MaterialSpec  # noqa: E402
 from src.simulation.perturb import PerturbSpec  # noqa: E402
+from src.simulation.radio import Band, SolverSpec  # noqa: E402
 from src.simulation.scene import SceneSpec  # noqa: E402
 
 # reports/figures is gitignored; reports/ itself is not, so generated plots
@@ -50,9 +54,21 @@ _REPORT_DIR = Path("reports/figures")
 # Long enough to read on the plot, short enough not to cross a cell.
 _BORESIGHT_M = 90.0
 
+# Horizontal field of view of the top-down render camera. Narrow enough that
+# the perspective stays close to orthographic, wide enough to keep the camera
+# (and the clearance it needs above the tallest building) at a sane height.
+_CAMERA_FOV_DEG = 60.0
 
-def _load_scene(cfg: DictConfig) -> tuple[Any, Any]:
-    """Rebuild the perturbed scene, as the radio stage does. Returns the raster and bounds."""
+# Fraction of extra width the camera is backed off by, so the grid's own edge
+# cells are not clipped by the render's field of view.
+_CAMERA_MARGIN = 1.1
+
+
+def _build_scenario(cfg: DictConfig) -> tuple[Any, Any, grid.Raster]:
+    """Rebuild the perturbed scene, as the radio stage does.
+
+    Returns the scene, bounds, and raster.
+    """
     scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
     perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
 
@@ -62,7 +78,7 @@ def _load_scene(cfg: DictConfig) -> tuple[Any, Any]:
     raster = grid.build(
         scene.mi_scene, bounds, GridSpec.from_config(cfg), seeds.stream(cfg, "scene")
     )
-    return raster, bounds
+    return scene, bounds, raster
 
 
 def _extent(raster: grid.Raster) -> list[float]:
@@ -136,49 +152,100 @@ def plot_positions(cfg: DictConfig, raster: grid.Raster) -> Path:
     return _finish(figure, axes, raster, "ue_transmitters.png")
 
 
-def plot_rsrp(cfg: DictConfig, raster: grid.Raster) -> Path:
-    """Draw best-server RSRP over the grid. Returns the file written."""
-    map_path = Path(cfg.simulation.output.radio_map_file)
-    with np.load(map_path, allow_pickle=False) as data:
-        rsrp = data["rsrp_dbm"]
-        bands = [str(label) for label in data["band_label"]]
+def _camera(raster: grid.Raster, bounds: Any) -> Any:
+    """A top-down camera framing the grid, high enough to clear the tallest building.
 
-    best = _best_server(rsrp)
-    sectors = transmitter.load(cfg)
-
-    figure, axes = plt.subplots(figsize=(11, 9))
-    colours = plt.get_cmap("turbo").copy()
-    colours.set_bad("black")  # a cell no ray reached, which is not a weak cell
-    image = axes.imshow(
-        np.ma.masked_invalid(best),
-        extent=_extent(raster),
-        origin="lower",
-        cmap=colours,
-        interpolation="nearest",
-    )
-    figure.colorbar(image, ax=axes, label="best-server RSRP (dBm)", shrink=0.8)
-    _draw_sites(axes, sectors)
-
-    reached = float(np.isfinite(best).mean())
-    axes.set_title(
-        f"Best-server RSRP over {len(bands)} bands ({', '.join(bands)}) — "
-        f"{reached:.1%} of cells reached, black is no path"
-    )
-    return _finish(figure, axes, raster, "rsrp_map.png")
-
-
-def _best_server(rsrp: np.ndarray) -> np.ndarray:
-    """Strongest RSRP over every cell-band layer, NaN where no ray arrived.
-
-    ``rsrp`` is ``[band, tx, row, col]``. Reduced over the reached cells only:
-    a cell no ray found is all-NaN, and ``nanmax`` over one warns rather than
-    simply meaning "no coverage".
+    ``sionna.rt.Camera.look_at`` is degenerate for a viewpoint directly above
+    its target — the up vector and the view direction are then parallel — and
+    handles it internally with a small epsilon offset, so a true top-down view
+    is a supported, if edge-case, camera pose rather than something to avoid.
     """
-    layers = rsrp.reshape(-1, *rsrp.shape[2:])
-    served = np.isfinite(layers).any(axis=0)
-    best = np.full(rsrp.shape[2:], np.nan, dtype=np.float64)
-    best[served] = np.nanmax(layers[:, served], axis=0)
-    return best
+    from sionna.rt import Camera
+
+    extent_x = raster.n_cols * raster.cell_size_m
+    extent_y = raster.n_rows * raster.cell_size_m
+    centre_x = raster.origin_x + 0.5 * extent_x
+    centre_y = raster.origin_y + 0.5 * extent_y
+
+    half_fov = math.radians(_CAMERA_FOV_DEG / 2.0)
+    height = max(
+        _CAMERA_MARGIN * 0.5 * extent_x / math.tan(half_fov),
+        bounds.max_z + 50.0,
+    )
+    return Camera(position=(centre_x, centre_y, height), look_at=(centre_x, centre_y, 0.0))
+
+
+def _resolution(raster: grid.Raster, long_edge: int = 1000) -> tuple[int, int]:
+    """Render resolution matching the grid's aspect ratio.
+
+    Keeps the camera's fixed horizontal field of view covering the same
+    ground extent on both axes.
+    """
+    extent_x = raster.n_cols * raster.cell_size_m
+    extent_y = raster.n_rows * raster.cell_size_m
+    if extent_x >= extent_y:
+        return (long_edge, max(1, round(long_edge * extent_y / extent_x)))
+    return (max(1, round(long_edge * extent_x / extent_y)), long_edge)
+
+
+def plot_rsrp(cfg: DictConfig, scene: Any, bounds: Any, raster: grid.Raster) -> tuple[Path, ...]:
+    """Render best-server RSRP per band with sionna-rt's own renderer.
+
+    Re-solves each band against ``scene`` rather than reading
+    ``simulation.output.radio_map_file``: :meth:`sionna.rt.Scene.render` needs
+    the live :class:`sionna.rt.RadioMap` the solver returns, which the numpy
+    archive the radio stage writes does not carry. Returns the files written,
+    one per band.
+    """
+    sectors = transmitter.load(cfg)
+    bands = tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands)
+    solver_spec = SolverSpec.from_config(cfg)
+    material_spec = MaterialSpec.from_config(cfg)
+    power_dbm = float(cfg.simulation.antenna.power_rs)
+    height_m = float(cfg.simulation.ue.height_m)
+    grid_meta = {
+        "origin_x": raster.origin_x,
+        "origin_y": raster.origin_y,
+        "cell_size_m": raster.cell_size_m,
+        "n_cols": raster.n_cols,
+        "n_rows": raster.n_rows,
+    }
+
+    radio.configure_arrays(scene, cfg)
+    camera = _camera(raster, bounds)
+    resolution = _resolution(raster)
+
+    _REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for band in bands:
+        _, elapsed, _, radio_map = radio.solve_band(
+            scene,
+            sectors,
+            band,
+            solver_spec,
+            material_spec,
+            seeds.stream(cfg, "materials"),
+            seeds.stream(cfg, "solver"),
+            grid_meta,
+            height_m,
+            power_dbm,
+        )
+        # rm_metric="rss" with rm_db_scale=True renders 10*log10(rss_mW), i.e.
+        # dBm, matching the RSRP the radio stage writes to its archive.
+        figure = scene.render(
+            camera=camera,
+            radio_map=radio_map,
+            rm_metric="rss",
+            rm_db_scale=True,
+            rm_show_color_bar=True,
+            resolution=resolution,
+        )
+        figure.suptitle(f"{band.name} best-server RSRP — {elapsed:.1f}s solve")
+        path = _REPORT_DIR / f"rsrp_map_{band.name}.png"
+        figure.savefig(path, dpi=150)
+        plt.close(figure)
+        paths.append(path)
+    return tuple(paths)
 
 
 def _finish(figure: plt.Figure, axes: plt.Axes, raster: grid.Raster, name: str) -> Path:
@@ -198,21 +265,19 @@ def _finish(figure: plt.Figure, axes: plt.Axes, raster: grid.Raster, name: str) 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Write both figures.
+    """Write the UE-position figure and one rendered RSRP figure per band.
 
     Example:
         $ python test_simulation.py
     """
-    for path, stage in (
-        (Path(cfg.simulation.output.ue_file), "scenario"),
-        (Path(cfg.simulation.output.radio_map_file), "radio"),
-    ):
-        if not path.is_file():
-            raise FileNotFoundError(f"No {path}. Run `task simulation:{stage}` first.")
+    ue_file = Path(cfg.simulation.output.ue_file)
+    if not ue_file.is_file():
+        raise FileNotFoundError(f"No {ue_file}. Run `task simulation:scenario` first.")
 
-    raster, _ = _load_scene(cfg)
+    scene, bounds, raster = _build_scenario(cfg)
     print(f"positions: {plot_positions(cfg, raster)}")
-    print(f"rsrp:      {plot_rsrp(cfg, raster)}")
+    for path in plot_rsrp(cfg, scene, bounds, raster):
+        print(f"rsrp:      {path}")
 
 
 if __name__ == "__main__":
