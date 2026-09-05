@@ -1,18 +1,4 @@
-"""The measurement grid, and the open-ground and building rasters over it.
-
-The scene is divided into square cells. Each cell is sampled with a jittered
-sub-grid of downward ray casts (:func:`src.simulation.scene.surface_height`),
-which yields the two rasters the rest of the stage runs on: how much of a cell
-is open ground, and how tall the buildings standing in it are.
-
-Sub-sampling rather than a single test at the cell centre is what makes a
-half-blocked cell weigh less than an open one, and what keeps the cells along
-the far edge — whose centres can fall outside the scene — from being discarded
-whole. The jitter is stratified so the estimate is unbiased and does not alias
-against building walls that run parallel to the grid.
-
-Pure NumPy: every ray cast is delegated to :mod:`src.simulation.scene`.
-"""
+"""Measurement-grid construction and scene rasters."""
 
 from __future__ import annotations
 
@@ -132,7 +118,7 @@ def build(mi_scene: Any, bounds: SceneBounds, spec: GridSpec, seed: int) -> Rast
 
     rng = np.random.default_rng(seed)
     shape = (n_rows, n_cols, sub, sub)
-    # Stratified: one uniform draw inside each sub-cell, not one per cell.
+    # One random point is sampled in each sub-cell.
     offset_x = (np.arange(sub).reshape(1, 1, 1, sub) + rng.random(shape)) * step
     offset_y = (np.arange(sub).reshape(1, 1, sub, 1) + rng.random(shape)) * step
 
@@ -141,7 +127,7 @@ def build(mi_scene: Any, bounds: SceneBounds, spec: GridSpec, seed: int) -> Rast
 
     height = surface_height(mi_scene, x, y, bounds.launch_z)
 
-    # A miss is a point beyond the ground, not a point at height zero.
+    # A ray miss is not open ground.
     hit = np.isfinite(height)
     free = hit & (height <= spec.free_height_tol_m)
     built = hit & (height > spec.free_height_tol_m)

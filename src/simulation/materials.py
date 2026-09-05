@@ -1,27 +1,4 @@
-"""Frequency-static radio materials, and their per-scenario perturbation.
-
-The bundled scenes ship ITU materials, whose permittivity and conductivity are
-recomputed from ITU-R P.2040 every time the scene's carrier changes. That is
-convenient and, for this project, twice wrong:
-
-- **It forbids sub-GHz carriers.** P.2040 Table 3 publishes coefficients for
-  concrete, brick, marble and metal only from 1 GHz up, and sionna-rt raises
-  rather than extrapolating outside a published range. Every low band a
-  coverage layer would actually use sits below that floor.
-- **It discards perturbations.** Setting a permittivity and then setting the
-  frequency recomputes the value straight back, silently.
-
-So the ITU materials are replaced with plain ones carrying no frequency-update
-callback, evaluated here at each band's own frequency. The ITU model is applied
-with its validity range deliberately not enforced. That extrapolation is mild:
-the exponent on frequency is zero for every material these scenes use, so
-permittivity is unchanged from its published value and only conductivity moves,
-smoothly. It is still outside the range P.2040 validates, and a report using a
-sub-GHz band has to say so.
-
-The coefficients are read from sionna-rt rather than transcribed, so there is
-no second copy of the ITU table to drift out of step.
-"""
+"""Install per-scenario, frequency-static radio materials."""
 
 from __future__ import annotations
 
@@ -79,7 +56,7 @@ def evaluate(name: str, frequency_hz: float) -> tuple[float, float]:
 
     f_ghz = frequency_hz / 1e9
     ranges = table[name]
-    # Distance from the frequency to each published interval; zero when inside.
+    # Zero inside an interval; otherwise choose the nearest interval.
     lo, hi = min(ranges, key=lambda r: max(r[0] - f_ghz, f_ghz - r[1], 0.0))
     a, b, c, d = ranges[(lo, hi)]
     return float(a * f_ghz**b), float(c * f_ghz**d)

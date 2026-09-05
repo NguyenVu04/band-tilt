@@ -1,29 +1,4 @@
-"""Geometry perturbation: what this scenario's city gets wrong about the real one.
-
-Three perturbations, applied once per scenario: buildings removed, buildings
-made taller or shorter, and buildings nudged and turned.
-
-The last of those is **survey error, not urban change**. Buildings do not
-slide sideways or swivel; the footprints a scene is built from carry position
-and orientation error, and this reproduces that. Framing it as "the building
-moved" would not survive review.
-
-Two traps this module exists to get right, both verified against the geometry
-rather than assumed:
-
-Scaling is about the object's centroid, not its base
-    Sionna scales a mesh about its own centre, so scaling height by ``s``
-    sinks a building's base below the ground by as much as it raises the roof,
-    and delivers only half the intended change above ground. Scaling about the
-    ground plane instead is exactly ``position.z *= s``: the base stays at
-    zero and the roof rises by the full factor. This assumes buildings stand on
-    a ground plane at z = 0, which is what the bundled scenes provide.
-
-A building is several objects
-    Walls and roof arrive as separate meshes sharing a name prefix, with
-    *different* centroids. Rotating each about its own centre pulls a building
-    apart. Every part is therefore transformed about one common centre.
-"""
+"""Per-scenario building removal, scaling, translation, and rotation."""
 
 from __future__ import annotations
 
@@ -172,18 +147,16 @@ def _jitter_building(parts: list[Any], spec: PerturbSpec, rng: np.random.Generat
 
     centroids = [np.asarray(part.position).ravel()[:3] for part in parts]
     centre = np.mean(centroids, axis=0)
-    cos, sin = math.cos(angle), math.sin(angle)
+    cos_angle, sin_angle = math.cos(angle), math.sin(angle)
 
     for part, centroid in zip(parts, centroids, strict=True):
-        # Rotating about the shared centre rather than each part's own keeps
-        # walls and roof aligned; scaling z about the ground keeps the base
-        # planted. See the module docstring for the derivation.
+        # Use a common centre so walls and roof stay aligned.
         delta_x = float(centroid[0] - centre[0])
         delta_y = float(centroid[1] - centre[1])
         part.scaling = mi.Vector3f(1.0, 1.0, scale)
         part.orientation = mi.Point3f(angle, 0.0, 0.0)
         part.position = mi.Point3f(
-            float(centre[0]) + offset_x + cos * delta_x - sin * delta_y,
-            float(centre[1]) + offset_y + sin * delta_x + cos * delta_y,
+            float(centre[0]) + offset_x + cos_angle * delta_x - sin_angle * delta_y,
+            float(centre[1]) + offset_y + sin_angle * delta_x + cos_angle * delta_y,
             float(centroid[2]) * scale,
         )

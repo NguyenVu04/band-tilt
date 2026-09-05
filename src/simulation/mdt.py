@@ -1,38 +1,7 @@
-"""Stage 3: what a UE reports, as opposed to what is true.
+"""Create synthetic UE reports from radio-map samples.
 
-``python -m src.simulation.mdt`` reads the clean radio map and the UE table and
-writes one row per UE per interval, carrying a measured RSRP per cell-band
-transmitter.
-
-The radio map has no time axis and needs none: geometry and tilt are fixed for
-the whole scenario, so what an interval changes is only *where* the UEs are.
-Each row looks its own position up in the same map.
-
-Two things separate a report from the truth, applied in the order a real
-network applies them:
-
-Measurement error
-    Gaussian, independent per measurement. This is receiver error only. It
-    must **not** be inflated to stand in for shadow fading: ray tracing already
-    computes the geometric shadowing that log-normal fading substitutes for, so
-    adding fading on top counts the buildings twice.
-
-Censoring
-    A UE does not report every cell it can hear. A fraction of the eligible
-    measurements are blanked, except the strongest and everything close behind
-    it. That protection is what keeps the censoring KPI-safe: hole rate, weak
-    rate, overlap rate and mean overlap neighbours all depend only on the
-    serving cell and the cells within the overlap margin of it, so no drop can
-    move them.
-
-Censoring ranks on the *noisy* values, not the true ones, because a UE protects
-what it measured rather than what was there.
-
-The word "cell" means two things in the output and they must not be confused:
-``cell_col``/``cell_row`` locate a UE on the spatial *grid*, while every
-``rsrp_*`` column is a radio *cell*. Blank means either that the ray tracer
-found no path or that the reporting model dropped the measurement; the two are
-deliberately indistinguishable in the file, as they would be in real MDT.
+Adds independent RSRP noise, then censors eligible reports while preserving
+the strongest measurements.
 """
 
 from __future__ import annotations
@@ -47,9 +16,7 @@ from omegaconf import DictConfig
 
 from src.simulation import seeds
 
-# No UE identifier: each interval is an independent draw, so a row in one
-# snapshot has no counterpart in the next and an id would invite a join that
-# does not mean what it looks like.
+# Each interval is independent, so MDT rows have no UE identifier.
 _POSITION_COLUMNS = ("t_index", "t_s", "x", "y", "z", "cell_col", "cell_row")
 
 

@@ -1,22 +1,4 @@
-"""The UE spatial density: a uniform background plus built-volume hotspots.
-
-The density is deliberately non-uniform. The UE-weighted Band Priority Score
-asks whether high-frequency layers serve high-demand areas; under a flat
-density no such area exists, so the KPI cannot discriminate between
-configurations.
-
-Hotspot centres are drawn per scenario, weighted by the building volume
-surrounding a cell. That places demand in dense street canyons, where
-propagation is worst, so the optimizer faces a real tension between where the
-users are and where coverage is cheap — which is the coverage-and-capacity
-problem. Hotspots dropped into open squares would remove it.
-
-The field is expressed as a mixture rather than a single array of per-cell
-probabilities, because sampling a component before a cell is what lets each UE
-record which component produced it.
-
-Pure NumPy; no ray casting happens here.
-"""
+"""UE density: a uniform background plus built-volume-weighted hotspots."""
 
 from __future__ import annotations
 
@@ -207,15 +189,16 @@ def draw_hotspots(
         return ()
 
     allowed = eligible_cells(raster, roi)
-    weight = neighbourhood_volume(built_volume(raster), raster, spec.built_volume_radius_m)
-    weight = np.where(allowed, weight, 0.0).ravel()
+    candidate_weights = neighbourhood_volume(
+        built_volume(raster), raster, spec.built_volume_radius_m
+    )
+    candidate_weights = np.where(allowed, candidate_weights, 0.0).ravel()
 
-    n_eligible = int(np.count_nonzero(weight))
+    n_eligible = int(np.count_nonzero(candidate_weights))
     if n_eligible < spec.n_hotspots:
-        # A scene with no buildings beside its open ground: fall back to
-        # placing hotspots uniformly rather than failing outright.
-        weight = allowed.astype(np.float64).ravel()
-        n_eligible = int(np.count_nonzero(weight))
+        # Use uniform eligible-cell weights when nearby building volume is zero.
+        candidate_weights = allowed.astype(np.float64).ravel()
+        n_eligible = int(np.count_nonzero(candidate_weights))
     if n_eligible < spec.n_hotspots:
         raise ValueError(
             f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
@@ -223,7 +206,12 @@ def draw_hotspots(
             "n_hotspots, the cell size, or simulation.area.margin_m."
         )
 
-    chosen = rng.choice(weight.size, size=spec.n_hotspots, replace=False, p=weight / weight.sum())
+    chosen = rng.choice(
+        candidate_weights.size,
+        size=spec.n_hotspots,
+        replace=False,
+        p=candidate_weights / candidate_weights.sum(),
+    )
     rows, cols = np.divmod(chosen, raster.n_cols)
 
     hotspots = []
@@ -277,12 +265,12 @@ def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> Dens
 
 def _gaussian(x: np.ndarray, y: np.ndarray, hotspot: Hotspot) -> np.ndarray:
     """Evaluate one rotated elliptical Gaussian, unnormalised, at each point."""
-    cos = math.cos(hotspot.rotation_rad)
-    sin = math.sin(hotspot.rotation_rad)
+    cos_rotation = math.cos(hotspot.rotation_rad)
+    sin_rotation = math.sin(hotspot.rotation_rad)
     d_x = x - hotspot.x
     d_y = y - hotspot.y
-    major = cos * d_x + sin * d_y
-    minor = -sin * d_x + cos * d_y
+    major = cos_rotation * d_x + sin_rotation * d_y
+    minor = -sin_rotation * d_x + cos_rotation * d_y
     return np.exp(
         -0.5 * ((major / hotspot.sigma_major_m) ** 2 + (minor / hotspot.sigma_minor_m) ** 2)
     )
