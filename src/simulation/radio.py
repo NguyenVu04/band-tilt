@@ -1,22 +1,6 @@
-"""Stage 2: ray-trace the clean radio map, one solve per band.
+"""Ray-trace one clean radio map per band.
 
-``python -m src.simulation.radio`` rebuilds the scenario's scene, places the
-transmitters at their baseline tilt, and solves a radio map per band, writing
-RSRP over the same grid the UEs were drawn on.
-
-**This artifact is the label.** PROJECT.md makes the surrogate's target the
-ray-traced map and MDT a feature, so nothing here is noised or censored; that
-belongs to :mod:`src.simulation.mdt`, which reads this file and never writes it.
-
-The scenario is not deserialised — it is regenerated. Perturbation is a pure
-function of the config and the seed, so rebuilding is cheaper and safer than
-serialising meshes. The manifest is read only to *check* that the scenario on
-disk is the one this config describes, and to take the grid geometry from the
-run that actually drew the UEs rather than re-deriving it.
-
-Each band is a separate solve: ``Scene.frequency`` is a scene-level property, so
-a scene cannot hold two carriers at once. Materials are reinstalled per band,
-because their electrical properties depend on the carrier.
+Rebuilds the scenario and writes RSRP on its UE grid.
 """
 
 from __future__ import annotations
@@ -40,9 +24,7 @@ from src.simulation.materials import MaterialSpec
 from src.simulation.perturb import PerturbSpec
 from src.simulation.scene import SceneSpec
 
-# Path gain is zero where no ray reached a cell, which is negative infinity in
-# dB. Stored as NaN instead: "no path was found" and "the path was weak" are
-# different statements, and only the former should be unrepresentable.
+# Use NaN for cells no ray reached; weak paths retain finite values.
 _NO_PATH = np.nan
 
 

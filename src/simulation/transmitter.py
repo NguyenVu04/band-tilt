@@ -1,32 +1,6 @@
-"""The site layout, and the sionna-rt transmitters built from it.
+"""Generate site layouts and build Sionna-RT transmitters.
 
-Sites sit on a square lattice about the scene centre, each carrying evenly
-spaced sectors, and every band is co-sited: one position, one azimuth, one mast,
-several carriers. Multi-band tilt *coordination* is only a problem at all when
-the bands share a footprint.
-
-Deliberately few sites. Spread too densely over a small scene, every location
-is strongly served by something, hole rate pins near zero and overlap near one
-whatever the tilt, and the KPIs stop responding to the decision variable.
-Coverage has to be contested for tilt to be worth optimising.
-
-Masts stand on open ground, not on roofs: a site is placed on a grid tile
-with no building under it and a clear surround, the ground there is confirmed
-by a downward ray, and the mast is raised a fixed height above it. Tying the
-height to the tower rather than to whatever roof happened to be nearby keeps
-the sites comparable to each other and stable across scenes. A site with no
-such tile in reach fails the generator rather than being placed anyway.
-
-Masts are mounted against the **unperturbed** scene and then held fixed.
-Perturbations model our uncertainty about the city, not changes an operator
-reacts to: a real mast stays where it was surveyed even when the survey turns
-out to have been wrong. :func:`validate` reports masts that a perturbation has
-since buried, left standing on a roof, or left unsupported, rather than quietly
-re-seating them.
-
-``python -m src.simulation.transmitter`` generates the layout and prints it as
-YAML to paste into ``configs/simulation.yaml``. It is a one-off, not part of the
-per-run chain.
+Layouts use open ground in the unperturbed scene and remain fixed per scenario.
 """
 
 from __future__ import annotations
@@ -45,8 +19,7 @@ from src.simulation import seeds
 from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds, SceneSpec
 
-# Sites per row and column of the lattice. Two gives four sites, which over a
-# scene of this size is already sparser than 3GPP's urban-macro reference.
+# Sites per side of the square lattice.
 _LATTICE_SIDE = 2
 
 

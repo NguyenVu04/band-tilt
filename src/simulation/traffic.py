@@ -1,27 +1,4 @@
-"""The time axis: how the UE population moves between intervals.
-
-The scenario is a sequence of snapshots taken every ``interval_s`` seconds over
-``horizon_s``. At each one a fresh population is drawn; UEs carry no identity
-across intervals, so this is a sequence of independent crowds rather than a set
-of trajectories.
-
-Only the *mixture masses* vary with time. Where a hotspot sits and which cells
-it covers are properties of the scene and are drawn once
-(:mod:`src.simulation.density`); what changes between intervals is how much of
-the population each hotspot holds. That is what keeps a 96-interval scenario as
-cheap as a single draw: the per-cell weights are computed once and reused.
-
-Demand is deliberately correlated in time. Redrawing each interval
-independently would make the population a white-noise process, and a
-configuration cannot be tuned against noise. Two mechanisms give it structure:
-a diurnal profile, which is deterministic and gives each hotspot its own peak
-hour, and an AR(1) term in the log intensity, which supplies the interval-to-
-interval persistence real demand has.
-
-Pure NumPy. This module touches neither the scene nor the grid, so it takes the
-few numbers it needs as plain arguments rather than importing the specs that
-hold them.
-"""
+"""Build time-varying UE mixture masses for independent snapshots."""
 
 from __future__ import annotations
 
@@ -31,8 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 from omegaconf import DictConfig
 
-# The diurnal profile's period. A day, because the profile models time of day;
-# the horizon is free to be shorter or longer than one.
+# Diurnal-profile period.
 _DAY_S = 86400.0
 
 
@@ -192,8 +168,7 @@ def build(
     )
     intensity = profile * _ar1_unit_mean(n_t, n_hotspots, spec, rng)
 
-    # The background intensity that puts `hotspot_mass_fraction` of the mass on
-    # the hotspots when each of them sits at its unit-mean intensity.
+    # Set background intensity to the requested mean hotspot share.
     background = n_hotspots * (1.0 - hotspot_mass_fraction) / hotspot_mass_fraction
     unnormalised = np.concatenate([np.full((n_t, 1), background), intensity], axis=1)
 

@@ -1,27 +1,4 @@
-"""The Sionna-RT scene, its extent, and the surface height above it.
-
-The only module that imports ``sionna.rt`` or ``mitsuba``. Everything
-downstream works in NumPy against :func:`surface_height`, which reduces the
-scene to the one measurement the UE population needs: how high the geometry
-stands at a given ``(x, y)``.
-
-The scene's extent is read from the loaded scene rather than from
-``configs/simulation.yaml``. A restated bound does not raise when it drifts
-from the geometry; it silently places UEs off the scene.
-
-Mitsuba's compute variant is selected here, before ``sionna.rt`` is imported.
-The order matters twice over. The variant fixes the types Mitsuba builds its
-bindings from, and sionna-rt binds against whatever is current when it loads —
-but sionna-rt also selects its own variant if none is set yet
-(``sionna/rt/__init__.py``), so setting one first *overrides* that choice.
-
-Only the ``mono_polarized`` variants work. sionna-rt packs a 2x2 Jones matrix
-into ``mi.Spectrum``, which holds four components there and three in an ``rgb``
-variant. An ``rgb`` variant therefore loads, ray-casts and rasters perfectly
-well, and then fails deep inside the radio solvers with a bare
-``Color3f.__init__(): Input has the wrong size``. :func:`load` rejects it up
-front rather than letting that surface an hour later.
-"""
+"""Load Sionna-RT scenes and query their bounds and surface heights."""
 
 from __future__ import annotations
 

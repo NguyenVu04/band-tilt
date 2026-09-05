@@ -1,19 +1,4 @@
-"""Draw the UE population from the density field and write it out.
-
-A library for :mod:`src.simulation.scenario`, which orchestrates the stage.
-
-UEs are weights on a radio map, not ray-tracing targets — no propagation is
-solved here, and none is solved per UE later either. The output carries the
-grid cell each UE falls in so the per-cell counts the UE-weighted KPIs need are
-a group-by rather than a re-derivation against the grid.
-
-The population is drawn per interval (:mod:`src.simulation.traffic`), and UEs
-carry no identity: a row is one UE seen once, in one snapshot. Every interval
-is drawn in a single pass rather than one loop iteration each, because the
-expensive part is the ray cast that rejects positions inside buildings, and one
-batch of a hundred thousand rays costs far less than a hundred batches of a
-thousand.
-"""
+"""Draw and write per-interval UE positions from a density field."""
 
 from __future__ import annotations
 
@@ -31,19 +16,7 @@ from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds
 from src.simulation.traffic import Schedule
 
-# Rejection is what puts a cell's open area into the sampled density (see
-# src.simulation.density.field), so a rejected draw redraws the CELL as well as
-# the position. Redrawing only the position would sample from the cell's
-# estimated open area instead of its true one, and that estimate overstates a
-# cell holding a sliver of open ground by more than an order of magnitude.
-#
-# The mixture component is held fixed across redraws. Redrawing it too would
-# let components sitting over dense ground reject more often and so land below
-# their configured share, quietly breaking the schedule's component masses.
-#
-# Every component has support on cells with open ground, so acceptance is
-# bounded away from zero and this cap is only reached by a scene the raster no
-# longer describes.
+# Redraw the cell and position after rejection; keep the assigned component.
 _MAX_REDRAW_ROUNDS = 500
 
 CSV_COLUMNS = ("t_index", "t_s", "x", "y", "z", "cell_col", "cell_row", "component")

@@ -1,87 +1,51 @@
 # @package simulation
-# The Sionna-RT scene, the UE population drawn over it, and the radio maps
-# solved on it. Read by src/simulation/.
-#
-# The scene's extent is not configured: it is read from the loaded scene at run
-# time, because a restated bound does not raise when it drifts — it silently
-# samples UEs off the geometry.
+# Scenario inputs for the Sionna-RT scene, UE population, and radio maps.
 
 scene:
-  # A scene bundled with sionna-rt, resolved by name against sionna.rt.scene.
+  # Bundled Sionna-RT scene name.
   name: munich
-  # Mitsuba compute variant. Must be a mono_polarized one: sionna-rt packs a 2x2
-  # Jones matrix into mi.Spectrum, which holds four components only there. A
-  # CUDA GPU is required; the llvm variants fail to initialise on some hosts.
+  # Use a mono-polarized CUDA variant required by Sionna-RT.
   mitsuba_variant: cuda_ad_mono_polarized
-  # Merging shapes that share a radio material is faster, but a building that is
-  # no longer a distinct object cannot be perturbed.
+  # Keep buildings separate so they can be perturbed.
   merge_shapes: false
 
-# --- Region of interest ------------------------------------------------------
+# Region of interest
 area:
-  # How far inside the scene edge UEs, hotspot centres and masts may be placed.
-  # Near the boundary there is no geometry beyond the edge to block anything, so
-  # the radio map reads optimistically there. The grid and the map still span
-  # the full scene. Must leave room for the site lattice below.
+  # Keep UEs, hotspots, and masts away from scene edges.
   margin_m: 100.0
 
-# --- Measurement grid --------------------------------------------------------
-# Square cells the scene is rastered into. The UE density is defined over them
-# and the radio map shares them, so this is the spatial resolution of every KPI.
+# Measurement grid shared by UE density and radio maps.
 grid:
-  # Cell side.
+  # Cell side length.
   cell_size_m: 20.0
-  # Side of the sub-grid cast per cell, so n^2 rays each. It buys the fraction
-  # of a cell that is open ground; a binary centre hit would weigh a
-  # half-blocked cell like an open one.
+  # Sub-grid side length; each cell uses n² ray casts.
   subsamples_per_cell: 4
-  # Surface height at or below which a point is ground rather than a building.
-  # The scene's ground is a single flat surface.
+  # Maximum surface height treated as open ground.
   free_height_tol_m: 0.5
 
-# --- UE population -----------------------------------------------------------
-# UEs are weights on the radio map, not ray-tracing targets: no solve is run per
-# UE, so the count trades against file size rather than compute. Each interval
-# is an independent draw, so UEs carry no identifier across intervals.
+# UE samples weight radio-map cells; each interval is an independent draw.
 ue:
-  # Inclusive range the per-interval UE count is drawn uniformly from. A range
-  # rather than a fixed number so load varies snapshot to snapshot.
+  # Inclusive per-interval UE-count range.
   count_range: [20, 50]
-  # The plane UEs sit on. Must match the height the radio map is solved at,
-  # otherwise the KPIs weigh one surface by another.
+  # UE plane; must match the radio-map height.
   height_m: 1.5
 
-# --- Time axis ---------------------------------------------------------------
-# A fresh population is drawn every interval over the horizon; a trailing
-# part-interval is dropped. This costs no extra ray tracing, since every
-# interval reads the same map. What varies is which mixture component holds the
-# population, never where a component puts it.
+# Time-varying mixture masses over a fixed spatial density.
 time:
-  # Length of one snapshot.
+  # Snapshot duration.
   interval_s: 1800.0
-  # Total simulated span.
+  # Total simulated duration.
   horizon_s: 604800.0
-  # Depth of the deterministic day/night swing. Each hotspot gets its own peak
-  # hour, so demand migrates between them rather than breathing in place. Must
-  # stay below 1 to keep every intensity positive.
+  # Day/night intensity swing; must stay below 1.
   diurnal_amplitude: 0.6
-  # Correlation between consecutive intervals in the log intensity. Redrawing
-  # independently would make demand white noise, which cannot be tuned against.
-  # Must stay below 1 for the process to be stationary.
+  # AR(1) log-intensity correlation; must stay below 1.
   ar1_rho: 0.85
   # Scale of the AR(1) shocks. Zero leaves the bare diurnal profile.
   ar1_sigma: 0.25
 
-# --- UE spatial density ------------------------------------------------------
-# Deliberately not uniform: the UE-weighted band-priority KPI asks whether
-# high-frequency layers serve high-demand areas, and under a flat density there
-# is no such area. The field is a uniform background over open ground plus
-# elliptical Gaussian hotspots.
+# UE density: uniform open-ground background plus Gaussian hotspots.
 density:
-  # Share of UEs drawn from the hotspots; the rest is background. Concentration
-  # is one number here rather than per-hotspot amplitudes, which interact with
-  # the sigmas and make a sweep uninterpretable. Must stay below 1, or cells
-  # outside every hotspot carry no weight and abandoning coverage there is free.
+  # Hotspot UE share; remaining UEs use the uniform background.
   hotspot_mass_fraction: 0.9
   # How many hotspots. Their centres are drawn afresh per scenario.
   n_hotspots: 3
@@ -89,51 +53,33 @@ density:
   sigma_major_m: [80.0, 200.0]
   # Range the minor axis is drawn from, clamped to at most the major.
   sigma_minor_m: [40.0, 120.0]
-  # Radius of surrounding building volume a candidate hotspot centre is weighted
-  # by. Weighting by built volume puts demand in dense street canyons, where
-  # propagation is worst — that tension is the coverage-and-capacity problem.
+  # Radius used to weight hotspot centres by nearby building volume.
   built_volume_radius_m: 150.0
 
-# --- Scene perturbation ------------------------------------------------------
-# What this scenario's city gets wrong about the real one. The perturbations
-# define the scenario: train, validation and test split between whole scenarios.
+# Per-scenario geometry deviations from the delivered scene.
 perturbation:
   remove:
     # Buildings deleted outright.
     n_buildings: 20
   jitter:
-    # Buildings given a random height, offset and rotation.
+    # Buildings given random height, offset, and rotation.
     n_buildings: 40
-    # Height multiplier, applied about the ground plane so a building keeps its
-    # base and moves its roof.
+    # Height multiplier about the ground plane.
     height_scale: [0.85, 1.20]
-    # Survey error, not urban change: the footprints a scene is built from carry
-    # position and orientation error. Keep both small, or buildings are driven
-    # through each other.
+    # Survey-error bounds for footprint position and orientation.
     position_m: 2.0
     orientation_deg: 3.0
 
-# --- Radio materials ---------------------------------------------------------
-# The bundled ITU materials recompute permittivity and conductivity from
-# ITU-R P.2040 on every frequency change, which forbids sub-GHz carriers (the
-# tables start at 1 GHz) and discards any perturbation applied to them. They are
-# replaced with plain materials evaluated per band from the same coefficients,
-# with the validity range deliberately not enforced — a report using a sub-GHz
-# band has to say so.
+# Per-band static materials derived from ITU-R P.2040 coefficients.
 materials:
   perturbation:
     # Multiplies the ITU value.
     relative_permittivity_scale: [0.90, 1.10]
     conductivity_scale: [0.70, 1.30]
-    # Absolute, because ITU defines none. Inert unless the solver runs with
-    # diffuse reflection enabled.
+    # Absolute range; used only with diffuse reflection.
     scattering_coefficient: [0.0, 0.3]
 
-# --- Transmitters ------------------------------------------------------------
-# Sites sit on a square lattice about the scene centre. Every band is co-sited,
-# because multi-band tilt coordination is only a problem when the bands share a
-# footprint. Deliberately few sites: spread too densely, every location is
-# strongly served whatever the tilt and the KPIs stop responding to it.
+# Co-sited multi-band sectors on a square site lattice.
 transmitters:
   layout:
     # Distance between neighbouring sites on the lattice.
@@ -142,30 +88,21 @@ transmitters:
     sectors_per_site: 3
     # Rotation applied to every site's sector fan.
     azimuth_offset_deg: 0.0
-    # Height of the mast above the ground it stands on. Tying the height to the
-    # tower rather than to whatever roof is nearby keeps the sites comparable.
+    # Mast height above local ground.
     mast_height_m: 30.0
-    # Share of a tile that must be open ground before a mast may stand on it.
-    # Below 1 because the raster estimates the share from a sub-sampled cast, so
-    # an unobstructed tile beside a wall can read slightly short.
+    # Minimum estimated open-ground share for mast placement.
     min_free_fraction: 0.95
-    # Every tile within this radius must also be free, so a mast is not wedged
-    # against a facade it would immediately shadow.
+    # Required open-ground clearance around each mast.
     clearance_radius_m: 20.0
     # How far to look for open ground when the ideal lattice position has none.
     # Finding none fails the generator rather than placing a mast on a building.
     snap_radius_m: 150.0
-    # The tilt a freshly generated layout stamps on every sector, per band.
-    # Higher bands start tilted harder, to contain a smaller footprint. Only a
-    # starting point: the sector table below is the authority afterwards, and
-    # its entries are meant to diverge under optimization.
+    # Initial per-band tilt for generated sectors.
     default_tilt:
       b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
       b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
       b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-  # Generated by `task simulation:layout` against the unperturbed scene and then
-  # held fixed: a real mast stays where it was surveyed even when the survey
-  # turns out to be wrong. z is the ground under the site plus mast_height_m.
+  # Generated against the unperturbed scene and held fixed across scenarios.
   sectors:
     - name: s0c0
       x: -380.34
@@ -276,43 +213,28 @@ transmitters:
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
 
-# --- Radio configuration -----------------------------------------------------
-# Each band is a separate solve: Scene.frequency is a scene-level property, so a
-# scene cannot hold two carriers at once. Tilt is not here — the decision
-# variable is one absolute tilt per cell-band pair, so it lives on the sector.
+# Radio-map solver settings. Each band is solved separately.
 radio_map:
-  # Scene temperature. With bandwidth it fixes the thermal noise power.
+  # Scene temperature used for thermal-noise power.
   temperature: 298.15
-  # Rays shot per transmitter. A fidelity decision, not only a cost one: too few
-  # leave cells with no path at all, which reads downstream as a coverage hole
-  # rather than as an unresolved cell.
+  # Rays launched per transmitter.
   samples_per_tx: 10000000
   # Longest path the solver traces, in interactions.
   max_depth: 5
-  # Which propagation mechanisms the solver models. Named here rather than left
-  # to a library default, which could change between releases and silently
-  # change what "ground truth" means. All of them are recorded in the output.
+  # Propagation mechanisms recorded with each output map.
   los: true
   specular_reflection: true
-  # Carries materials.perturbation.scattering_coefficient; without it that part
-  # of the scene perturbation does nothing.
+  # Enables the material scattering coefficient.
   diffuse_reflection: false
   refraction: true
-  # Matters more as frequency falls, so without it the low band's coverage
-  # advantage is understated. Expensive: enabling it can turn a sub-second solve
-  # into one that does not finish in minutes.
+  # Diffraction settings; enabling diffraction is expensive.
   diffraction: false
   edge_diffraction: false
   diffraction_lit_region: true
-  # Russian roulette: terminates weak paths probabilistically instead of
-  # truncating every path at max_depth, trading variance for time without bias.
-  # -1 disables it.
+  # Russian-roulette depth; -1 disables it.
   rr_depth: -1
   rr_prob: 0.95
-  # One solve per band per tilt configuration. Frequencies and bandwidths are
-  # integers in Hz: YAML 1.1 needs a signed exponent, so `2.6e9` would parse as
-  # a string and reach Sionna-RT as one. `name` is the only place a band's
-  # identity is spelled — the tilt table and the MDT columns both use it.
+  # Integer Hz values avoid YAML scientific-notation parsing issues.
   bands:
     - name: b2600
       frequency: 2600000000
@@ -324,17 +246,12 @@ radio_map:
       frequency: 700000000
       bandwidth: 100000000
 
-# --- Antennas ----------------------------------------------------------------
-# Sionna-RT PlanarArrays. Spacings are in wavelengths, so their metric size
-# follows the band being solved.
+# Sionna-RT planar arrays; spacings are in wavelengths.
 antenna:
-  # Per-resource-element reference-signal power in dBm, which is what makes a
-  # radio map read directly as RSRP rather than as carrier power.
+  # Per-resource-element reference-signal power in dBm.
   power_rs: 4.85
 
-  # Cross-polarised (slant +/-45 degrees), the standard macro-sector
-  # configuration. Several rows so the vertical pattern is narrow enough for
-  # tilt to change coverage — a single element has no beam to tilt.
+  # Cross-polarized macro-sector array.
   transmitter:
     num_rows: 8
     num_cols: 8
@@ -343,7 +260,7 @@ antenna:
     pattern: "tr38901"
     polarization: "cross"
 
-  # A single vertical dipole: a UE is not assumed to beamform.
+  # Single vertical dipole; UEs do not beamform.
   receiver:
     num_rows: 1
     num_cols: 1
@@ -352,44 +269,22 @@ antenna:
     pattern: "dipole"
     polarization: "V"
 
-# --- Synthetic MDT -----------------------------------------------------------
-# What a UE reports, as opposed to what is true. The clean radio map is written
-# separately and never touched here: it is the surrogate's label, and noising a
-# label would train the model to predict noise.
+# Synthetic UE reports derived from the clean radio map.
 mdt:
-  # Receiver measurement error. Do not raise it to stand in for shadow fading —
-  # ray tracing already computes the geometric shadowing that fading is a
-  # substitute for, so adding fading on top counts the buildings twice. The
-  # noise is independent per measurement, which a surrogate can average away; a
-  # spatially correlated residual would be the stronger model.
+  # Independent receiver measurement error.
   rsrp_noise_sigma_db: 2.0
-  # Share of eligible measurements that go unreported, since a real UE does not
-  # report every cell it can hear. Modelled as random, whereas real reporting is
-  # threshold-driven — a surrogate trained on this will not learn that bias.
+  # Randomly unreported share of eligible measurements.
   drop_fraction: 0.3
-  # Never dropped: the strongest cell and everything within this margin of it.
-  # Defaulting the margin to the KPI's own overlap margin makes the censoring
-  # KPI-safe by construction, since the KPIs depend only on the server and the
-  # cells within it.
+  # Never drop the strongest cell or cells within this margin.
   protect_within_db: 6.0
   protect_strongest_n: 1
 
-# --- Output ------------------------------------------------------------------
-# The UE table carries the grid cell each UE falls in, so per-cell counts are a
-# group-by rather than a re-derivation. The manifest records the scenario — its
-# id, seed and perturbations — because a scenario must be regenerable from it
-# and the train/validation/test split is between whole scenarios. The map and
-# the MDT are derived artifacts, so they sit apart from the scenario inputs.
+# Output artifacts for scenario inputs, clean maps, and synthetic reports.
 output:
   ue_file: data/external/ue_positions.csv
   manifest_file: data/external/scenario.json
   radio_map_file: data/interim/radio_map.npz
   mdt_file: data/interim/mdt.csv
 
-# --- Seed --------------------------------------------------------------------
-# Everything drawn comes from this value, so a scenario is regenerable from the
-# config alone. The scenario stage is bit-reproducible; the radio map is not,
-# because the solver accumulates ray contributions with GPU atomics whose
-# ordering varies between runs. Do not treat a checksum mismatch on the radio
-# map as a bug.
+# Base seed. GPU ray-map accumulation is not bit-reproducible.
 seed: ${seed}

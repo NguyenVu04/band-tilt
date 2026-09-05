@@ -1,4 +1,4 @@
-"""Simulation environment: a perturbed scene, its UEs, its radio maps, its MDT.
+"""Simulation stages for perturbed scenes, UEs, maps, and MDT.
 
 Three stages, run in order, each a ``python -m`` entry point:
 

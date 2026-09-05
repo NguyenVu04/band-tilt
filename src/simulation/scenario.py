@@ -1,26 +1,4 @@
-"""Stage 1: build one perturbed scenario and draw its UE population.
-
-``python -m src.simulation.scenario`` perturbs the delivered scene, rasters it,
-and draws UEs over the result, writing the UE table and a manifest.
-
-This stage is deliberately separate from the radio map. The map is a function
-of tilt and must be re-solved for every tilt configuration, while the geometry
-and the UE positions must *not* move when tilt does — otherwise the KPIs stop
-being a function of tilt, which is the property the whole optimization rests on.
-A scenario is drawn once and reused across every tilt.
-
-The population carries a time axis: a fresh crowd is drawn every
-``simulation.time.interval_s`` over the horizon, from a mixture whose masses
-shift with the hour (:mod:`src.simulation.traffic`). This costs no extra ray
-tracing. The radio map is solved over a grid, not per UE, so every interval
-reads the same map, and the per-cell weights each component uses are computed
-once and shared across all of them.
-
-Radio materials are not installed here. They have no effect on geometry, and
-nothing in this stage propagates anything; the radio stage installs them per
-band. They remain a pure function of the seed, so the scenario stays
-regenerable from the manifest.
-"""
+"""Build a perturbed scenario, draw UEs, and write its manifest."""
 
 from __future__ import annotations
 
@@ -43,8 +21,7 @@ from src.simulation.sample import UeSpec
 from src.simulation.scene import SceneSpec
 from src.simulation.traffic import TrafficSpec
 
-# Config sections that define what a scenario IS. Output paths are excluded on
-# purpose: writing the same population somewhere else is not a new scenario.
+# Output paths do not affect scenario identity.
 _IDENTITY_KEYS = (
     "scene",
     "area",
@@ -86,12 +63,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
     report = perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
 
-    # The grid comes from the DELIVERED extent, not the perturbed one. Jittering
-    # a building a couple of metres would otherwise shift the grid origin, and
-    # radio maps from two scenarios would no longer be cell-for-cell
-    # comparable. The ground is never perturbed, so its footprint is the stable
-    # frame. Only the ray launch height is taken from the perturbed scene, since
-    # a heightened building can now stand above the delivered maximum.
+    # Preserve the delivered grid frame; only raise the ray launch height.
     perturbed = scene_module.bounds_of(scene)
     bounds = dataclasses.replace(delivered, max_z=max(delivered.max_z, perturbed.max_z))
     roi = bounds.inset(float(cfg.simulation.area.margin_m))
@@ -190,10 +162,7 @@ def _write_manifest(
             "n_rows": raster.n_rows,
             "launch_z": bounds.launch_z,
         },
-        # The hotspot catalogue and the per-interval masses together pin the
-        # density of every interval exactly. Stored instead of the per-cell
-        # weights, which are a deterministic function of these and the raster
-        # and would be three orders of magnitude larger.
+        # Store inputs to the density, not its deterministic cell weights.
         "density": {
             "spec": OmegaConf.to_container(cfg.simulation.density, resolve=True),
             "hotspots": [dataclasses.asdict(hotspot) for hotspot in field.hotspots],
