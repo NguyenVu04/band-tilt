@@ -12,7 +12,7 @@ scene:
 # Region of interest
 area:
   # Keep UEs, hotspots, and masts away from scene edges.
-  margin_m: 100.0
+  margin_m: 0.0
 
 # Measurement grid shared by UE density and radio maps.
 grid:
@@ -33,9 +33,9 @@ ue:
 # Time-varying mixture masses over a fixed spatial density.
 time:
   # Snapshot duration.
-  interval_s: 1800.0
+  interval_s: 3600.0 # 1 hour
   # Total simulated duration.
-  horizon_s: 604800.0
+  horizon_s: 604800.0 # 7 days
   # Day/night intensity swing; must stay below 1.
   diurnal_amplitude: 0.6
   # AR(1) log-intensity correlation; must stay below 1.

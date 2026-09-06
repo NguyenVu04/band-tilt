@@ -143,6 +143,13 @@ def build(cfg: DictConfig) -> Path:
     spec = MdtSpec.from_config(cfg)
     reported = measure(clean, spec, seeds.stream(cfg, "mdt"))
 
+    heard = np.isfinite(clean)
+    covered = heard.any(axis=1)
+    n_no_signal = int((~covered).sum())
+    ues = ues.loc[covered].reset_index(drop=True)
+    heard = heard[covered]
+    reported = reported[covered]
+
     frame = pd.concat(
         [ues[list(_POSITION_COLUMNS)], pd.DataFrame(reported, columns=columns, index=ues.index)],
         axis=1,
@@ -151,25 +158,19 @@ def build(cfg: DictConfig) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False, float_format="%.3f", na_rep="")
 
-    heard = np.isfinite(clean)
     kept = np.isfinite(reported)
-    covered = heard.any(axis=1)
     n_intervals = int(ues["t_index"].nunique())
-    print(f"ue:        {len(ues)} rows x {len(columns)} measurements")
+    print(
+        f"ue:        {len(ues)} rows x {len(columns)} measurements "
+        f"({n_no_signal} no-signal UEs dropped)"
+    )
     print(
         f"intervals: {n_intervals}, "
         f"{len(ues) / max(n_intervals, 1):.0f} UEs per interval on average"
     )
     print(f"reachable: {heard.mean():6.1%} of measurements had a path")
     print(f"reported:  {kept.sum() / max(heard.sum(), 1):6.1%} of those survived censoring")
-    print(
-        f"per ue:    {kept[covered].sum(axis=1).min()} to {kept[covered].sum(axis=1).max()} "
-        f"cells reported, of the {int(covered.sum())} UEs with any coverage"
-    )
-    # UEs no transmitter reaches. A real result, not a defect: with this many
-    # sites the scene is meant to have places coverage does not get to, and
-    # measuring that is what the hole-rate KPI is for.
-    print(f"no signal: {int((~covered).sum())} UEs ({(~covered).mean():.1%})")
+    print(f"per ue:    {kept.sum(axis=1).min()} to {kept.sum(axis=1).max()} cells reported")
     print(f"mdt:       {path}")
     return path
 
