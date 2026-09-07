@@ -55,8 +55,12 @@ def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarr
     return (weights - weights.min()) / spread
 
 
-def _ue_counts(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
+def ue_counts(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
     """UE reports per grid tile, shape ``[n_rows, n_cols]``.
+
+    Public, though not exported from :mod:`src.kpi`, so that anything reporting
+    on where the demand is weights tiles by the same definition this score
+    does. Two copies of it would be free to drift apart.
 
     Args:
         mdt: Synthetic MDT, one row per UE per interval, carrying ``tile_row``
@@ -122,7 +126,7 @@ def band_priority_score(
         )
 
     weights = _normalized_weights(band_labels, cfg)
-    counts = _ue_counts(mdt, rsrp.shape[-2:])
+    counts = ue_counts(mdt, rsrp.shape[-2:])
     dominant = dominant_band(rsrp)
     served = counts * (max_rsrp(rsrp) > float(cfg.kpi.hole_dbm))
 
