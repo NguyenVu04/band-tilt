@@ -15,3 +15,17 @@ band_priority:
   b2600: 3.0
   b1800: 2.0
   b700: 1.0
+
+# Tie thresholds for the lexicographic pick. The priority order needs these to
+# bind: hole rate is continuous, so exact ties never occur, and without a
+# tolerance the comparison never reaches the second objective.
+#
+# Each sits at the ray tracer's run-to-run spread under a changed solver seed.
+# Below that a difference is Monte-Carlo noise rather than a property of the
+# tilts, so it counts as a tie and the next objective decides.
+tolerance:
+  hole_rate: 0.002
+  overlap_rate: 0.001
+  mean_overlap_neighbors: 0.012
+  band_priority_score: 0.001
+  weak_rate: 0.004

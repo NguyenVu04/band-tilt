@@ -3,12 +3,17 @@
 # The stages mirror the Taskfile targets and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Four stages are active: the three `simulation_*` stages (notebook 00) and
-# `preprocessing` (notebook 02). Everything past preprocessing — a surrogate
-# radio-map model, TuRBO, MARL, held-out validation — has no code in src/ yet
-# (only configs/bo.yaml exists ahead of it), so there is nothing to define a
-# stage against. Add those stages when the modules land instead of guessing at
-# their shape now.
+# Five stages are active: the three `simulation_*` stages (notebook 00),
+# `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
+# A surrogate radio-map model, MARL and held-out validation still have no code
+# in src/, so there is nothing to define a stage against. Add those when the
+# modules land instead of guessing at their shape now.
+#
+# `optimization` is deliberately not wired into a downstream stage. It writes a
+# timestamped directory per run, because comparing methods means comparing runs
+# and a rerun must not overwrite the one it is compared against — so it has no
+# fixed `outs` for DVC to track. `dvc repro optimization` runs whichever method
+# `configs/bo.yaml` currently names.
 #
 # Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
 # so the entries are chosen to be the settings that actually invalidate a stage's
@@ -135,3 +140,41 @@ stages:
     outs:
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
+
+  # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
+  #
+  # Depends on the cell table via configs/simulation.yaml rather than on
+  # data/processed/cell.parquet: the search reads the committed tilt bounds from
+  # the config, and the parquet is that same table in another form.
+  #
+  # kpi is a param because the objective IS the KPI definitions and their
+  # tolerances — change a threshold and every previous run becomes incomparable.
+  optimization:
+    cmd: python -m src.optim.run
+    deps:
+      - src/optim/space.py
+      - src/optim/objective.py
+      - src/optim/evaluator.py
+      - src/optim/history.py
+      - src/optim/search.py
+      - src/optim/run.py
+      - src/kpi
+      - data/external/scenario.json
+      - data/processed/mdt.parquet
+    params:
+      - configs/bo.yaml:
+          - method
+          - budget
+          - rule
+          - seed
+      - configs/kpi.yaml:
+          - hole_dbm
+          - weak_dbm
+          - overlap_margin_db
+          - band_priority
+          - tolerance
+      - configs/simulation.yaml:
+          - transmitters
+          - radio_map
+          - antenna
+          - ue

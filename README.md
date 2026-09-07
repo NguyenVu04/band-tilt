@@ -12,7 +12,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 | | |
 |---|---|
-| **Maturity** | **Alpha** — the simulation and preprocessing pipeline runs end to end for one scenario; the optimization side (surrogate, TuRBO, MARL, held-out validation) has no code yet. |
+| **Maturity** | **Alpha** — simulation, preprocessing and the Bayesian-optimization arm run end to end for one scenario; the surrogate, MARL and held-out validation have no code yet. |
 | **Owner** | Nguyễn Duy Vũ |
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
@@ -21,8 +21,9 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 | **Decisions** | [docs/adr/](docs/adr/) |
 
 > [!IMPORTANT]
-> **The optimization side does not exist yet.** Everything up to and including
-> the five KPIs is implemented and runs; nothing past it does:
+> **Half the optimization side exists.** Simulation, the five KPIs and the
+> Bayesian-optimization arm run; the surrogate, MARL and held-out validation do
+> not:
 >
 > 1. **The cell configuration is fully synthetic, and that is resolved.** An
 >    earlier version of this project waited on a real multi-band operator
@@ -36,11 +37,18 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 >    scenarios (`scenario_id`), and that needs several seeds' worth of
 >    `task simulation` runs. Until then there is no honest train/validation/test
 >    split — see `01_eda.ipynb` section 11.
-> 3. **The surrogate, TuRBO, MARL and held-out validation phases have no code.**
->    `src/kpi/` implements the five KPIs and is unit-tested, but nothing in the
->    active pipeline calls it yet — there is no `src/surrogate/`, `src/optim/` or
->    `src/evaluation/` package to consume it. `configs/bo.yaml` exists ahead of
->    the code that would read it. See [Implementation status](#implementation-status).
+> 3. **The BO arm is plain multi-objective BO, not TuRBO.** `src/optim/`
+>    searches the tilt space with Ax over all five KPIs and picks one
+>    configuration with ADR 0001's priority order. It has **no trust region and
+>    no surrogate**: measured on this scenario a full evaluation costs roughly
+>    30-40 s, so a few hundred of them cost hours rather than days — affordable
+>    enough that evaluations are not the scarce resource TuRBO exists to
+>    conserve.
+>    Recorded in
+>    [ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md).
+> 4. **The surrogate, MARL and held-out validation have no code.** There is no
+>    `src/surrogate/` or `src/evaluation/` package.
+>    See [Implementation status](#implementation-status).
 >
 > This is not an operated service and has no on-call rotation.
 
@@ -175,7 +183,7 @@ pipeline yet.
 | KPI | The five KPIs and their lexicographic priority — implemented and tested, not yet called from the pipeline | [`src/kpi/`](src/kpi/) |
 | Utils | Config loading, seeding, plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Surrogate *(planned)* | Fast radio-map prediction so search does not need ray tracing | not started |
-| Optimization *(planned)* | The shared search space and objective, plus TuRBO and MARL | not started |
+| Optimization | The shared search space and objective, plus multi-objective BO and two baselines | `03a_baseline.ipynb`, `03b_mobo.ipynb` |
 | Evaluation *(planned)* | Sionna-RT validation on held-out scenarios, method comparison, reporting | not started |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -190,8 +198,8 @@ from the project's starting point — see
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and acquisition TuRBO would be built on | Not yet used | `--extra bo`; no `src/optim/` package reads it yet |
-| [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no `src/optim/` package reads it yet |
+| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and hypervolume acquisition the BO arm runs on | In use | `--extra bo`; read by `src/optim/search.py` |
+| [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking | Optional | `--extra tracking`; imported lazily; not yet called from the active pipeline |
 
@@ -271,8 +279,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, priority order, Band Priority Score weights |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
-[`configs/bo.yaml`](configs/bo.yaml) exists but is not in the `defaults` list
-and nothing reads it yet — it was written ahead of `src/optim/`.
+[`configs/bo.yaml`](configs/bo.yaml) configures the optimization run — the
+method, the evaluation budget, the rule-based sweep and the output directory.
 
 Override from the command line, e.g. `task simulation:radio -- seed=7`.
 
@@ -351,7 +359,8 @@ band-tilt/
 | `src/utils/` — config loading, seeding, plotting | Implemented |
 | `notebooks/00_simulation.ipynb`, `01_eda.ipynb`, `02_preprocessing.ipynb` | Written and adapted to this project |
 | `notebooks/03a_model_a.ipynb`, `04_evaluation.ipynb` | Unadapted generic ML-project template notebooks; reference `src/models/`, `src/data/split`, `src/evaluation/` — none of which exist here |
-| `src/surrogate/`, `src/optim/`, `src/evaluation/` | Do not exist. `configs/bo.yaml` was written ahead of `src/optim/` and nothing reads it |
+| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, and random-search and rule-based baselines |
+| `src/surrogate/`, `src/evaluation/` | Do not exist |
 | `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which does not compose against `configs/config.yaml` |
 | CI | None. `task lint` and `task test` run locally only. |
 
@@ -502,8 +511,8 @@ Ordered roughly by what unblocks the most.
 | Rewrite `notebooks/03a_model_a.ipynb` / `04_evaluation.ipynb` for this project, or delete them | the split (above) | Not started |
 | Delete or replace the dead `task clean:data` (`src.data.clean` does not exist) | — | Not started |
 | Design and implement `src/surrogate/` — radio-map prediction from features, trained against the ray-traced maps | the split (above) | Not started |
-| Implement `src/optim/bo/` (TuRBO) against `configs/bo.yaml`, which already exists | a surrogate that passes acceptance | Not started |
-| Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | a surrogate that passes acceptance | Not started |
+| ~~Implement the BO arm against `configs/bo.yaml`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
+| Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | — | Not started |
 | Implement `src/evaluation/` — re-evaluate optimized tilts with Sionna-RT on held-out scenarios, compare methods | TuRBO and MARL results | Not started |
 | Decide the fate of `app/` (finish it as a serving layer, or remove the template scaffolding) | — | Not started |
 | CI (`task check` on every push) | — | Not started |

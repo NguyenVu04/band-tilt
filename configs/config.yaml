@@ -2,6 +2,7 @@ defaults:
   - simulation
   - kpi
   - data
+  - bo
   - _self_
 
 # Global seed.

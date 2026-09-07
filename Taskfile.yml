@@ -135,9 +135,14 @@ tasks:
       - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
 
   bo:
-    desc: 'Run TuRBO, e.g. task bo -- optim.search.n_iter=50'
+    desc: 'Run multi-objective BO, e.g. task bo -- bo.budget.n_iter=50'
     cmds:
-      - uv run python -m {{.PKG}}.optim.bo.run optim=bo {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.optim.run bo.method=mobo {{.CLI_ARGS}}
+
+  baseline:
+    desc: 'Run a baseline search, e.g. task baseline -- bo.method=rule'
+    cmds:
+      - uv run python -m {{.PKG}}.optim.run bo.method=random {{.CLI_ARGS}}
 
   marl:
     desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=node'
@@ -152,7 +157,7 @@ tasks:
   sweep:
     desc: 'Hydra multirun, e.g. task sweep -- seed=1,2,3'
     cmds:
-      - uv run python -m {{.PKG}}.optim.bo.run --multirun optim=bo {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.optim.run --multirun {{.CLI_ARGS}}
 
   # --- versioning and tracking ---------------------------------------------
 
