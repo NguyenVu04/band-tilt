@@ -16,10 +16,10 @@ from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds
 from src.simulation.traffic import Schedule
 
-# Redraw the cell and position after rejection; keep the assigned component.
+# Redraw the tile and position after rejection; keep the assigned component.
 _MAX_REDRAW_ROUNDS = 500
 
-CSV_COLUMNS = ("t_index", "t_s", "x", "y", "z", "cell_col", "cell_row", "component")
+CSV_COLUMNS = ("t_index", "t_s", "x", "y", "z", "tile_col", "tile_row", "component")
 
 
 @dataclass(frozen=True)
@@ -69,18 +69,18 @@ def sample_positions(
     """Draw every interval's UEs, rejecting any inside a building or the margin.
 
     Assigns each UE a mixture component once, from the mass its own interval
-    carries, then repeatedly draws a cell from that component and a uniform
+    carries, then repeatedly draws a tile from that component and a uniform
     position inside it, keeping the positions that land on open ground inside
     the region of interest. Returns ``(interval, x, y, component)``, where
     component is ``-1`` for the uniform background and the hotspot index
     otherwise.
 
-    The rejection is not merely a filter: it is what weights a cell by its open
-    area, so the resulting density is the density function times the cell's
+    The rejection is not merely a filter: it is what weights a tile by its open
+    area, so the resulting density is the density function times the tile's
     true open area rather than times a sub-sampled estimate of it. The region
-    test rides along for the same reason — a cell whose centre is inside the
+    test rides along for the same reason — a tile whose centre is inside the
     boundary can still reach past it, and rejecting the overhang is what makes
-    the region an exact edge rather than a half-cell approximation.
+    the region an exact edge rather than a half-tile approximation.
 
     Raises:
         RuntimeError: When draws keep landing on buildings, which means the
@@ -104,18 +104,18 @@ def sample_positions(
     pending = np.arange(n_ue)
 
     for _ in range(_MAX_REDRAW_ROUNDS):
-        cell = np.empty(pending.size, dtype=np.int64)
+        tile = np.empty(pending.size, dtype=np.int64)
         for index in range(field.n_components):
             drawn = component[pending] == index
             n_drawn = int(np.count_nonzero(drawn))
             if n_drawn:
-                cell[drawn] = rng.choice(
-                    field.cell_weights.shape[1], size=n_drawn, p=field.cell_weights[index]
+                tile[drawn] = rng.choice(
+                    field.tile_weights.shape[1], size=n_drawn, p=field.tile_weights[index]
                 )
 
-        rows, cols = np.divmod(cell, raster.n_cols)
-        candidate_x = raster.origin_x + (cols + rng.random(pending.size)) * raster.cell_size_m
-        candidate_y = raster.origin_y + (rows + rng.random(pending.size)) * raster.cell_size_m
+        rows, cols = np.divmod(tile, raster.n_cols)
+        candidate_x = raster.origin_x + (cols + rng.random(pending.size)) * raster.tile_size_m
+        candidate_y = raster.origin_y + (rows + rng.random(pending.size)) * raster.tile_size_m
         height = scene.surface_height(mi_scene, candidate_x, candidate_y, bounds.launch_z)
         accepted = (
             np.isfinite(height)
@@ -142,21 +142,21 @@ def sample_positions(
 
 
 def densest_decile_share(
-    cell_col: np.ndarray,
-    cell_row: np.ndarray,
+    tile_col: np.ndarray,
+    tile_row: np.ndarray,
     raster: Raster,
     eligible: np.ndarray,
 ) -> float:
-    """Share of UEs falling in the densest tenth of the eligible cells.
+    """Share of UEs falling in the densest tenth of the eligible tiles.
 
     One scalar describing how concentrated the population is, for the run log.
     A uniform density gives roughly a tenth; anything well above that is the
     hotspots doing work. ``eligible`` is the mask the field was built over
-    (:func:`src.simulation.density.eligible_cells`), so the denominator counts
-    the cells a UE could actually have landed in.
+    (:func:`src.simulation.density.eligible_tiles`), so the denominator counts
+    the tiles a UE could actually have landed in.
     """
     counts = np.zeros(raster.n_rows * raster.n_cols, dtype=np.int64)
-    np.add.at(counts, cell_row * raster.n_cols + cell_col, 1)
+    np.add.at(counts, tile_row * raster.n_cols + tile_col, 1)
 
     n_eligible = int(np.count_nonzero(eligible))
     if n_eligible == 0 or counts.sum() == 0:
@@ -185,7 +185,7 @@ def write_csv(
     is byte-identical.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    cell_col, cell_row = raster.cell_indices(x, y)
+    tile_col, tile_row = raster.tile_indices(x, y)
     t_s = schedule.t_s[interval]
 
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -199,8 +199,8 @@ def write_csv(
                     f"{x[index]:.3f}",
                     f"{y[index]:.3f}",
                     f"{ue.height_m:.3f}",
-                    int(cell_col[index]),
-                    int(cell_row[index]),
+                    int(tile_col[index]),
+                    int(tile_row[index]),
                     int(component[index]),
                 )
             )

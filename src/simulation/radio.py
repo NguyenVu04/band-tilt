@@ -16,6 +16,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
+from src.core.cell import Cell
 from src.simulation import materials, perturb, seeds, transmitter
 from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
@@ -24,7 +25,7 @@ from src.simulation.materials import MaterialSpec
 from src.simulation.perturb import PerturbSpec
 from src.simulation.scene import SceneSpec
 
-# Use NaN for cells no ray reached; weak paths retain finite values.
+# Use NaN for tiles no ray reached; weak paths retain finite values.
 _NO_PATH = np.nan
 
 
@@ -33,11 +34,11 @@ class Band:
     """One carrier.
 
     Tilt is deliberately absent: it belongs to the cell-band pair, so it lives
-    on the sector (:class:`src.simulation.transmitter.Sector`). A band-level
-    tilt would force every sector of a band to point alike.
+    on the cell (:class:`src.core.cell.Cell`). A band-level
+    tilt would force every cell of a band to point alike.
 
     Attributes:
-        name: Identifies the band in the sector tilt table and in the MDT
+        name: Identifies the band in the cell tilt table and in the MDT
             column names. The one place the band's identity is spelled.
         frequency_hz: Carrier frequency.
         bandwidth_hz: Transmission bandwidth; with temperature it fixes the
@@ -124,7 +125,7 @@ def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
     manifest = _read_manifest(cfg)
     grid_meta = manifest["grid"]
-    sectors = transmitter.load(cfg)
+    cells = transmitter.load(cfg)
     bands = tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands)
     solver_spec = SolverSpec.from_config(cfg)
     material_spec = MaterialSpec.from_config(cfg)
@@ -137,10 +138,10 @@ def solve(cfg: DictConfig) -> Path:
         delivered, max_z=max(delivered.max_z, scene_module.bounds_of(scene).max_z)
     )
 
-    _check_tilt_table(sectors, bands)
+    _check_tilt_table(cells, bands)
 
     problems = transmitter.validate(
-        scene.mi_scene, bounds, sectors, GridSpec.from_config(cfg).free_height_tol_m
+        scene.mi_scene, bounds, cells, GridSpec.from_config(cfg).free_height_tol_m
     )
     for problem in problems:
         print(f"WARNING transmitter {problem}")
@@ -151,7 +152,7 @@ def solve(cfg: DictConfig) -> Path:
     for band in bands:
         rsrp, elapsed, centres, _radio_map = solve_band(
             scene,
-            sectors,
+            cells,
             band,
             solver_spec,
             material_spec,
@@ -162,14 +163,14 @@ def solve(cfg: DictConfig) -> Path:
             power_dbm,
         )
         maps.append(rsrp)
-        # Reduce over the reached cells only: a cell no ray found is all-NaN,
+        # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
         served = np.isfinite(rsrp).any(axis=0)
         best = np.nanmax(rsrp[:, served], axis=0)
-        tilts = [sector.tilt_for(band.name).baseline_deg for sector in sectors]
+        tilts = [cell.tilt_for(band.name).baseline_deg for cell in cells]
         print(
             f"{band.name:>8s}  tilt {min(tilts):4.1f}-{max(tilts):4.1f} deg  {elapsed:6.1f}s  "
-            f"cells reached {served.mean():6.1%}  "
+            f"tiles reached {served.mean():6.1%}  "
             f"best server {best.min():6.1f} to {best.max():6.1f} dBm"
         )
 
@@ -184,12 +185,12 @@ def solve(cfg: DictConfig) -> Path:
         # two axes. This is the configuration the map was solved at, so a stored
         # map carries the decision vector that produced it.
         tilt_deg=np.array(
-            [[sector.tilt_for(band.name).baseline_deg for sector in sectors] for band in bands]
+            [[cell.tilt_for(band.name).baseline_deg for cell in cells] for band in bands]
         ),
-        tx_name=np.array([sector.name for sector in sectors]),
+        tx_name=np.array([cell.name for cell in cells]),
         origin_x=grid_meta["origin_x"],
         origin_y=grid_meta["origin_y"],
-        cell_size_m=grid_meta["cell_size_m"],
+        tile_size_m=grid_meta["tile_size_m"],
         n_cols=grid_meta["n_cols"],
         n_rows=grid_meta["n_rows"],
         ue_height_m=height_m,
@@ -213,10 +214,10 @@ def solve(cfg: DictConfig) -> Path:
         temperature_k=solver_spec.temperature_k,
         bandwidth_hz=np.array([band.bandwidth_hz for band in bands]),
         power_dbm=power_dbm,
-        # The solver's own cell centres, so alignment against the UE grid can be
-        # checked rather than assumed. A silent half-cell offset would corrupt
+        # The solver's own tile centres, so alignment against the UE grid can be
+        # checked rather than assumed. A silent half-tile offset would corrupt
         # every RSRP lookup while leaving the file entirely plausible.
-        cell_centre=centres,
+        tile_centre=centres,
     )
     print(f"radio map: {path}  shape {np.stack(maps).shape} [band, tx, row, col]")
     return path
@@ -224,7 +225,7 @@ def solve(cfg: DictConfig) -> Path:
 
 def solve_band(
     scene: Any,
-    sectors: tuple[transmitter.Sector, ...],
+    cells: tuple[Cell, ...],
     band: Band,
     spec: SolverSpec,
     material_spec: MaterialSpec,
@@ -242,7 +243,7 @@ def solve_band(
     :meth:`sionna.rt.Scene.render`.
 
     Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, the elapsed seconds, the
-    solver's own cell centres for the alignment check, and the solver's
+    solver's own tile centres for the alignment check, and the solver's
     :class:`sionna.rt.RadioMap`.
     """
     import mitsuba as mi
@@ -257,18 +258,18 @@ def solve_band(
     scene.bandwidth = band.bandwidth_hz
     scene.temperature = spec.temperature_k
 
-    for sector in sectors:
-        if scene.get(sector.name) is not None:
-            scene.remove(sector.name)
-    transmitter.build(scene, sectors, band.name, power_dbm)
+    for cell in cells:
+        if scene.get(cell.name) is not None:
+            scene.remove(cell.name)
+    transmitter.build(scene, cells, band.name, power_dbm)
 
-    size_x = grid_meta["n_cols"] * grid_meta["cell_size_m"]
-    size_y = grid_meta["n_rows"] * grid_meta["cell_size_m"]
+    size_x = grid_meta["n_cols"] * grid_meta["tile_size_m"]
+    size_y = grid_meta["n_rows"] * grid_meta["tile_size_m"]
 
     started = time.time()
     radio_map = RadioMapSolver()(
         scene,
-        # Given explicitly so the map's cells coincide with the grid the UEs
+        # Given explicitly so the map's tiles coincide with the grid the UEs
         # were binned into. Letting the solver default its own extent would
         # make every RSRP lookup silently wrong.
         center=mi.Point3f(
@@ -278,7 +279,8 @@ def solve_band(
         ),
         orientation=mi.Point3f(0.0, 0.0, 0.0),
         size=mi.Point2f(size_x, size_y),
-        cell_size=mi.Point2f(grid_meta["cell_size_m"], grid_meta["cell_size_m"]),
+        # sionna-rt calls a map square a "cell"; it is our tile.
+        cell_size=mi.Point2f(grid_meta["tile_size_m"], grid_meta["tile_size_m"]),
         samples_per_tx=spec.samples_per_tx,
         max_depth=spec.max_depth,
         los=spec.los,
@@ -306,8 +308,8 @@ def solve_band(
     return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
 
 
-def _check_tilt_table(sectors: tuple[transmitter.Sector, ...], bands: tuple[Band, ...]) -> None:
-    """Check every sector carries a tilt for every band.
+def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
+    """Check every cell carries a tilt for every band.
 
     Checked once, up front, so a mismatched table names every gap rather than
     failing on whichever band happens to be solved first.
@@ -316,15 +318,12 @@ def _check_tilt_table(sectors: tuple[transmitter.Sector, ...], bands: tuple[Band
         ValueError: When any cell-band pair has no tilt.
     """
     missing = [
-        f"{sector.name}/{band.name}"
-        for sector in sectors
-        for band in bands
-        if band.name not in sector.tilt
+        f"{cell.name}/{band.name}" for cell in cells for band in bands if band.name not in cell.tilt
     ]
     if missing:
         raise ValueError(
             f"{len(missing)} cell-band pairs have no tilt: {', '.join(missing[:8])}"
-            f"{' ...' if len(missing) > 8 else ''}. Every sector needs one entry per band in "
+            f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
             "simulation.radio_map.bands; re-run `task simulation:layout` if the bands changed."
         )
 

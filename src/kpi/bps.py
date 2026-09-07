@@ -5,8 +5,8 @@ coverage KPIs say nothing about WHICH layer serves a location; this one asks
 whether the layers the project would rather use are the ones serving the ground
 the users actually stand on.
 
-The radio map decides the dominant band per grid cell; the MDT supplies the UE
-weight for that cell. Weighting is the point: two cells with the same dominant
+The radio map decides the dominant band per grid tile; the MDT supplies the UE
+weight for that tile. Weighting is the point: two tiles with the same dominant
 band contribute differently when one holds a hundred UE reports and the other
 holds ten. The score therefore inherits whatever bias the MDT sampling had,
 which is worth stating whenever it is reported.
@@ -56,15 +56,15 @@ def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarr
 
 
 def _ue_counts(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
-    """UE reports per grid cell, shape ``[n_rows, n_cols]``.
+    """UE reports per grid tile, shape ``[n_rows, n_cols]``.
 
     Args:
-        mdt: Synthetic MDT, one row per UE per interval, carrying ``cell_row``
-            and ``cell_col``.
+        mdt: Synthetic MDT, one row per UE per interval, carrying ``tile_row``
+            and ``tile_col``.
         shape: The radio map's ``(n_rows, n_cols)``.
 
     Returns:
-        ``rho(g)``, the report count per cell. Rows accumulate across intervals,
+        ``rho(g)``, the report count per tile. Rows accumulate across intervals,
         which is what makes this the UE spatial distribution rather than one
         snapshot of it.
 
@@ -73,11 +73,11 @@ def _ue_counts(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
             and the radio map were built on different grids.
     """
     n_rows, n_cols = shape
-    row = mdt["cell_row"].to_numpy()
-    col = mdt["cell_col"].to_numpy()
+    row = mdt["tile_row"].to_numpy()
+    col = mdt["tile_col"].to_numpy()
     if row.min() < 0 or row.max() >= n_rows or col.min() < 0 or col.max() >= n_cols:
         raise ValueError(
-            f"MDT cells span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
+            f"MDT tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
             f"outside the radio map's {n_rows} x {n_cols} grid. The two were built on "
             "different grids."
         )
@@ -97,7 +97,7 @@ def band_priority_score(
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
         band_labels: The radio map's ``band_label``, aligned to axis 0 of
             ``rsrp``.
-        mdt: Synthetic MDT, supplying the UE weight of each grid cell.
+        mdt: Synthetic MDT, supplying the UE weight of each grid tile.
         cfg: Composed config; reads ``cfg.kpi.band_priority`` and
             ``cfg.kpi.hole_dbm``.
 
@@ -112,7 +112,7 @@ def band_priority_score(
             when no UE stands on covered ground.
 
     Notes:
-        A UE whose cell is a coverage hole is excluded from both sums. No band
+        A UE whose tile is a coverage hole is excluded from both sums. No band
         serves it, so it can neither raise nor lower the score. PROJECT.md does
         not state this case; it is a decision recorded here.
     """

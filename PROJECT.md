@@ -6,12 +6,12 @@ This project studies coordinated antenna tilt optimization across
 multiple cells and frequency bands in a 5G/6G Radio Access Network
 (RAN).
 
-A site may operate multiple frequency layers simultaneously, such as
+A node may operate multiple frequency layers simultaneously, such as
 low-, mid-, and high-frequency bands. Because different bands exhibit
 different propagation characteristics, independently configured and
 static antenna tilts can create:
 
--   excessive coverage overlap near the site;
+-   excessive coverage overlap near the node;
 -   coverage holes at cell edges;
 -   inefficient assignment of frequency-layer roles;
 -   unnecessary interference caused by redundant coverage.
@@ -830,7 +830,7 @@ rather than repeated Sionna-RT ray tracing.
 An agent may be assigned per:
 
 -   cell; or
--   site.
+-   node.
 
 An agent controls the absolute tilts of the frequency bands assigned to
 it.

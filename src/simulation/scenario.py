@@ -94,13 +94,13 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     )
     manifest_file = _write_manifest(cfg, report, raster, bounds, roi, field, schedule, x)
 
-    eligible = density.eligible_cells(raster, mask)
-    cell_col, cell_row = raster.cell_indices(x, y)
+    eligible = density.eligible_tiles(raster, mask)
+    tile_col, tile_row = raster.tile_indices(x, y)
     hotspot_mass = schedule.component_mass[:, 1:].sum(axis=1)
     print(f"scenario: {scenario_id(cfg)}")
     print(f"removed:  {len(report.removed)} buildings   jittered: {len(report.jittered)}")
     print(
-        f"grid:     {raster.n_cols} x {raster.n_rows} cells, "
+        f"grid:     {raster.n_cols} x {raster.n_rows} tiles, "
         f"{int(np.count_nonzero(eligible))} eligible inside a "
         f"{cfg.simulation.area.margin_m} m margin"
     )
@@ -116,7 +116,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     print(f"ue:       {x.size} rows at z={ue.height_m} m")
     print(
         "densest decile holds "
-        f"{sample.densest_decile_share(cell_col, cell_row, raster, eligible):.1%} of UEs"
+        f"{sample.densest_decile_share(tile_col, tile_row, raster, eligible):.1%} of UEs"
     )
     print(f"csv:      {ue_file}")
     print(f"manifest: {manifest_file}")
@@ -157,12 +157,12 @@ def _write_manifest(
         "grid": {
             "origin_x": raster.origin_x,
             "origin_y": raster.origin_y,
-            "cell_size_m": raster.cell_size_m,
+            "tile_size_m": raster.tile_size_m,
             "n_cols": raster.n_cols,
             "n_rows": raster.n_rows,
             "launch_z": bounds.launch_z,
         },
-        # Store inputs to the density, not its deterministic cell weights.
+        # Store inputs to the density, not its deterministic tile weights.
         "density": {
             "spec": OmegaConf.to_container(cfg.simulation.density, resolve=True),
             "hotspots": [dataclasses.asdict(hotspot) for hotspot in field.hotspots],

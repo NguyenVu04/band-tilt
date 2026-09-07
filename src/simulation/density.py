@@ -24,6 +24,9 @@ class DensitySpec:
             the major axis.
         built_volume_radius_m: Radius the surrounding building volume is
             summed over when weighting where hotspots land.
+        min_built_volume_fraction: Share of the densest neighbourhood's
+            building volume a tile must carry before it may hold a hotspot
+            centre. Zero admits every eligible tile.
     """
 
     hotspot_mass_fraction: float
@@ -31,14 +34,16 @@ class DensitySpec:
     sigma_major_m: tuple[float, float]
     sigma_minor_m: tuple[float, float]
     built_volume_radius_m: float
+    min_built_volume_fraction: float
 
     def __post_init__(self) -> None:
         """Reject a mixture that cannot be normalised.
 
         Raises:
             ValueError: When the mass fraction is outside ``[0, 1]``, when
-                hotspots carry mass but none are drawn, or when the radius is
-                not positive.
+                hotspots carry mass but none are drawn, when the radius is not
+                positive, or when the built-volume fraction is outside
+                ``[0, 1)``.
         """
         if not 0.0 <= self.hotspot_mass_fraction <= 1.0:
             raise ValueError(
@@ -60,6 +65,11 @@ class DensitySpec:
                 "simulation.density.built_volume_radius_m must be positive, "
                 f"got {self.built_volume_radius_m}"
             )
+        if not 0.0 <= self.min_built_volume_fraction < 1.0:
+            raise ValueError(
+                "simulation.density.min_built_volume_fraction must be in [0, 1), "
+                f"got {self.min_built_volume_fraction}"
+            )
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> DensitySpec:
@@ -73,6 +83,7 @@ class DensitySpec:
             sigma_major_m=(major[0], major[1]),
             sigma_minor_m=(minor[0], minor[1]),
             built_volume_radius_m=float(density.built_volume_radius_m),
+            min_built_volume_fraction=float(density.min_built_volume_fraction),
         )
 
 
@@ -103,62 +114,62 @@ class DensityField:
     component holds varies per interval and belongs to
     :class:`src.simulation.traffic.Schedule`; where a component puts what it
     holds is a property of the scene and is drawn once. Splitting them is what
-    lets a many-interval scenario reuse a single set of per-cell weights.
+    lets a many-interval scenario reuse a single set of per-tile weights.
 
     Attributes:
-        cell_weights: Per-component distribution over flattened cells, shaped
+        tile_weights: Per-component distribution over flattened tiles, shaped
             ``[n_components, n_rows * n_cols]``, each row summing to 1. Row 0
             is the uniform background; the rest are the hotspots in order.
         hotspots: The drawn hotspots, in the order their rows appear above.
     """
 
-    cell_weights: np.ndarray
+    tile_weights: np.ndarray
     hotspots: tuple[Hotspot, ...]
 
     @property
     def n_components(self) -> int:
         """Number of mixture components, background included."""
-        return int(self.cell_weights.shape[0])
+        return int(self.tile_weights.shape[0])
 
 
 def built_volume(raster: Raster) -> np.ndarray:
-    """Building volume standing in each cell.
+    """Building volume standing in each tile.
 
-    The blocked share of the cell's area times the mean height of the building
+    The blocked share of the tile's area times the mean height of the building
     surface over it — a proxy for how much occupied floorspace surrounds a
     location, and so for how many people are plausibly near it.
     """
-    blocked_area = (1.0 - raster.free_fraction) * raster.cell_area_m2
+    blocked_area = (1.0 - raster.free_fraction) * raster.tile_area_m2
     return blocked_area * raster.mean_built_height
 
 
 def neighbourhood_volume(volume: np.ndarray, raster: Raster, radius_m: float) -> np.ndarray:
-    """Sum ``volume`` over a disc of ``radius_m`` around each cell.
+    """Sum ``volume`` over a disc of ``radius_m`` around each tile.
 
-    Direct accumulation over the disc's cell offsets. The kernel spans only a
-    handful of cells on a grid this size, so an FFT would cost more than it
+    Direct accumulation over the disc's tile offsets. The kernel spans only a
+    handful of tiles on a grid this size, so an FFT would cost more than it
     saves.
     """
-    radius_cells = int(math.ceil(radius_m / raster.cell_size_m))
-    padded = np.pad(volume, radius_cells)
+    radius_tiles = int(math.ceil(radius_m / raster.tile_size_m))
+    padded = np.pad(volume, radius_tiles)
     n_rows, n_cols = volume.shape
 
     total = np.zeros_like(volume, dtype=np.float64)
-    for d_row in range(-radius_cells, radius_cells + 1):
-        for d_col in range(-radius_cells, radius_cells + 1):
-            if d_row * d_row + d_col * d_col > radius_cells * radius_cells:
+    for d_row in range(-radius_tiles, radius_tiles + 1):
+        for d_col in range(-radius_tiles, radius_tiles + 1):
+            if d_row * d_row + d_col * d_col > radius_tiles * radius_tiles:
                 continue
-            row0 = radius_cells + d_row
-            col0 = radius_cells + d_col
+            row0 = radius_tiles + d_row
+            col0 = radius_tiles + d_col
             total += padded[row0 : row0 + n_rows, col0 : col0 + n_cols]
     return total
 
 
-def eligible_cells(raster: Raster, roi: np.ndarray) -> np.ndarray:
-    """Cells that may hold a UE: open ground, inside the region of interest.
+def eligible_tiles(raster: Raster, roi: np.ndarray) -> np.ndarray:
+    """Tiles that may hold a UE: open ground, inside the region of interest.
 
     The single definition of eligibility, shared by the hotspot draw and the
-    per-cell weights so the two cannot drift apart.
+    per-tile weights so the two cannot drift apart.
     """
     return (raster.free_fraction > 0.0) & roi
 
@@ -171,8 +182,8 @@ def draw_hotspots(
 ) -> tuple[Hotspot, ...]:
     """Draw hotspot centres, weighted by surrounding building volume.
 
-    Centres are restricted to eligible cells. A centre inside a building would
-    put its mass on whatever ring of open cells happens to surround the block,
+    Centres are restricted to eligible tiles. A centre inside a building would
+    put its mass on whatever ring of open tiles happens to surround the block,
     which is neither the intended shape nor a reproducible one; a centre in the
     margin would put a share of the population where the radio map is least
     trustworthy.
@@ -181,30 +192,38 @@ def draw_hotspots(
     included: a hotspot just inside the boundary is genuinely surrounded by the
     blocks beyond it, and pretending otherwise would bias centres inward twice.
 
+    The weight alone does not keep centres off near-empty ground: it is linear
+    in building volume, and the outskirts hold enough tiles that their small
+    individual weights still sum to a real share of the draw.
+    ``spec.min_built_volume_fraction`` cuts that tail off, so a tile with too
+    little surrounding volume cannot be chosen at any weight.
+
     Raises:
-        ValueError: When the grid holds fewer eligible cells than
-            ``spec.n_hotspots``.
+        ValueError: When the grid holds fewer eligible tiles than
+            ``spec.n_hotspots``, or when the built-volume threshold leaves
+            fewer candidates than that.
     """
     if spec.n_hotspots == 0:
         return ()
 
-    allowed = eligible_cells(raster, roi)
+    allowed = eligible_tiles(raster, roi)
     candidate_weights = neighbourhood_volume(
         built_volume(raster), raster, spec.built_volume_radius_m
     )
     candidate_weights = np.where(allowed, candidate_weights, 0.0).ravel()
 
-    n_eligible = int(np.count_nonzero(candidate_weights))
-    if n_eligible < spec.n_hotspots:
-        # Use uniform eligible-cell weights when nearby building volume is zero.
+    if int(np.count_nonzero(candidate_weights)) < spec.n_hotspots:
+        # Use uniform eligible-tile weights when nearby building volume is zero.
         candidate_weights = allowed.astype(np.float64).ravel()
         n_eligible = int(np.count_nonzero(candidate_weights))
-    if n_eligible < spec.n_hotspots:
-        raise ValueError(
-            f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
-            "grid cells hold open ground inside the region of interest. Lower "
-            "n_hotspots, the cell size, or simulation.area.margin_m."
-        )
+        if n_eligible < spec.n_hotspots:
+            raise ValueError(
+                f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
+                "grid tiles hold open ground inside the region of interest. Lower "
+                "n_hotspots, the tile size, or simulation.area.margin_m."
+            )
+    else:
+        candidate_weights = _above_threshold(candidate_weights, spec)
 
     chosen = rng.choice(
         candidate_weights.size,
@@ -220,8 +239,8 @@ def draw_hotspots(
         minor = min(rng.uniform(*spec.sigma_minor_m), major)
         hotspots.append(
             Hotspot(
-                x=raster.origin_x + (col + rng.random()) * raster.cell_size_m,
-                y=raster.origin_y + (row + rng.random()) * raster.cell_size_m,
+                x=raster.origin_x + (col + rng.random()) * raster.tile_size_m,
+                y=raster.origin_y + (row + rng.random()) * raster.tile_size_m,
                 sigma_major_m=major,
                 sigma_minor_m=minor,
                 rotation_rad=rng.uniform(0.0, math.pi),
@@ -234,25 +253,25 @@ def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> Dens
     """Build the mixture the UE positions are drawn from.
 
     Weights carry the density function alone. They are deliberately NOT scaled
-    by a cell's open area: ``free_fraction`` is a sub-sampled estimate, and on
-    a cell holding only a sliver of open ground it overstates the truth by more
-    than an order of magnitude. Baking it in here would hand those cells that
+    by a tile's open area: ``free_fraction`` is a sub-sampled estimate, and on
+    a tile holding only a sliver of open ground it overstates the truth by more
+    than an order of magnitude. Baking it in here would hand those tiles that
     same factor in UE weight.
 
     Instead the open area enters through rejection in
     :func:`src.simulation.sample.sample_positions`, which draws uniformly
-    inside a chosen cell and keeps only what lands on open ground. That makes
-    the sampled density proportional to the density function times the cell's
+    inside a chosen tile and keeps only what lands on open ground. That makes
+    the sampled density proportional to the density function times the tile's
     *true* open area, with the estimate used for nothing but eligibility.
 
-    Cells with no open ground at all are excluded, as are cells outside the
+    Tiles with no open ground at all are excluded, as are tiles outside the
     region of interest, since no position in either could ever be accepted.
     """
     rng = np.random.default_rng(seed)
     hotspots = draw_hotspots(raster, spec, rng, roi)
 
-    eligible = eligible_cells(raster, roi).ravel().astype(np.float64)
-    centre_x, centre_y = raster.cell_centres()
+    eligible = eligible_tiles(raster, roi).ravel().astype(np.float64)
+    centre_x, centre_y = raster.tile_centres()
     centre_x = centre_x.ravel()
     centre_y = centre_y.ravel()
 
@@ -260,7 +279,32 @@ def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> Dens
     for hotspot in hotspots:
         weights.append(_normalise(_gaussian(centre_x, centre_y, hotspot) * eligible))
 
-    return DensityField(cell_weights=np.vstack(weights), hotspots=hotspots)
+    return DensityField(tile_weights=np.vstack(weights), hotspots=hotspots)
+
+
+def _above_threshold(candidate_weights: np.ndarray, spec: DensitySpec) -> np.ndarray:
+    """Zero the candidate tiles carrying too little surrounding building volume.
+
+    The cutoff is a share of the densest candidate rather than an absolute
+    volume, so one setting carries across scenes of differing build density and
+    across a change to ``spec.built_volume_radius_m``.
+
+    Raises:
+        ValueError: When the cutoff leaves fewer candidates than
+            ``spec.n_hotspots``.
+    """
+    cutoff = spec.min_built_volume_fraction * candidate_weights.max()
+    kept = np.where(candidate_weights >= cutoff, candidate_weights, 0.0)
+
+    n_kept = int(np.count_nonzero(kept))
+    if n_kept < spec.n_hotspots:
+        raise ValueError(
+            "simulation.density.min_built_volume_fraction of "
+            f"{spec.min_built_volume_fraction} leaves only {n_kept} candidate tiles for "
+            f"{spec.n_hotspots} hotspots. Lower it, or raise "
+            "simulation.density.built_volume_radius_m."
+        )
+    return kept
 
 
 def _gaussian(x: np.ndarray, y: np.ndarray, hotspot: Hotspot) -> np.ndarray:

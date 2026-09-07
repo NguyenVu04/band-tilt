@@ -37,7 +37,7 @@ Supporting modules, each with one reason to change:
     Buildings removed, resized, nudged and turned — this scenario's errors
     about the real city.
 ``grid``
-    Square cells over the scene, and the open-ground and building rasters that
+    Square tiles over the scene, and the open-ground and building rasters that
     one ray-cast pass yields.
 ``density``
     Where the UE density puts its mass: a uniform background plus hotspots
@@ -51,7 +51,7 @@ Supporting modules, each with one reason to change:
 ``seeds``
     The named random streams, all offsets of the one configured seed.
 ``transmitter``
-    The site layout and the transmitters built from it. Its own entry point
+    The node layout and the transmitters built from it. Its own entry point
     generates the layout; that is a one-off, not part of the chain.
 
 Settings cross the config boundary as frozen dataclasses with ``from_config``

@@ -1,4 +1,4 @@
-"""The region of interest: the inset extent and the cells inside it.
+"""The region of interest: the inset extent and the tiles inside it.
 
 Both are pure geometry, so the expected values are counted by hand off a grid
 small enough to hold in the head.
@@ -51,17 +51,17 @@ def test_a_margin_leaving_no_interior_is_rejected(margin_m: float) -> None:
 
 
 def _raster() -> Raster:
-    """A 5x5 grid of 10 m cells at the origin, so centres sit at 5, 15, 25, 35, 45."""
+    """A 5x5 grid of 10 m tiles at the origin, so centres sit at 5, 15, 25, 35, 45."""
     return Raster(
         origin_x=0.0,
         origin_y=0.0,
-        cell_size_m=10.0,
+        tile_size_m=10.0,
         free_fraction=np.ones((5, 5)),
         mean_built_height=np.zeros((5, 5)),
     )
 
 
-def test_roi_mask_keeps_cells_whose_centre_is_inside() -> None:
+def test_roi_mask_keeps_tiles_whose_centre_is_inside() -> None:
     """Centres at 15, 25 and 35 fall inside 10..40, giving a 3x3 block of the 5x5."""
     roi = SceneBounds(min_x=10.0, max_x=40.0, min_y=10.0, max_y=40.0, min_z=0.0, max_z=1.0)
 

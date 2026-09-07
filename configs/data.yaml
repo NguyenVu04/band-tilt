@@ -1,0 +1,10 @@
+# @package data
+# The verified, typed artifacts notebook 02 writes from the simulation output.
+
+output:
+  # The synthetic MDT after schema verification and typing, one row per UE
+  # report, carrying an explicit reported indicator beside every measurement.
+  mdt_file: data/processed/mdt.parquet
+  # One row per cell-band pair: the configuration the radio map was solved at,
+  # and the baseline every DeltaTilt is measured against (PROJECT.md 3.1).
+  cell_file: data/processed/cell.parquet

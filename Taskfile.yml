@@ -93,7 +93,7 @@ tasks:
       - uv run jupyter lab
 
   simulation:layout:
-    desc: 'Print the transmitter site table for configs/simulation.yaml (one-off)'
+    desc: 'Print the transmitter node table for configs/simulation.yaml (one-off)'
     cmds:
       - uv run python -m {{.PKG}}.simulation.transmitter {{.CLI_ARGS}}
 
@@ -140,7 +140,7 @@ tasks:
       - uv run python -m {{.PKG}}.optim.bo.run optim=bo {{.CLI_ARGS}}
 
   marl:
-    desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=site'
+    desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=node'
     cmds:
       - uv run python -m {{.PKG}}.optim.marl.train optim=marl {{.CLI_ARGS}}
 

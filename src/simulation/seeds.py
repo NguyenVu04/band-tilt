@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 # Append offsets only; changing one redraws existing scenarios.
 _OFFSET = {
     "scene": 0,  # the grid raster and the building perturbation
-    "density": 1,  # hotspot centres and per-cell weights
+    "density": 1,  # hotspot centres and per-tile weights
     "sample": 2,  # UE positions
     "materials": 3,  # the radio-material draw, shared across bands by design
     "mdt": 4,  # measurement error and censoring

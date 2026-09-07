@@ -18,7 +18,7 @@ from src.simulation.scene import SceneBounds
 from src.simulation.traffic import Schedule
 
 BOUNDS = SceneBounds(min_x=0.0, max_x=40.0, min_y=0.0, max_y=40.0, min_z=0.0, max_z=10.0)
-GRID = GridSpec(cell_size_m=10.0, subsamples_per_cell=2, free_height_tol_m=0.5)
+GRID = GridSpec(tile_size_m=10.0, subsamples_per_tile=2, free_height_tol_m=0.5)
 COUNTS = (3, 5, 2)
 
 
@@ -34,15 +34,15 @@ def _raster() -> Raster:
     return Raster(
         origin_x=0.0,
         origin_y=0.0,
-        cell_size_m=10.0,
+        tile_size_m=10.0,
         free_fraction=np.ones((4, 4)),
         mean_built_height=np.zeros((4, 4)),
     )
 
 
 def _field() -> DensityField:
-    """Background only, spread evenly over the sixteen cells."""
-    return DensityField(cell_weights=np.full((1, 16), 1.0 / 16.0), hotspots=())
+    """Background only, spread evenly over the sixteen tiles."""
+    return DensityField(tile_weights=np.full((1, 16), 1.0 / 16.0), hotspots=())
 
 
 def _schedule() -> Schedule:
@@ -77,10 +77,10 @@ def test_every_interval_gets_the_count_it_asked_for() -> None:
 
 
 def test_positions_stay_inside_the_region_of_interest() -> None:
-    """The overhang past the region is rejected, not merely the cells outside it.
+    """The overhang past the region is rejected, not merely the tiles outside it.
 
-    A cell whose centre is inside can still reach past the boundary, so the
-    region has to be an exact edge rather than a half-cell approximation.
+    A tile whose centre is inside can still reach past the boundary, so the
+    region has to be an exact edge rather than a half-tile approximation.
     """
     roi = SceneBounds(min_x=10.0, max_x=30.0, min_y=10.0, max_y=30.0, min_z=0.0, max_z=10.0)
 
@@ -121,7 +121,7 @@ def test_write_csv_has_no_ue_id_and_one_row_per_ue(tmp_path) -> None:
     )
     lines = path.read_text(encoding="utf-8").splitlines()
 
-    assert lines[0] == "t_index,t_s,x,y,z,cell_col,cell_row,component"
+    assert lines[0] == "t_index,t_s,x,y,z,tile_col,tile_row,component"
     assert "ue_id" not in lines[0]
     assert len(lines) == 1 + sum(COUNTS)
     # The third interval starts at 1800 s, and its two rows are written last.
@@ -132,7 +132,7 @@ def test_densest_decile_share_is_a_fraction() -> None:
     """The concentration statistic is a share of the population."""
     raster = _raster()
     _, x, y, _ = _draw()
-    col, row = raster.cell_indices(x, y)
+    col, row = raster.tile_indices(x, y)
 
     share = sample.densest_decile_share(col, row, raster, np.ones((4, 4), dtype=bool))
 

@@ -16,14 +16,14 @@ area:
 
 # Measurement grid shared by UE density and radio maps.
 grid:
-  # Cell side length.
-  cell_size_m: 20.0
-  # Sub-grid side length; each cell uses n² ray casts.
-  subsamples_per_cell: 4
+  # Tile side length.
+  tile_size_m: 20.0
+  # Sub-grid side length; each tile uses n² ray casts.
+  subsamples_per_tile: 4
   # Maximum surface height treated as open ground.
   free_height_tol_m: 0.5
 
-# UE samples weight radio-map cells; each interval is an independent draw.
+# UE samples weight radio-map tiles; each interval is an independent draw.
 ue:
   # Inclusive per-interval UE-count range.
   count_range: [40, 80]
@@ -54,7 +54,10 @@ density:
   # Range the minor axis is drawn from, clamped to at most the major.
   sigma_minor_m: [40.0, 120.0]
   # Radius used to weight hotspot centres by nearby building volume.
-  built_volume_radius_m: 250.0
+  built_volume_radius_m: 150.0
+  # Least share of the densest neighbourhood's building volume a tile needs
+  # before it may hold a hotspot centre. Keeps centres off near-empty ground.
+  min_built_volume_fraction: 0.5
 
 # Per-scenario geometry deviations from the delivered scene.
 perturbation:
@@ -79,14 +82,14 @@ materials:
     # Absolute range; used only with diffuse reflection.
     scattering_coefficient: [0.0, 0.3]
 
-# Co-sited multi-band sectors on a square site lattice.
+# Co-located multi-band cells on a square node lattice.
 transmitters:
   layout:
-    # Distance between neighbouring sites on the lattice.
-    site_spacing_m: 650.0
-    # Sectors per site, at evenly spaced azimuths.
-    sectors_per_site: 3
-    # Rotation applied to every site's sector fan.
+    # Distance between neighbouring nodes on the lattice.
+    node_spacing_m: 650.0
+    # Cells per node, at evenly spaced azimuths.
+    cells_per_node: 3
+    # Rotation applied to every node's cell fan.
     azimuth_offset_deg: 0.0
     # Mast height above local ground.
     mast_height_m: 30.0
@@ -97,14 +100,14 @@ transmitters:
     # How far to look for open ground when the ideal lattice position has none.
     # Finding none fails the generator rather than placing a mast on a building.
     snap_radius_m: 150.0
-    # Initial per-band tilt for generated sectors.
+    # Initial per-band tilt for generated cells.
     default_tilt:
       b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
       b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
       b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
   # Generated against the unperturbed scene and held fixed across scenarios.
-  sectors:
-    - name: s0c0
+  cells:
+    - name: n0c0
       x: -380.34
       y: -489.80
       z: 30.00
@@ -113,7 +116,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s0c1
+    - name: n0c1
       x: -380.34
       y: -489.80
       z: 30.00
@@ -122,7 +125,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s0c2
+    - name: n0c2
       x: -380.34
       y: -489.80
       z: 30.00
@@ -131,7 +134,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s1c0
+    - name: n1c0
       x: -465.72
       y: 352.86
       z: 30.00
@@ -140,7 +143,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s1c1
+    - name: n1c1
       x: -465.72
       y: 352.86
       z: 30.00
@@ -149,7 +152,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s1c2
+    - name: n1c2
       x: -465.72
       y: 352.86
       z: 30.00
@@ -158,7 +161,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s2c0
+    - name: n2c0
       x: 257.15
       y: -470.78
       z: 30.00
@@ -167,7 +170,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s2c1
+    - name: n2c1
       x: 257.15
       y: -470.78
       z: 30.00
@@ -176,7 +179,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s2c2
+    - name: n2c2
       x: 257.15
       y: -470.78
       z: 30.00
@@ -185,7 +188,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s3c0
+    - name: n3c0
       x: 192.83
       y: 229.83
       z: 30.00
@@ -194,7 +197,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s3c1
+    - name: n3c1
       x: 192.83
       y: 229.83
       z: 30.00
@@ -203,7 +206,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-    - name: s3c2
+    - name: n3c2
       x: 192.83
       y: 229.83
       z: 30.00
@@ -251,7 +254,7 @@ antenna:
   # Per-resource-element reference-signal power in dBm.
   power_rs: 4.85
 
-  # Cross-polarized macro-sector array.
+  # Cross-polarized macro-cell array.
   transmitter:
     num_rows: 8
     num_cols: 8

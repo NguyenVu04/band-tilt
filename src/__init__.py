@@ -2,6 +2,7 @@
 
 Layout
 ------
+- ``src.core``       the shared domain types: node, cell, tilt
 - ``src.data``       load, validate and split synthetic MDT and cell configuration
 - ``src.radio``      scene construction, radio-map generation, tilt geometry
 - ``src.kpi``        the five KPIs — the only definition of the objective
@@ -15,8 +16,9 @@ Dependency direction
 These are one-way. An import in the reverse direction is a bug, not a
 shortcut::
 
-    data, radio  ->  utils, config
-    kpi          ->  utils
+    core         ->  nothing
+    data, radio  ->  core, utils, config
+    kpi          ->  core, utils
     surrogate    ->  kpi, radio, data
     optim        ->  surrogate, kpi, radio
     evaluation   ->  everything above

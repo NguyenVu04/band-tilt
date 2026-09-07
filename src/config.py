@@ -21,7 +21,7 @@ def load_config(overrides: list[str] | None = None, root: Path | None = None) ->
     """Compose ``configs/config.yaml``, taking the overrides the CLI takes.
 
     Args:
-        overrides: Hydra overrides, such as ``["seed=7", "simulation.grid.cell_size_m=40"]``.
+        overrides: Hydra overrides, such as ``["seed=7", "simulation.grid.tile_size_m=40"]``.
         root: Directory holding ``configs/``. Defaults to the working directory,
             which the notebooks change to the project root.
 

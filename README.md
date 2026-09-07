@@ -63,7 +63,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 Antenna downtilt is the cheapest lever a mobile operator has for shaping
 coverage, and it is largely set by hand. Tilt a cell down and its footprint
 shrinks: interference with neighbours falls, and coverage holes open at the cell
-edge. Tilt it up and the reverse happens. With several frequency bands per site
+edge. Tilt it up and the reverse happens. With several frequency bands per node
 the problem compounds — bands have different propagation characteristics, so they
 should not cover the same footprint, and deciding which band should dominate
 where is a coordination problem across dozens of coupled variables.

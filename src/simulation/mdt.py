@@ -17,7 +17,7 @@ from omegaconf import DictConfig
 from src.simulation import seeds
 
 # Each interval is independent, so MDT rows have no UE identifier.
-_POSITION_COLUMNS = ("t_index", "t_s", "x", "y", "z", "cell_col", "cell_row")
+POSITION_COLUMNS = ("t_index", "t_s", "x", "y", "z", "tile_col", "tile_row")
 
 
 @dataclass(frozen=True)
@@ -125,16 +125,16 @@ def build(cfg: DictConfig) -> Path:
         n_cols = int(data["n_cols"])
         n_rows = int(data["n_rows"])
 
-    col = ues["cell_col"].to_numpy()
-    row = ues["cell_row"].to_numpy()
+    col = ues["tile_col"].to_numpy()
+    row = ues["tile_row"].to_numpy()
     if col.min() < 0 or col.max() >= n_cols or row.min() < 0 or row.max() >= n_rows:
         raise ValueError(
-            f"UE grid cells span cols {col.min()}..{col.max()} rows {row.min()}..{row.max()}, "
+            f"UE grid tiles span cols {col.min()}..{col.max()} rows {row.min()}..{row.max()}, "
             f"outside the radio map's {n_cols} x {n_rows} grid. The two stages used "
             "different grids."
         )
 
-    # [band, tx, row, col] sampled at each UE's cell -> [ue, band, tx], then
+    # [band, tx, row, col] sampled at each UE's tile -> [ue, band, tx], then
     # flattened so a cell's bands sit next to each other.
     sampled = rsrp[:, :, row, col].transpose(2, 1, 0)
     clean = sampled.reshape(len(ues), -1).astype(np.float64)
@@ -151,7 +151,7 @@ def build(cfg: DictConfig) -> Path:
     reported = reported[covered]
 
     frame = pd.concat(
-        [ues[list(_POSITION_COLUMNS)], pd.DataFrame(reported, columns=columns, index=ues.index)],
+        [ues[list(POSITION_COLUMNS)], pd.DataFrame(reported, columns=columns, index=ues.index)],
         axis=1,
     )
     path = Path(cfg.simulation.output.mdt_file)
