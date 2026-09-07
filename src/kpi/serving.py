@@ -6,9 +6,9 @@ that neither is written twice and the four coverage KPIs cannot drift apart.
 The overlap rule here is CO-BAND: within one band, the strongest transmitter
 serves and the other transmitters on that same band are its neighbours; the
 counts are then summed across bands. Two carriers of one cell are therefore
-never neighbours of each other. This departs from PROJECT.md section 4.4, which
-counts any cell-band layer against a single global serving layer, and is a
-deliberate decision — do not "correct" it back to the spec text.
+never neighbours of each other. This departs from counting any cell-band
+layer against a single global serving layer, and is a deliberate decision —
+do not "correct" it back.
 """
 
 from __future__ import annotations

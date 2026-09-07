@@ -25,7 +25,7 @@ class Tilt:
         Raises:
             ValueError: When the bounds are inverted or exclude the baseline.
                 A baseline outside its own bounds means the run starts from an
-                infeasible configuration, which PROJECT.md forbids throughout.
+                infeasible configuration, which is forbidden throughout.
         """
         low, high = self.bounds_deg
         if low > high:
@@ -48,7 +48,7 @@ class Cell:
     """One cell: a mast, an azimuth, and a tilt for each band it carries.
 
     Tilt is held per band rather than per cell because the decision variable
-    is one absolute tilt per *cell-band* pair (PROJECT.md 3.1). A single tilt
+    is one absolute tilt per *cell-band* pair. A single tilt
     shared across a cell's bands would remove the very thing the project
     optimizes: the freedom to point frequency layers differently.
 

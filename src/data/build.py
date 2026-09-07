@@ -1,7 +1,7 @@
 """Build the two processed tables from the verified artifacts.
 
 ``cell.parquet`` is the configuration the radio map was solved at — the
-pre-optimization tilt every ``DeltaTilt`` is reported against (PROJECT.md 3.1).
+pre-optimization tilt every ``DeltaTilt`` is reported against.
 ``mdt.parquet`` is the synthetic MDT, typed, with an explicit reported
 indicator beside every measurement.
 """
@@ -37,8 +37,8 @@ _DTYPES = {
 def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
     """One row per cell-band pair: the decision variable, at its baseline.
 
-    Long rather than wide because the decision variable is per cell-band
-    (PROJECT.md 3.1), so one row is one tilt an optimizer may move.
+    Long rather than wide because the decision variable is per cell-band,
+    so one row is one tilt an optimizer may move.
 
     Returns:
         ``n_cell * n_band`` rows carrying the cell's geometry, the band, the

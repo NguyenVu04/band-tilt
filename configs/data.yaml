@@ -6,5 +6,5 @@ output:
   # report, carrying an explicit reported indicator beside every measurement.
   mdt_file: data/processed/mdt.parquet
   # One row per cell-band pair: the configuration the radio map was solved at,
-  # and the baseline every DeltaTilt is measured against (PROJECT.md 3.1).
+  # and the baseline every DeltaTilt is measured against.
   cell_file: data/processed/cell.parquet

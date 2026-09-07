@@ -113,8 +113,8 @@ def band_priority_score(
 
     Notes:
         A UE whose tile is a coverage hole is excluded from both sums. No band
-        serves it, so it can neither raise nor lower the score. PROJECT.md does
-        not state this case; it is a decision recorded here.
+        serves it, so it can neither raise nor lower the score. This case is
+        not specified elsewhere; it is a decision recorded here.
     """
     if len(band_labels) != rsrp.shape[0]:
         raise ValueError(
