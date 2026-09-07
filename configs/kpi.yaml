@@ -1,0 +1,17 @@
+# @package kpi
+# Thresholds and weights defining the five KPIs.
+
+# Strongest signal at or below which a location is a coverage hole.
+hole_dbm: -120.0
+
+# Upper bound of weak coverage; the lower bound is hole_dbm.
+weak_dbm: -90.0
+
+# Inclusive margin within which a co-band neighbour overlaps the serving cell.
+overlap_margin_db: 6.0
+
+# Band Priority Score weights, keyed by band label and normalised to [0, 1].
+band_priority:
+  b2600: 3.0
+  b1800: 2.0
+  b700: 1.0

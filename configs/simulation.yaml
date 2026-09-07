@@ -26,7 +26,7 @@ grid:
 # UE samples weight radio-map cells; each interval is an independent draw.
 ue:
   # Inclusive per-interval UE-count range.
-  count_range: [20, 50]
+  count_range: [40, 80]
   # UE plane; must match the radio-map height.
   height_m: 1.5
 
@@ -48,13 +48,13 @@ density:
   # Hotspot UE share; remaining UEs use the uniform background.
   hotspot_mass_fraction: 0.9
   # How many hotspots. Their centres are drawn afresh per scenario.
-  n_hotspots: 3
+  n_hotspots: 4
   # Range the major axis is drawn uniformly from.
   sigma_major_m: [80.0, 200.0]
   # Range the minor axis is drawn from, clamped to at most the major.
   sigma_minor_m: [40.0, 120.0]
   # Radius used to weight hotspot centres by nearby building volume.
-  built_volume_radius_m: 150.0
+  built_volume_radius_m: 250.0
 
 # Per-scenario geometry deviations from the delivered scene.
 perturbation:
