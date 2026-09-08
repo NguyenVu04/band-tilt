@@ -12,7 +12,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 | | |
 |---|---|
-| **Maturity** | **Alpha** — simulation, preprocessing and the Bayesian-optimization arm run end to end for one scenario; the surrogate, MARL and held-out validation have no code yet. |
+| **Maturity** | **Alpha** — simulation, preprocessing, the Bayesian-optimization arm and run reporting run end to end for one scenario; the surrogate, MARL and held-out validation have no code yet. |
 | **Owner** | Nguyễn Duy Vũ |
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
@@ -21,9 +21,9 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 | **Decisions** | [docs/adr/](docs/adr/) |
 
 > [!IMPORTANT]
-> **Half the optimization side exists.** Simulation, the five KPIs and the
-> Bayesian-optimization arm run; the surrogate, MARL and held-out validation do
-> not:
+> **Half the optimization side exists.** Simulation, the five KPIs, the
+> Bayesian-optimization arm and the reporting layer run; the surrogate, MARL and
+> held-out validation do not:
 >
 > 1. **The cell configuration is fully synthetic, and that is resolved.** An
 >    earlier version of this project waited on a real multi-band operator
@@ -47,7 +47,10 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 >    Recorded in
 >    [ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md).
 > 4. **The surrogate, MARL and held-out validation have no code.** There is no
->    `src/surrogate/` or `src/evaluation/` package.
+>    `src/surrogate/` package and no `src/optim/marl/`. `src/evaluation/` exists
+>    but compares runs already on disk; it does not re-solve anything, so the
+>    Sionna-RT re-evaluation on held-out scenarios is still missing — and needs
+>    more than one scenario before it can mean anything.
 >    See [Implementation status](#implementation-status).
 >
 > This is not an operated service and has no on-call rotation.
@@ -91,17 +94,19 @@ therefore *regenerated*, not recorded, it can also be perturbed on purpose —
 which is how the project will ask whether an optimized configuration survives
 conditions it was not tuned for, once the optimization side exists.
 
-The KPI mathematics is stated in [`configs/kpi.yaml`](configs/kpi.yaml) and
-implemented in [`src/kpi/`](src/kpi/); the reasoning is in
-[docs/adr/](docs/adr/).
+The KPI mathematics lives in [`src/kpi/`](src/kpi/) and nowhere else; the
+thresholds and weights it reads are in [`configs/kpi.yaml`](configs/kpi.yaml),
+and the reasoning behind the choice of KPIs is in
+[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md).
 
 ### Capabilities
 
-- **A single, testable objective.** Five KPIs — hole rate, overlap rate, mean
-  overlap neighbours, a UE-weighted band priority score, and weak rate — defined
-  once in `src/kpi/`, in that lexicographic priority order. They consume a plain
-  RSRP array, so the whole objective is testable against hand-computed fixtures
-  with no simulator involved.
+- **A single, testable objective.** Five KPIs — hole rate, overlap rate,
+  expected RSRP improvement, a UE-weighted band priority score, and weak rate —
+  defined once in `src/kpi/`, in that lexicographic priority order. Three read a
+  plain RSRP array and nothing else; the two UE-weighted ones also read the
+  synthetic MDT. Either way the objective is testable against hand-computed
+  fixtures with no simulator involved.
 - **A shared search space.** TuRBO and MARL derive their bounds from the same
   module and score through the same functions, so the comparison measures the two
   methods rather than two implementations. TuRBO's trust region is a subset of
@@ -146,32 +151,37 @@ flowchart TB
 
     sim["src/simulation<br/>scenario · radio map · synthetic MDT"]
     prep["src/data<br/>schema verification · typed tables"]
-    kpi["src/kpi<br/>the five KPIs (implemented, not yet wired in)"]
+    kpi["src/kpi<br/>the five KPIs"]
+    opt["src/optim<br/>tilt space · Sionna-RT evaluator<br/>multi-objective BO · baselines"]
+    rep["src/evaluation<br/>compare runs · tables · figures"]
 
     subgraph future["Not implemented yet — no code in src/"]
         sur["src/surrogate (planned)<br/>fast radio-map prediction"]
-        bo["TuRBO (planned)<br/>Ax · BoTorch"]
-        marl["Multi-Agent RL (planned)<br/>TorchRL"]
-        val["src/evaluation (planned)<br/>Sionna-RT on held-out scenarios"]
+        marl["src/optim/marl (planned)<br/>Multi-Agent RL · TorchRL"]
+        val["Held-out validation (planned)<br/>Sionna-RT on unseen scenarios"]
     end
 
     scene --> sim
     cells --> sim
     sim --> prep
+    sim -->|ray-traced map| kpi
+    prep -->|UE weights| kpi
+    kpi --> opt
+    opt -->|run artifacts| rep
     prep -.-> sur
     sur -.->|predicted map| kpi
-    kpi -.-> bo
     kpi -.-> marl
-    bo -.-> val
+    opt -.-> val
     marl -.-> val
     val -.->|ray-traced map| kpi
 ```
 
 Solid arrows are implemented and run today; dashed arrows are the intended
-design, not yet built. The KPI module is meant to sit downstream of *both* the
-simulator and the surrogate once the surrogate exists, so a predicted score and
-a ground-truth score stay comparable — but nothing calls `src/kpi/` from the
-pipeline yet.
+design, not yet built. `src/kpi/` sits downstream of the simulator and is meant
+to sit downstream of the surrogate too once that exists, so a predicted score
+and a ground-truth score stay comparable. `src/evaluation/` reads run
+directories off disk and re-solves nothing, which is what lets a comparison run
+on a machine with no GPU.
 
 ### Components
 
@@ -180,11 +190,11 @@ pipeline yet.
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
 | Simulation | Scene perturbation, UE population, radio-map ray tracing, synthetic MDT | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
-| KPI | The five KPIs and their lexicographic priority — implemented and tested, not yet called from the pipeline | [`src/kpi/`](src/kpi/) |
+| KPI | The five KPI definitions and the reductions they share | [`src/kpi/`](src/kpi/) |
 | Utils | Config loading, seeding, plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Surrogate *(planned)* | Fast radio-map prediction so search does not need ray tracing | not started |
-| Optimization | The shared search space and objective, plus multi-objective BO and two baselines | `03a_baseline.ipynb`, `03b_mobo.ipynb` |
-| Evaluation *(planned)* | Sionna-RT validation on held-out scenarios, method comparison, reporting | not started |
+| Optimization | The shared search space, the KPI vector and its priority rule, the Sionna-RT evaluator, and three searches | [`src/optim/`](src/optim/) |
+| Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
 
@@ -198,7 +208,7 @@ from the project's starting point — see
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and hypervolume acquisition the BO arm runs on | In use | `--extra bo`; read by `src/optim/search.py` |
+| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and hypervolume acquisition the BO arm runs on | In use | `--extra bo`; read by [`src/optim/methods/mobo/search.py`](src/optim/methods/mobo/search.py) and by `objective.hypervolume` |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking | Optional | `--extra tracking`; imported lazily; not yet called from the active pipeline |
@@ -250,18 +260,18 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-38 passed
+132 passed
 ```
 
-`tests/` covers `src/simulation/`'s density, region and traffic logic — the
-parts most worth pinning down by hand-computed fixtures. It does not yet cover
-`src/data/`, `src/kpi/` or `src/core/`; see
+`tests/` covers `src/simulation/`'s density, region and traffic logic, the five
+KPIs, and `src/optim/` and `src/evaluation/` — the parts most worth pinning down
+by hand-computed fixtures. It does not yet cover `src/data/` or `src/core/`; see
 [Implementation status](#implementation-status).
 
 To confirm the active package tree is intact:
 
 ```bash
-uv run python -c "import src.simulation, src.data, src.kpi, src.core, src.utils"
+uv run python -c "import src.simulation, src.data, src.kpi, src.optim, src.evaluation, src.core, src.utils"
 ```
 
 This must succeed silently.
@@ -276,7 +286,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, perturbation, materials, the cell layout and tilt bounds, radio-map solver settings, MDT noise/censoring, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, priority order, Band Priority Score weights |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, Band Priority Score weights, the improvement sigmoid's sensitivity, and the per-KPI tie tolerances. The priority *order* is not here — it is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -312,28 +322,34 @@ through the task runner and `dvc repro`. Both call the same functions in
 | 1 — Generate the scenario, radio maps and synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
 | 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `python -m src.data.build` |
+| 4 — Score the committed tilts, then search with the baselines | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
+| 5 — Search with multi-objective Bayesian Optimization | [`03b_mobo`](notebooks/03b_mobo.ipynb) | `task bo` |
+| 6 — Compare the runs, write the tables and figures | [`04_evaluation`](notebooks/04_evaluation.ipynb) | — (reads run directories; writes to `reports/`) |
 
 ```bash
 task lab                # start JupyterLab
 task simulation         # the three simulation stages, in order
-task dvc:repro          # the same pipeline through DVC, skipping what's unchanged
+task bo                 # one multi-objective BO run over the 36 tilts
+task dvc:repro          # the pipeline through DVC, skipping what's unchanged
 ```
 
-**Nothing past preprocessing runs today.** `notebooks/03a_model_a.ipynb` and
-`notebooks/04_evaluation.ipynb` are unadapted generic ML-project template
-notebooks — they still reference `src/models/`, `src/data/split` and
-`src/evaluation/metrics`, none of which exist in this project — left over from
-the project's starting point and not yet rewritten for this problem. `task
-clean:data` also still exists but calls `src.data.clean`, which does not exist
-either; see [Implementation status](#implementation-status).
+Every search writes one directory under `outputs/optim/<method>/<timestamp>` —
+the per-evaluation history, the Pareto subset, the winning tilt table and,
+unless turned off, that configuration's radio map. The deliverable is
+republished to `reports/outputs/` after every run: `tilt_baseline_deg`,
+`tilt_optimized_deg` and the derived `delta_tilt_deg` for each of the 36
+cell-band pairs, beside the incumbent-versus-winner comparison across all five
+KPIs. The MARL arm is not built, so that comparison currently has BO and the two
+baselines in it and nothing else.
 
-Each of the three real notebooks opens in Colab from the badge in its first
-cell; the bootstrap cell clones the repository and installs what Colab does not
-ship.
+Four Taskfile entries are dead, calling modules that do not exist:
+`task clean:data` (`src.data.clean`), `task marl` (`src.optim.marl.train`),
+`task validate` (`src.evaluation.validate`) and `task surrogate:dataset` /
+`task surrogate:train` (`src.surrogate.*`). See
+[Implementation status](#implementation-status).
 
-Once the optimization side exists, the deliverable will be the tilt table —
-`current_tilt`, `optimized_tilt` and the derived `delta_tilt` for every
-cell-band — plus the baseline/TuRBO/MARL comparison across all five KPIs.
+Each notebook opens in Colab from the badge in its first cell; the bootstrap
+cell clones the repository and installs what Colab does not ship.
 
 ## Development
 
@@ -344,9 +360,11 @@ band-tilt/
 ├── configs/       Hydra config groups — every tunable
 ├── data/          gitignored; scenario, radio map and MDT artifacts (DVC not yet initialised — see External dependencies)
 ├── docs/adr/      architecture decision records
-├── notebooks/     00-02 are the real pipeline; 03a/04 are unadapted template stubs
+├── notebooks/     one per pipeline phase, 00 through 04
+├── outputs/       gitignored; one directory per optimization run
+├── reports/       tables, figures and the republished tilt deliverable
 ├── src/           importable project logic
-├── tests/         unit tests for src/simulation/'s density, region and traffic logic
+├── tests/         unit tests for simulation, the KPIs, optim and evaluation
 ├── app/           template serving scaffolding — see Implementation status
 └── Taskfile.yml   every command
 ```
@@ -358,12 +376,12 @@ band-tilt/
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
 | `src/simulation/` — scenario, scene, perturbation, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`python -m src.data.build`) |
-| `src/kpi/` — the five KPIs (`hole`, `overlap`, `mean_overlap_neighbors`, `bps`, `weak`) and `serving.py` | Implemented, unit-tested, **not yet called from the pipeline** — no notebook or `src/data/build.py` step computes a KPI |
+| `src/kpi/` — the five KPIs (`hole`, `overlap`, `improvement`, `bps`, `weak`), with `serving.py` and `tiles.py` | Implemented and unit-tested (`tests/test_kpi.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
-| `notebooks/00_simulation.ipynb`, `01_eda.ipynb`, `02_preprocessing.ipynb` | Written and adapted to this project |
-| `notebooks/03a_model_a.ipynb`, `04_evaluation.ipynb` | Unadapted generic ML-project template notebooks; reference `src/models/`, `src/data/split`, `src/evaluation/` — none of which exist here |
+| `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, and random-search and rule-based baselines |
-| `src/surrogate/`, `src/evaluation/` | Do not exist |
+| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`. Reads artifacts only — it never re-solves |
+| `src/surrogate/`, `src/optim/marl/` | Do not exist |
 | `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which does not compose against `configs/config.yaml` |
 | CI | None. `task lint` and `task test` run locally only. |
 
@@ -371,10 +389,11 @@ band-tilt/
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11 |
-| `src/kpi/` is not wired into `src/data/build.py` or any notebook | The five KPIs can be unit-tested but not yet computed against a real scenario's radio map |
-| `task clean:data` calls `src.data.clean`, which does not exist | The task is dead; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
-| `notebooks/03a_model_a.ipynb`, `04_evaluation.ipynb` | Not yet rewritten for this project's data and objective |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
+| `kpi.tolerance.expected_rsrp_improvement` is unmeasured | It is a placeholder, flagged as such in [`configs/kpi.yaml`](configs/kpi.yaml). The other four tolerances sit at the ray tracer's run-to-run spread under a changed solver seed; this one has not been measured that way, so the third priority slot's tie behaviour is unverified |
+| No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
+| `task clean:data` calls `src.data.clean`, which does not exist | Dead task; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
+| `task marl`, `task validate`, `task surrogate:dataset`, `task surrogate:train` | Dead tasks — they call `src.optim.marl.train`, `src.evaluation.validate` and `src.surrogate.*`, none of which exist |
 
 ### Standards
 
@@ -396,13 +415,13 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region and traffic logic, against synthetic fixtures | `task test` | pre-commit, locally |
-| Single test | One behaviour | `uv run pytest tests/test_density.py -k <name>` | locally |
+| Unit | `src/simulation/`'s density, region and traffic logic; the five KPIs; `src/optim/`'s space, objective and searches; `src/evaluation/` — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
-**There is no coverage gate and no CI.** `tests/` currently covers only
-`src/simulation/density.py`, `sample.py` (region) and `traffic.py` — 38 tests,
-all passing, none skipped. `src/data/`, `src/kpi/` and `src/core/` have no
-tests yet.
+**There is no coverage gate and no CI.** `tests/` currently covers
+`src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
+`src/kpi/`, `src/optim/` and `src/evaluation/` — 132 tests, all passing, none
+skipped. `src/data/` and `src/core/` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in
@@ -509,14 +528,14 @@ Ordered roughly by what unblocks the most.
 |---|---|---|
 | Run `task dvc:init` and configure a remote | — | Not started; `data/` is presently gitignored only |
 | Run `task simulation` for several seeds, so a between-scenario split exists | — | **Blocking most of the below** |
-| Wire `src/kpi/` into `src/data/build.py` or a new notebook, computing the five KPIs against the baseline radio map | — | Not started; the KPI module itself is done |
+| Measure `kpi.tolerance.expected_rsrp_improvement` — re-solve the baseline tilt under several solver seeds and take the spread | — | Not started; the value in `configs/kpi.yaml` is a flagged placeholder |
 | Implement scenario-level train/validation/test splitting | multiple scenarios (above) | Not started |
-| Rewrite `notebooks/03a_model_a.ipynb` / `04_evaluation.ipynb` for this project, or delete them | the split (above) | Not started |
-| Delete or replace the dead `task clean:data` (`src.data.clean` does not exist) | — | Not started |
+| Delete or replace the dead tasks: `clean:data`, `marl`, `validate`, `surrogate:dataset`, `surrogate:train` | — | Not started |
 | Design and implement `src/surrogate/` — radio-map prediction from features, trained against the ray-traced maps | the split (above) | Not started |
 | ~~Implement the BO arm against `configs/optim/`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
+| ~~Implement `src/evaluation/` — load runs, compare methods, report~~ | — | Done for runs already on disk |
 | Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | — | Not started |
-| Implement `src/evaluation/` — re-evaluate optimized tilts with Sionna-RT on held-out scenarios, compare methods | TuRBO and MARL results | Not started |
+| Add held-out validation — re-solve optimized tilts with Sionna-RT on unseen scenarios | the split (above), and MARL results | Not started; `task validate` already points at the module that would do it |
 | Decide the fate of `app/` (finish it as a serving layer, or remove the template scaffolding) | — | Not started |
 | CI (`task check` on every push) | — | Not started |
 

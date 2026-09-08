@@ -211,8 +211,9 @@ def coverage_cdf(best: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> Figur
 def kpi_comparison(deltas: dict[str, pd.DataFrame], cfg: DictConfig) -> Figure:
     """Improvement over the incumbent, per KPI, in units of that KPI's tolerance.
 
-    The five KPIs are on incomparable scales — a rate in ``[0, 1]`` beside a
-    count — so raw deltas cannot share an axis. Dividing by each KPI's tolerance
+    The five KPIs are on incomparable scales — a share of the grid beside a
+    UE-weighted score — so raw deltas cannot share an axis. Dividing by each
+    KPI's tolerance
     puts them on one: a bar of height 1 is exactly one noise floor. Positive is
     always better, whichever direction the KPI runs.
 

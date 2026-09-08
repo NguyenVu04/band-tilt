@@ -1,9 +1,9 @@
 """KPI 4 - the UE-weighted Band Priority Score.
 
-The only KPI that is maximised, and the only one that reads the MDT. The four
-coverage KPIs say nothing about WHICH layer serves a location; this one asks
-whether the layers the project would rather use are the ones serving the ground
-the users actually stand on.
+The three coverage rates say nothing about WHICH layer serves a location; this
+one asks whether the layers the project would rather use are the ones serving
+the ground the users actually stand on. Maximised, as the Expected RSRP
+Improvement is.
 
 The radio map decides the dominant band per grid tile; the MDT supplies the UE
 weight for that tile. Weighting is the point: two tiles with the same dominant
@@ -21,6 +21,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.kpi.serving import dominant_band, max_rsrp
+from src.kpi.tiles import tile_index
 
 
 def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarray:
@@ -73,18 +74,11 @@ def ue_counts(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
         snapshot of it.
 
     Raises:
-        ValueError: When a UE falls outside the map's grid, which means the MDT
-            and the radio map were built on different grids.
+        ValueError: When a UE falls outside the map's grid; see
+            :func:`src.kpi.tiles.tile_index`.
     """
     n_rows, n_cols = shape
-    row = mdt["tile_row"].to_numpy()
-    col = mdt["tile_col"].to_numpy()
-    if row.min() < 0 or row.max() >= n_rows or col.min() < 0 or col.max() >= n_cols:
-        raise ValueError(
-            f"MDT tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
-            f"outside the radio map's {n_rows} x {n_cols} grid. The two were built on "
-            "different grids."
-        )
+    row, col = tile_index(mdt, shape)
     flat = np.bincount(row * n_cols + col, minlength=n_rows * n_cols)
     return flat.reshape(n_rows, n_cols)
 

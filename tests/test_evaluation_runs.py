@@ -15,7 +15,7 @@ from src.optim.objective import KPI_NAMES
 KPI = {
     "hole_rate": 0.10,
     "overlap_rate": 0.28,
-    "mean_overlap_neighbors": 0.68,
+    "expected_rsrp_improvement": 0.51,
     "band_priority_score": 0.009,
     "weak_rate": 0.12,
 }

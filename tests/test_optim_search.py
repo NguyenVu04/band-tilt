@@ -46,7 +46,7 @@ _CONFIG = {
         "tolerance": {
             "hole_rate": 0.001,
             "overlap_rate": 0.001,
-            "mean_overlap_neighbors": 0.01,
+            "expected_rsrp_improvement": 0.001,
             "band_priority_score": 0.001,
             "weak_rate": 0.001,
         }
@@ -90,7 +90,7 @@ class StubEvaluator:
             kpi=KpiVector(
                 hole_rate=float(np.mean((unit - 0.3) ** 2)),
                 overlap_rate=float(np.mean(unit) * 0.4),
-                mean_overlap_neighbors=float(np.mean(unit) * 2.0),
+                expected_rsrp_improvement=float(1.0 - np.mean((unit - 0.5) ** 2)),
                 band_priority_score=float(1.0 - np.mean((unit - 0.8) ** 2)),
                 weak_rate=float(np.mean((unit - 0.2) ** 2)),
             ),

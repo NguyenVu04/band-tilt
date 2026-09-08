@@ -181,6 +181,7 @@ stages:
           - weak_dbm
           - overlap_margin_db
           - band_priority
+          - rsrp_improvement_tau_db
           - tolerance
       - configs/simulation.yaml:
           - transmitters

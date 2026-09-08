@@ -4,10 +4,14 @@
 - **Date:** 2026-08-28
 - **Revised:** 2026-08-28 — revised in place to follow a change in the
   formulation. The priority order and the Mean Overlap Neighbors denominator
-  changed; see *Revision note* below.
+  changed; see *Revision note — 2026-08-28* below.
 - **Revised:** 2026-08-29 — revised in place to remove the citations to a
   specification document that is no longer treated as a source of truth. No
   decision changed.
+- **Revised:** 2026-09-08 — revised in place, again at the maintainer's
+  direction rather than superseded. Expected RSRP Improvement replaces Mean
+  Overlap Neighbours in the third priority slot; see *Revision note — 2026-09-08*
+  below.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -52,15 +56,20 @@ The objective is exactly five KPIs:
 | KPI | Definition | Direction |
 |---|---|---|
 | Hole rate | fraction of grid with `R_max <= -120` dBm | minimise |
-| Overlap rate | fraction of grid with any neighbour within 6 dB of the serving cell | minimise |
-| Mean overlap neighbours | average neighbour count over **all** locations, `(1/\|G\|)·Σ N_ov(g)` | minimise |
+| Overlap rate | fraction of grid with any co-band neighbour within 6 dB of that band's serving cell | minimise |
+| Expected RSRP Improvement | `mean_u σ((R_sim(u) − R_real(u)) / τ)` over the MDT reports, `τ = 3` dB | **maximise** |
 | UE-weighted Band Priority Score | UE-weighted fraction of UEs served by higher-priority bands | **maximise** |
 | Weak rate | fraction of grid with `-120 < R_max <= -90` dBm | minimise |
 
-They are ordered lexicographically: **Hole > Overlap > Mean overlap neighbours >
-Band Priority Score > Weak**. Coverage holes come first, then how often layers
-collide, then how badly they collide, then whether the right frequency layer is
-serving, and finally the marginal quality of what is already covered.
+They are ordered lexicographically: **Hole > Overlap > Expected RSRP Improvement
+> Band Priority Score > Weak**. Coverage holes come first, then how often layers
+collide, then whether the users who actually reported are better off than they
+are today, then whether the right frequency layer is serving them, and finally
+the marginal quality of what is already covered.
+
+Two of the five are maximised, and they are the same two that are weighted by
+the UE reports rather than uniformly over the grid. The three minimised KPIs are
+shares of the map; the two maximised ones are shares of the traffic.
 
 Each objective carries a **tolerance** in `configs/kpi.yaml`. A difference smaller
 than its tolerance is treated as a tie and the comparison moves to the next
@@ -68,7 +77,7 @@ objective. Without this the order does not bind.
 
 Where an optimizer cannot express a lexicographic goal, a scalarized fallback is
 provided. It operates on **normalised** KPIs, and the weights are checked to
-satisfy `lambda_H > lambda_O > lambda_ON > lambda_BPS > lambda_W` rather than
+satisfy `lambda_H > lambda_O > lambda_EI > lambda_BPS > lambda_W` rather than
 trusted.
 
 **Accessibility is excluded** — not as a KPI, not as an objective term, not as a
@@ -104,15 +113,22 @@ evaluator and it sits downstream of both the simulator and the model.
 - Excluding accessibility means the optimizer can produce a configuration with
   excellent RSRP coverage that is worse to actually connect to, and nothing in
   the formulation will notice.
-- **Mean overlap neighbours is now partly redundant with overlap rate.** Averaging
-  `N_ov` over all `|G|` locations rather than over overlapping ones makes it a
-  scaled count of the same event the second KPI already measures: any
-  configuration that lowers overlap rate lowers this too, almost mechanically.
-  Under the old denominator the two were independent — one said how often overlap
-  happens, the other how severe it is where it does. The third lexicographic slot
-  therefore carries less new information than it did, and a configuration that
-  concentrates severe overlap into few locations is no longer distinguished from
-  one that spreads mild overlap widely.
+- **The objective now mixes two notions of where the map matters.** Hole,
+  overlap and weak rate weight every tile equally; Expected RSRP Improvement and
+  Band Priority Score weight tiles by how many UE reports fall on them. A
+  configuration can therefore improve on slots 3 and 4 while making ground the
+  MDT never sampled worse, and slots 1, 2 and 5 are what has to catch that.
+- **`τ` is a free parameter with nothing behind it.** It is set to 3 dB because
+  3 dB is the conventional just-noticeable RF step and sits above the 2 dB
+  measurement noise of the synthetic MDT — a defensible choice, not a derived
+  one. It also bounds what the KPI can see: at `τ = 3` dB, a 10 dB loss and a
+  30 dB loss both score near zero, so Expected RSRP Improvement cannot tell bad
+  from catastrophic and hole rate has to.
+- **`R_real` carries the reporting model's bias.** It is the strongest RSRP each
+  UE actually reported, so it inherits the MDT's measurement noise and its
+  censoring. The baseline configuration therefore scores slightly under 0.5
+  rather than exactly on it. The offset is identical for every candidate and
+  cannot change a ranking, but 0.5 must not be read as "no change".
 - Throughput and interference are not represented, so an overlap reduction that
   costs capacity looks like a pure win.
 - Changing any threshold makes every previously produced result incomparable.
@@ -124,6 +140,10 @@ evaluator and it sits downstream of both the simulator and the model.
   so.
 - Adding a sixth KPI later is possible but supersedes this record and invalidates
   the existing comparisons.
+- Expected RSRP Improvement is the only KPI that compares a candidate against
+  measured data rather than scoring it on its own terms. It is therefore the
+  first thing to fail if the MDT and the radio map stop describing the same
+  scenario.
 
 ## Alternatives considered
 
@@ -178,6 +198,38 @@ can. The denominator change is recorded as a cost under *Consequences →
 Negative* above — it is the one part of this revision that removes information
 from the objective rather than reordering it.
 
-`src/kpi/coverage.py` still documents the original denominator in its function
-contract and has not been reimplemented; that divergence is tracked in
-`CLAUDE.md` under *Known gaps*.
+The Mean Overlap Neighbours denominator recorded here was superseded before it
+was ever reimplemented; the KPI itself was removed by the 2026-09-08 revision
+below.
+
+## Revision note — 2026-09-08
+
+**Revised in place** rather than superseded, at the maintainer's direction, for
+the same reason and with the same caveat as the note above: this departs from
+the rule in [README.md](README.md) that an accepted record is never rewritten,
+and the previous text is recoverable from Git history.
+
+| | Previously recorded | Now |
+|---|---|---|
+| Slot 3 | Mean overlap neighbours, minimise | Expected RSRP Improvement, **maximise** |
+| Maximised KPIs | one (BPS) | two (Expected RSRP Improvement, BPS) |
+| Scalarized constraint | `lambda_ON` | `lambda_EI` |
+
+Mean overlap neighbours is **removed**, not demoted. The *Consequences →
+Negative* section of the 2026-08-28 revision already recorded it as "partly
+redundant with overlap rate" once its denominator became all `|G|`: any
+configuration lowering overlap rate lowered it too, almost mechanically, so the
+third slot was carrying a rescaling of the second. Expected RSRP Improvement
+puts something independent there — it is the only KPI that reads what the UEs
+measured rather than scoring the candidate map on its own terms.
+
+The sigmoid is not decoration. `mean(1[ΔR > 0])` — the fraction of reports
+improved — is the quantity of interest and needs no `τ`, but it is a step
+function and gives a GP surrogate nothing to follow. `σ(ΔR/τ)` is its smooth
+relaxation, which is what makes the KPI usable as a Bayesian-optimization
+objective.
+
+`kpi.tolerance.expected_rsrp_improvement` is **unmeasured**. Every other
+tolerance sits at the ray tracer's run-to-run spread under a changed solver
+seed; this one is a placeholder carried in `configs/kpi.yaml` with that stated,
+and it must be derived the same way before any result is reported against it.

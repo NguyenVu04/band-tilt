@@ -21,10 +21,10 @@ from src.optim.objective import (
 # KPI against the right tolerance.
 _TOLERANCE = {
     "hole_rate": 0.01,
-    "overlap_rate": 0.01,
-    "mean_overlap_neighbors": 0.10,
-    "band_priority_score": 0.01,
-    "weak_rate": 0.01,
+    "overlap_rate": 0.02,
+    "expected_rsrp_improvement": 0.03,
+    "band_priority_score": 0.04,
+    "weak_rate": 0.05,
 }
 
 
@@ -39,7 +39,7 @@ def _kpi(**overrides: float) -> KpiVector:
     values = {
         "hole_rate": 0.10,
         "overlap_rate": 0.30,
-        "mean_overlap_neighbors": 0.70,
+        "expected_rsrp_improvement": 0.55,
         "band_priority_score": 0.20,
         "weak_rate": 0.10,
     }
@@ -51,28 +51,28 @@ def test_priority_order_is_the_adr_order() -> None:
     assert KPI_NAMES == (
         "hole_rate",
         "overlap_rate",
-        "mean_overlap_neighbors",
+        "expected_rsrp_improvement",
         "band_priority_score",
         "weak_rate",
     )
 
 
-def test_band_priority_score_is_the_only_maximised_kpi() -> None:
+def test_only_the_two_ue_weighted_kpis_are_maximised() -> None:
     """The usual place a sign error hides."""
-    assert MAXIMISED == {"band_priority_score"}
+    assert MAXIMISED == {"expected_rsrp_improvement", "band_priority_score"}
 
 
 def test_ax_objective_signs_every_kpi() -> None:
     """Minus on the four minimised, bare on the one maximised."""
     assert ax_objective() == (
-        "-hole_rate, -overlap_rate, -mean_overlap_neighbors, band_priority_score, -weak_rate"
+        "-hole_rate, -overlap_rate, expected_rsrp_improvement, band_priority_score, -weak_rate"
     )
 
 
 def test_as_maximised_flips_only_the_minimised_kpis() -> None:
     """An orientation, not a normalisation: magnitudes are untouched."""
     values = as_maximised([_kpi()])
-    assert np.array_equal(values[0], [-0.10, -0.30, -0.70, 0.20, -0.10])
+    assert np.array_equal(values[0], [-0.10, -0.30, 0.55, 0.20, -0.10])
 
 
 def test_as_dict_round_trips_through_from_mapping() -> None:
@@ -117,7 +117,7 @@ def test_a_tie_within_tolerance_falls_through_to_the_next_kpi(cfg) -> None:
 def test_differences_within_every_tolerance_keep_the_incumbent(cfg) -> None:
     """Solver noise must not be able to unseat a deployed configuration."""
     incumbent = _kpi()
-    noise = _kpi(hole_rate=0.105, overlap_rate=0.305, mean_overlap_neighbors=0.75)
+    noise = _kpi(hole_rate=0.105, overlap_rate=0.305, expected_rsrp_improvement=0.555)
     assert lexicographic_best([incumbent, noise], cfg) == 0
 
 
@@ -159,7 +159,7 @@ def test_duplicate_points_both_stay_on_the_front() -> None:
 
 def test_tolerances_are_read_in_priority_order(cfg) -> None:
     """Misalignment here would compare each KPI against another's threshold."""
-    assert np.array_equal(tolerances(cfg), [0.01, 0.01, 0.10, 0.01, 0.01])
+    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.03, 0.04, 0.05])
 
 
 def test_a_missing_tolerance_block_raises_rather_than_defaulting() -> None:
@@ -190,7 +190,7 @@ def test_hypervolume_credits_only_improvement_over_the_reference() -> None:
     better = _kpi(
         hole_rate=0.05,
         overlap_rate=0.20,
-        mean_overlap_neighbors=0.60,
+        expected_rsrp_improvement=0.70,
         band_priority_score=0.40,
         weak_rate=0.05,
     )

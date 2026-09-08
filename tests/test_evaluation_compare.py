@@ -14,7 +14,7 @@ from src.optim.objective import KPI_NAMES, KpiVector
 TOLERANCE = {
     "hole_rate": 0.002,
     "overlap_rate": 0.001,
-    "mean_overlap_neighbors": 0.012,
+    "expected_rsrp_improvement": 0.002,
     "band_priority_score": 0.001,
     "weak_rate": 0.004,
 }
@@ -34,7 +34,7 @@ def incumbent() -> KpiVector:
     return KpiVector(
         hole_rate=0.10,
         overlap_rate=0.28,
-        mean_overlap_neighbors=0.68,
+        expected_rsrp_improvement=0.51,
         band_priority_score=0.009,
         weak_rate=0.12,
     )
@@ -73,18 +73,23 @@ def test_a_change_past_the_tolerance_reads_by_direction(
     assert table.loc["weak_rate", "verdict"] == compare.WORSE
 
 
-def test_the_maximised_kpi_reads_the_other_way(cfg: DictConfig, incumbent: KpiVector) -> None:
-    """band_priority_score is the one KPI where up is better."""
-    after = dataclasses.replace(incumbent, band_priority_score=incumbent.band_priority_score + 0.05)
+def test_the_maximised_kpis_read_the_other_way(cfg: DictConfig, incumbent: KpiVector) -> None:
+    """The two KPIs where up is better, and the usual place a sign error hides."""
+    after = dataclasses.replace(
+        incumbent,
+        band_priority_score=incumbent.band_priority_score + 0.05,
+        expected_rsrp_improvement=incumbent.expected_rsrp_improvement + 0.05,
+    )
     table = compare.delta_table(incumbent, after, cfg).set_index("kpi")
-    assert table.loc["band_priority_score", "verdict"] == compare.BETTER
-    assert table.loc["band_priority_score", "direction"] == "maximise"
+    for name in ("band_priority_score", "expected_rsrp_improvement"):
+        assert table.loc[name, "verdict"] == compare.BETTER
+        assert table.loc[name, "direction"] == "maximise"
 
 
 def test_direction_names_every_kpi() -> None:
-    """Exactly one KPI is maximised; a second would be a sign error."""
+    """Two KPIs are maximised; a third, or one fewer, would be a sign error."""
     maximised = [name for name in KPI_NAMES if compare.direction(name) == "maximise"]
-    assert maximised == ["band_priority_score"]
+    assert maximised == ["expected_rsrp_improvement", "band_priority_score"]
 
 
 def test_coverage_comparison_puts_labels_side_by_side() -> None:

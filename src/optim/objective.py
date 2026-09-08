@@ -18,8 +18,8 @@ from omegaconf import DictConfig
 
 from src.kpi import (
     band_priority_score,
+    expected_rsrp_improvement,
     hole_rate,
-    mean_overlap_neighbors,
     overlap_rate,
     weak_rate,
 )
@@ -29,14 +29,14 @@ from src.kpi import (
 KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
-    "mean_overlap_neighbors",
+    "expected_rsrp_improvement",
     "band_priority_score",
     "weak_rate",
 )
 
-# The one KPI where larger is better. Named once, so no call site re-decides a
-# sign; the other four are minimised.
-MAXIMISED = frozenset({"band_priority_score"})
+# The KPIs where larger is better. Named once, so no call site re-decides a
+# sign; the other three are minimised.
+MAXIMISED = frozenset({"expected_rsrp_improvement", "band_priority_score"})
 
 
 @dataclass(frozen=True)
@@ -46,15 +46,15 @@ class KpiVector:
     Attributes:
         hole_rate: Share of the grid receiving nothing above ``kpi.hole_dbm``.
         overlap_rate: Share of the grid with at least one overlapping neighbour.
-        mean_overlap_neighbors: Mean overlapping-neighbour count over the whole
-            grid. A count, not a rate, so the one field not bounded by one.
+        expected_rsrp_improvement: Mean sigmoid of the serving-RSRP change over
+            the MDT locations, against what the UEs actually reported.
         band_priority_score: UE-weighted share served by higher-priority bands.
         weak_rate: Share of the grid covered but below ``kpi.weak_dbm``.
     """
 
     hole_rate: float
     overlap_rate: float
-    mean_overlap_neighbors: float
+    expected_rsrp_improvement: float
     band_priority_score: float
     weak_rate: float
 
@@ -92,14 +92,15 @@ def evaluate_kpis(
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
             no path was found.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
-        mdt: The UE reports supplying each tile's weight for the band priority
-            score. Only ``tile_row`` and ``tile_col`` are read.
+        mdt: The UE reports. ``tile_row`` and ``tile_col`` weight the band
+            priority score; the ``rsrp_*`` columns are the measured serving RSRP
+            the expected improvement is scored against.
         cfg: Composed config; the KPIs read ``cfg.kpi``.
     """
     return KpiVector(
         hole_rate=hole_rate(rsrp, cfg),
         overlap_rate=overlap_rate(rsrp, cfg),
-        mean_overlap_neighbors=mean_overlap_neighbors(rsrp, cfg),
+        expected_rsrp_improvement=expected_rsrp_improvement(rsrp, mdt, cfg),
         band_priority_score=band_priority_score(rsrp, band_labels, mdt, cfg),
         weak_rate=weak_rate(rsrp, cfg),
     )
@@ -119,7 +120,7 @@ def as_maximised(kpis: Sequence[KpiVector]) -> np.ndarray:
     """The KPI matrix reoriented so larger is better in every column.
 
     Returns:
-        Shape ``[len(kpis), 5]`` in :data:`KPI_NAMES` order, with the four
+        Shape ``[len(kpis), 5]`` in :data:`KPI_NAMES` order, with the three
         minimised KPIs negated. Units are untouched: this is an orientation,
         not a normalisation, because nothing downstream compares one column
         against another.
