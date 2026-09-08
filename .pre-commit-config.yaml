@@ -18,9 +18,3 @@ repos:
       - id: ruff
         args: ["--fix"]
       - id: ruff-format
-
-  # Strip notebook outputs so diffs stay readable and data never leaks into Git.
-  - repo: https://github.com/kynan/nbstripout
-    rev: 0.8.1
-    hooks:
-      - id: nbstripout
