@@ -1,0 +1,16 @@
+# @package optim.method
+# Ax multi-objective Bayesian optimization over all five KPIs.
+
+name: mobo
+
+budget:
+  # Sobol trials before the model takes over.
+  n_init: 32
+  # Model-driven evaluations after it does.
+  n_iter: 128
+  # Trials asked for per round. Ax may return fewer.
+  batch_size: 4
+
+# Budget accordingly: an evaluation costs tens of seconds of ray tracing, and
+# Ax's candidate generation grows with the observation count on top of that.
+# The defaults above are a run measured in hours, not minutes.

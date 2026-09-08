@@ -16,38 +16,40 @@ import hydra
 from omegaconf import DictConfig
 
 from src.optim.evaluator import Evaluator
-from src.optim.history import History, LocalRunWriter, write_run
+from src.optim.history import History, LocalRunWriter, write_run, write_tilt_change
+from src.optim.methods import run_search
 from src.optim.objective import KPI_NAMES
-from src.optim.search import run_search
 
 
 def output_directory(cfg: DictConfig, method: str) -> Path:
-    """One directory per run: ``<bo.output.dir>/<method>/<timestamp>``.
+    """One directory per run: ``<optim.output.dir>/<method>/<timestamp>``.
 
     Timestamped rather than overwritten, because comparing methods means
     comparing runs and a rerun must not destroy the one it is compared against.
     """
     stamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
-    return Path(cfg.bo.output.dir) / method / stamp
+    return Path(cfg.optim.output.dir) / method / stamp
 
 
 def run(cfg: DictConfig) -> tuple[History, Path]:
-    """Search the tilt space with ``cfg.bo.method`` and write the results.
+    """Search the tilt space with the selected method and write the results.
 
-    Returns the history and the directory written to.
+    Returns the history and the directory written to. Besides the run
+    directory, the winner's tilt table is republished to
+    ``cfg.optim.output.deliverable_dir``.
     """
-    method = str(cfg.bo.method)
+    method = str(cfg.optim.method.name)
     directory = output_directory(cfg, method)
     started = time.time()
 
     with Evaluator(cfg) as evaluator:
         scenario_id = evaluator.scenario_id
-        history = run_search(evaluator, cfg, method)
+        history = run_search(evaluator, cfg)
         best_index = history.best_index(cfg)
         best = history.results[best_index]
 
         radio_map = None
-        if bool(cfg.bo.output.save_radio_map):
+        if bool(cfg.optim.output.save_radio_map):
             # Re-solved rather than retained: holding every candidate's map
             # costs more memory than the run needs, and the winner is not known
             # until the run is over. The solver seed is fixed, so this repeats
@@ -55,6 +57,8 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
             evaluator.keep_rsrp = True
             archived = evaluator.evaluate(best.tilt_deg)
             radio_map = str(evaluator.write_radio_map(directory / "best_radio_map.npz", archived))
+
+    tilt_change = write_tilt_change(history.tilt_table(best.tilt_deg), cfg, method)
 
     writer = LocalRunWriter(directory)
     written = write_run(
@@ -67,10 +71,11 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
             "scenario_id": scenario_id,
             "wall_clock_seconds": time.time() - started,
             "best_radio_map": radio_map,
+            "tilt_change": str(tilt_change),
         },
     )
 
-    _report(history, best_index, method, directory, written)
+    _report(history, best_index, method, directory, written, tilt_change)
     return history, directory
 
 
@@ -80,6 +85,7 @@ def _report(
     method: str,
     directory: Path,
     written: dict[str, str],
+    tilt_change: Path,
 ) -> None:
     """Print what the run found and where it went."""
     incumbent = history.results[0].kpi
@@ -96,6 +102,7 @@ def _report(
     print(f"wrote {directory}")
     for name, locator in written.items():
         print(f"  {name}: {locator}")
+    print(f"deliverable: {tilt_change}")
 
 
 def _quiet_ax_logging() -> None:
@@ -121,7 +128,7 @@ def main(cfg: DictConfig) -> None:
     """Run one method. Entry point for ``task bo``.
 
     Example:
-        $ task bo -- bo.method=random bo.budget.n_iter=0
+        $ task bo -- optim/method=random optim.method.budget.n_iter=0
     """
     _quiet_ax_logging()
     run(cfg)

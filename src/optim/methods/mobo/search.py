@@ -1,21 +1,6 @@
-"""The three ways of searching the tilt space.
-
-``mobo`` and ``random`` are the same loop and differ only in which generation
-strategy Ax is given, which is what makes random search a control rather than a
-separate experiment: every other line the two execute is identical. ``rule``
-is the operator heuristic — one tilt per band, swept by coordinate descent —
-and shares only the evaluator and the winner rule.
-
-Nothing here imports :class:`~src.optim.evaluator.Evaluator`. The loop is
-written against the :class:`~src.optim.evaluator.ObjectiveEvaluator` protocol,
-so it runs against the ray tracer, a stub, or a future surrogate without
-changing.
-"""
+"""Ax multi-objective Bayesian optimization over all five KPIs."""
 
 from __future__ import annotations
-
-from collections.abc import Callable, Mapping
-from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -23,33 +8,17 @@ from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
-from src.optim.objective import KPI_NAMES, MAXIMISED, ax_objective, lexicographic_best
-
-# Phases, recorded per evaluation so a plot can separate the exploration budget
-# from the model-driven one.
-_INCUMBENT = "incumbent"
-_INIT = "init"
-_SEARCH = "search"
-_SWEEP = "sweep"
-
-# How Ax's own generation nodes map onto those phases. Anything not listed
-# is model-driven: Sobol is the only generator that is not.
-_PHASE_OF_NODE = {"attached": _INCUMBENT, "Sobol": _INIT}
+from src.optim.methods.base import INCUMBENT, INIT, PHASE_OF_NODE, SEARCH
+from src.optim.objective import KPI_NAMES, MAXIMISED, ax_objective
 
 
-def ax_search(
-    evaluator: ObjectiveEvaluator,
-    cfg: DictConfig,
-    *,
-    model_driven: bool,
-) -> History:
-    """Ask-tell loop over Ax, multi-objective on all five KPIs.
+def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
+    """Ask-tell loop over Ax, with the model taking over after the Sobol budget.
 
     Args:
         evaluator: Scores a tilt vector.
-        cfg: Composed config; reads ``cfg.bo.budget`` and ``cfg.bo.seed``.
-        model_driven: True for Bayesian optimization, False for Sobol random
-            search. The only difference between the two runs.
+        cfg: Composed config; reads ``cfg.optim.method.budget`` and
+            ``cfg.optim.seed``.
 
     Returns:
         The history, whose first row is always the committed incumbent.
@@ -60,15 +29,15 @@ def ax_search(
     from ax.core.outcome_constraint import OutcomeConstraint
 
     space = evaluator.space
-    budget = cfg.bo.budget
+    budget = cfg.optim.method.budget
     n_init = int(budget.n_init)
     n_total = n_init + int(budget.n_iter)
     batch_size = max(1, int(budget.batch_size))
-    seed = int(cfg.bo.seed)
+    seed = int(cfg.optim.seed)
 
     history = History(space)
     incumbent = evaluator.evaluate(space.baseline)
-    history.append(incumbent, phase=_INCUMBENT)
+    history.append(incumbent, phase=INCUMBENT)
 
     client = Client(random_seed=seed)
     client.configure_experiment(
@@ -78,11 +47,11 @@ def ax_search(
             )
             for name, low, high in zip(space.parameter_names, space.lower, space.upper, strict=True)
         ],
-        name=f"band-tilt-{'mobo' if model_driven else 'random'}",
+        name="band-tilt-mobo",
     )
     client.configure_optimization(objective=ax_objective())
     client.configure_generation_strategy(
-        method="fast" if model_driven else "random_search",
+        method="fast",
         initialization_budget=n_init,
         initialization_random_seed=seed,
         # The centre of the box is not this project's incumbent, and spending
@@ -128,7 +97,7 @@ def ax_search(
             tilt = space.clip(np.array([float(parameters[name]) for name in space.parameter_names]))
             result = evaluator.evaluate(tilt)
             client.complete_trial(trial_index=trial_index, raw_data=result.kpi.as_dict())
-            history.append(result, phase=_INIT if evaluated < n_init else _SEARCH)
+            history.append(result, phase=INIT if evaluated < n_init else SEARCH)
             trial_indices.append(trial_index)
             evaluated += 1
 
@@ -138,77 +107,8 @@ def ax_search(
     # the two columns cannot tell different stories.
     nodes = _generation_nodes(client, trial_indices)
     history.set_generation_nodes(nodes)
-    history.set_phases([_PHASE_OF_NODE.get(node, _SEARCH) for node in nodes])
+    history.set_phases([PHASE_OF_NODE.get(node, SEARCH) for node in nodes])
     return history
-
-
-def rule_based(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
-    """Sweep one shared tilt per band by coordinate descent.
-
-    The operator heuristic: every cell on a band points alike, which collapses
-    the space from one dimension per cell-band pair to one per band. Passes over
-    the bands in turn, trying ``n_steps`` values on each and keeping the best
-    before moving on, so the cost is ``n_band * n_steps * n_rounds`` rather than
-    the full grid's ``n_steps ** n_band``.
-
-    Candidates are compared with the same lexicographic rule that picks the
-    final winner, so this baseline and the Bayesian runs agree on what "better"
-    means and differ only in where they look.
-    """
-    space = evaluator.space
-    n_steps = int(cfg.bo.rule.n_steps)
-    n_rounds = int(cfg.bo.rule.n_rounds)
-
-    history = History(space)
-    incumbent = evaluator.evaluate(space.baseline)
-    history.append(incumbent, phase=_INCUMBENT)
-
-    current = space.baseline.copy()
-    best = incumbent
-    for _ in range(n_rounds):
-        for band in space.band_names:
-            axis = [index for index, (_cell, name) in enumerate(space.pairs) if name == band]
-            # The band's usable range is the intersection over its cells, so a
-            # shared value stays feasible for every one of them.
-            low = float(space.lower[axis].max())
-            high = float(space.upper[axis].min())
-
-            candidates = []
-            for value in np.linspace(low, high, n_steps):
-                proposal = current.copy()
-                proposal[axis] = value
-                if np.allclose(proposal, current):
-                    continue
-                candidates.append((proposal, evaluator.evaluate(proposal)))
-                history.append(candidates[-1][1], phase=_SWEEP)
-
-            if not candidates:
-                continue
-            # Index 0 is the incumbent for this axis, so a sweep that improves
-            # on nothing leaves the band where it was.
-            choice = lexicographic_best([best.kpi] + [result.kpi for _p, result in candidates], cfg)
-            if choice > 0:
-                current, best = candidates[choice - 1]
-
-    return history
-
-
-SEARCHES: Mapping[str, Callable[[ObjectiveEvaluator, DictConfig], History]] = {
-    "mobo": partial(ax_search, model_driven=True),
-    "random": partial(ax_search, model_driven=False),
-    "rule": rule_based,
-}
-
-
-def run_search(evaluator: ObjectiveEvaluator, cfg: DictConfig, method: str) -> History:
-    """Dispatch to one named method.
-
-    Raises:
-        KeyError: When the method is not registered, naming those that are.
-    """
-    if method not in SEARCHES:
-        raise KeyError(f"unknown bo.method {method!r}; registered methods are {sorted(SEARCHES)}")
-    return SEARCHES[method](evaluator, cfg)
 
 
 def _parameterization(names: tuple[str, ...], tilt_deg: np.ndarray) -> dict[str, float]:

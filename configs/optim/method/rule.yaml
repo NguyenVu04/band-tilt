@@ -1,0 +1,9 @@
+# @package optim.method
+# The operator heuristic: one shared tilt per band, swept by coordinate descent.
+
+name: rule
+
+# Tilt values tried per band, per pass, spanning that band's bounds.
+n_steps: 5
+# Coordinate-descent passes over the bands.
+n_rounds: 2

@@ -1,0 +1,12 @@
+# @package optim.method
+# Sobol random search: the control. Matched to mobo on evaluations, so the two
+# differ in where they look and in nothing else.
+
+name: random
+
+budget:
+  # Sobol draws before the loop would hand over. Random search never does, so
+  # this only separates the phases a plot shows.
+  n_init: 32
+  n_iter: 128
+  batch_size: 4

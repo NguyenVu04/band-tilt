@@ -1,0 +1,32 @@
+# @package optim
+# Optimization over the absolute-tilt space: one tilt per cell-band pair.
+#
+# Which search runs is the `optim/method` group, one file per method. Everything
+# here is what every method shares, so a comparison between two runs differs
+# only by the method block they selected.
+
+output:
+  # One directory per run, under <dir>/<method>/<timestamp>. Timestamped rather
+  # than overwritten: comparing methods means comparing runs, and a rerun must
+  # not destroy the one it is compared against.
+  #
+  # `outputs/` has two halves. Hydra writes its own run directories under
+  # `outputs/hydra/`; the runs below are written by notebooks too, which compose
+  # the config rather than going through @hydra.main and would otherwise write
+  # nowhere.
+  dir: outputs/optim
+  # Where the deliverable — the tilt change — is republished after every run,
+  # one file per method, overwritten. The run directory keeps the history; this
+  # answers "what is the current answer" without globbing timestamps.
+  deliverable_dir: reports/outputs
+  # Whether to archive the winning configuration's radio map. It is written in
+  # the same schema as the simulation stage, so src/kpi reads it unchanged.
+  save_radio_map: true
+
+# Ray-tracing fidelity is deliberately absent: the search runs at
+# simulation.radio_map.samples_per_tx. Dropping it a decade barely moves the
+# wall clock while shifting every KPI well beyond the solver's own noise, so a
+# cheaper search would optimize a different problem rather than the same one
+# for less.
+
+seed: ${seed}

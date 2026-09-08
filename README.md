@@ -279,8 +279,11 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, priority order, Band Priority Score weights |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
-[`configs/bo.yaml`](configs/bo.yaml) configures the optimization run — the
-method, the evaluation budget, the rule-based sweep and the output directory.
+[`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
+optimization run shares — the output directories and the seed — and the
+`optim/method` group ([`configs/optim/method/`](configs/optim/method)) holds one
+file per method with that method's own budget or sweep settings. Select one with
+`optim/method=rule`; note the slash, it is a config group and not a key.
 
 Override from the command line, e.g. `task simulation:radio -- seed=7`.
 
@@ -466,7 +469,7 @@ and on a ray-tracing configuration.
 
 | Layer | Versioned by | Answers |
 |---|---|---|
-| Code and configuration | Git, plus the Hydra config saved beside each run in `outputs/` | By what procedure was this produced? |
+| Code and configuration | Git, plus the Hydra config saved beside each run in `outputs/hydra/` | By what procedure was this produced? |
 | Data and artifacts | DVC (`.dvc` files committed, contents in the remote) — **not yet set up**; `task dvc:init` has not been run in this repository | Which exact inputs and outputs? |
 | Runs and results | MLflow (`./mlruns` by default) | What happened, and how did it score? |
 | Simulation fidelity | `cfg.simulation.radio_map` and `cfg.simulation.grid`, recorded in the radio map's own `.npz` metadata | Against what ground truth? |
@@ -511,7 +514,7 @@ Ordered roughly by what unblocks the most.
 | Rewrite `notebooks/03a_model_a.ipynb` / `04_evaluation.ipynb` for this project, or delete them | the split (above) | Not started |
 | Delete or replace the dead `task clean:data` (`src.data.clean` does not exist) | — | Not started |
 | Design and implement `src/surrogate/` — radio-map prediction from features, trained against the ray-traced maps | the split (above) | Not started |
-| ~~Implement the BO arm against `configs/bo.yaml`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
+| ~~Implement the BO arm against `configs/optim/`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
 | Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | — | Not started |
 | Implement `src/evaluation/` — re-evaluate optimized tilts with Sionna-RT on held-out scenarios, compare methods | TuRBO and MARL results | Not started |
 | Decide the fate of `app/` (finish it as a serving layer, or remove the template scaffolding) | — | Not started |

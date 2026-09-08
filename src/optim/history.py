@@ -63,6 +63,26 @@ class LocalRunWriter:
         return str(path)
 
 
+def write_tilt_change(table: pd.DataFrame, cfg: DictConfig, method: str) -> Path:
+    """Republish the tilt table as the current deliverable for ``method``.
+
+    One file per method under ``cfg.optim.output.deliverable_dir``, overwritten
+    every run: the run directory keeps the history, and this answers what the
+    current answer is without globbing timestamps. CSV rather than parquet
+    because the reader is an operator, not this codebase.
+
+    Returns:
+        The path written.
+    """
+    directory = Path(cfg.optim.output.deliverable_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"tilt_change_{method}.csv"
+    # Index dropped for the same reason as src.data.load.save: every column
+    # this table needs is already a column.
+    table.to_csv(path, index=False)
+    return path
+
+
 @dataclass
 class History:
     """Every evaluation of one run, in the order they were made.

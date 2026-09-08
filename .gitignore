@@ -31,14 +31,16 @@ models/*
 # --- Reports ---------------------------------------------------------------
 reports/figures/*
 !reports/figures/.gitkeep
-reports/results/*
-!reports/results/.gitkeep
+reports/tables/*
+!reports/tables/.gitkeep
+reports/outputs/*
+!reports/outputs/.gitkeep
 
 # --- Experiment tracking / Hydra -------------------------------------------
 mlruns/
 mlartifacts/
-outputs/
-multirun/
+# Anchored: an unanchored `outputs/` also swallows reports/outputs/.
+/outputs/
 
 # --- IDE and editor --------------------------------------------------------
 # Per-developer tool state, not project configuration. A committed editor

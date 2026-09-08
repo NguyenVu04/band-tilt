@@ -13,7 +13,7 @@
 # timestamped directory per run, because comparing methods means comparing runs
 # and a rerun must not overwrite the one it is compared against — so it has no
 # fixed `outs` for DVC to track. `dvc repro optimization` runs whichever method
-# `configs/bo.yaml` currently names.
+# the `optim/method` default in `configs/config.yaml` currently selects.
 #
 # Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
 # so the entries are chosen to be the settings that actually invalidate a stage's
@@ -156,17 +156,26 @@ stages:
       - src/optim/objective.py
       - src/optim/evaluator.py
       - src/optim/history.py
-      - src/optim/search.py
+      - src/optim/methods
       - src/optim/run.py
       - src/kpi
       - data/external/scenario.json
       - data/processed/mdt.parquet
     params:
-      - configs/bo.yaml:
-          - method
-          - budget
-          - rule
+      - configs/optim/base.yaml:
           - seed
+      # Every method file, not just the selected one: DVC resolves params at
+      # plan time and cannot know which method the defaults list will pick.
+      - configs/optim/method/mobo.yaml:
+          - name
+          - budget
+      - configs/optim/method/random.yaml:
+          - name
+          - budget
+      - configs/optim/method/rule.yaml:
+          - name
+          - n_steps
+          - n_rounds
       - configs/kpi.yaml:
           - hole_dbm
           - weak_dbm

@@ -13,14 +13,14 @@ from pathlib import Path
 import pandas as pd
 
 # Beside reports/figures, and ignored by git the same way.
-RESULTS_DIR = Path("reports/results")
+TABLES_DIR = Path("reports/tables")
 
 
 def save_table(
     frame: pd.DataFrame,
     name: str,
     in_colab: bool,
-    directory: str | Path = RESULTS_DIR,
+    directory: str | Path = TABLES_DIR,
 ) -> Path | None:
     """Write ``frame`` to ``directory/name.csv``. Returns the path, or None on Colab.
 

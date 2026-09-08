@@ -2,7 +2,8 @@ defaults:
   - simulation
   - kpi
   - data
-  - bo
+  - optim/base
+  - optim/method: mobo
   - _self_
 
 # Global seed.
@@ -18,7 +19,7 @@ mlflow:
 # saves next to each run, so keep this on.
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
-    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${hydra.job.num}

@@ -115,7 +115,9 @@ class Run:
         """
         path = self.directory / _RADIO_MAP
         if not path.is_file():
-            raise RunError(f"No {path}. The run was written with bo.output.save_radio_map=false.")
+            raise RunError(
+                f"No {path}. The run was written with optim.output.save_radio_map=false."
+            )
         with np.load(path, allow_pickle=False) as archive:
             return {key: archive[key] for key in archive.files}
 

@@ -138,7 +138,7 @@ conflicts explicit and imposes no priority. Rejected as the primary formulation
 because the deliverable is one tilt configuration to deploy, and choosing from a
 five-dimensional front requires exactly the priority this record states — so the
 decision reappears, less visibly. A multi-objective acquisition remains available
-in `configs/optim/bo.yaml`, with the priority applied when selecting from the
+in `configs/optim/method/mobo.yaml`, with the priority applied when selecting from the
 front.
 
 **Constrained optimization: maximise Band Priority Score subject to hole rate

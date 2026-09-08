@@ -17,15 +17,18 @@ Modules, each with one reason to change:
     The expensive path: a tilt vector ray-traced into a radio map. The only
     module here that touches Sionna-RT.
 ``history``
-    The evaluation log and the artifacts a run leaves behind.
-``search``
-    The three methods: Ax multi-objective BO, Ax random search, and a
-    rule-based per-band sweep.
+    The evaluation log, the artifacts a run leaves behind, and the deliverable
+    the tilt change is republished as.
+``methods``
+    One folder per method — Ax multi-objective BO, Ax random search, and a
+    rule-based per-band sweep — behind the ``SearchMethod`` interface in
+    ``methods/base.py``, with the registry that dispatches on the selected
+    ``optim/method`` config group.
 ``run``
     The ``python -m`` entry point that wires the above together.
 
-``search`` depends on the :class:`~src.optim.evaluator.ObjectiveEvaluator`
-protocol rather than on the concrete evaluator, which is what lets the search
-be tested without a GPU and lets a future surrogate stand in for the ray tracer
+A method depends on the :class:`~src.optim.evaluator.ObjectiveEvaluator`
+protocol rather than on the concrete evaluator, which is what lets a search be
+tested without a GPU and lets a future surrogate stand in for the ray tracer
 without the search noticing.
 """
