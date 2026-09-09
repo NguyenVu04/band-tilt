@@ -47,6 +47,8 @@ def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarr
         )
 
     weights = np.array([float(priority[label]) for label in band_labels])
+    if not np.isfinite(weights).all():
+        raise ValueError("kpi.band_priority weights must be finite")
     spread = weights.max() - weights.min()
     if spread == 0:
         raise ValueError(
@@ -101,8 +103,7 @@ def band_priority_score(
 
     Returns:
         The score in ``[0, 1]``, larger when more UEs are served by
-        higher-priority bands. **Maximised** — the one KPI in this package that
-        is, and the usual place a sign error hides.
+        higher-priority bands. **Maximised**, like Expected RSRP Improvement.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, when

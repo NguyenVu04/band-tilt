@@ -7,9 +7,9 @@ would give that UE's tile.
 
 ``R_real`` comes from the MDT and does not depend on the tilt, so this KPI
 carries the measurement noise and the censoring of the reporting model as a
-fixed offset. The offset is common to every candidate and therefore cannot
-change their ranking, but it does mean the baseline configuration scores a
-little under 0.5 rather than exactly on it - 0.5 is not "no change" here.
+fixed reference. Because the sigmoid is nonlinear, measurement noise can change
+the ranking of candidates. The baseline need not score exactly 0.5; compare
+against its measured KPI rather than treating 0.5 as "no change".
 
 Weighted by UE report, like the Band Priority Score and unlike the three
 grid-uniform rates. Ground with no reports on it carries no weight at all.
@@ -69,15 +69,15 @@ def expected_rsrp_improvement(rsrp: np.ndarray, mdt: pd.DataFrame, cfg: DictConf
         cfg: Composed config; reads ``cfg.kpi.rsrp_improvement_tau_db``.
 
     Returns:
-        ``K_EI`` in ``[0, 1]``, above 0.5 when the candidate raises the serving
-        RSRP on average. **Maximised**, along with the Band Priority Score.
+        ``K_EI`` in ``[0, 1]``: the mean sigmoid, not the sigmoid of the mean
+        RSRP change. **Maximised**, along with the Band Priority Score.
 
     Raises:
         ValueError: When ``tau`` is not positive, when the MDT sits on a
             different grid, or when it carries no usable measurements.
     """
     tau = float(cfg.kpi.rsrp_improvement_tau_db)
-    if tau <= 0.0:
+    if not np.isfinite(tau) or tau <= 0.0:
         raise ValueError(
             f"kpi.rsrp_improvement_tau_db must be positive, got {tau}. At zero the sigmoid "
             "argument is a division by zero; below it the score is inverted."

@@ -266,7 +266,7 @@ def solve_band(
     size_x = grid_meta["n_cols"] * grid_meta["tile_size_m"]
     size_y = grid_meta["n_rows"] * grid_meta["tile_size_m"]
 
-    started = time.time()
+    started = time.perf_counter()
     radio_map = RadioMapSolver()(
         scene,
         # Given explicitly so the map's tiles coincide with the grid the UEs
@@ -297,14 +297,14 @@ def solve_band(
         # would ignore simulation.seed entirely.
         seed=solver_seed,
     )
-    elapsed = time.time() - started
-
     # rss is path gain times transmit power, in watts, so with power_dbm set to
     # the per-resource-element reference power this reads directly as RSRP.
     rss = np.asarray(radio_map.rss, dtype=np.float64)
     with np.errstate(divide="ignore", invalid="ignore"):
         rsrp = 10.0 * np.log10(rss) + 30.0
     centres = np.asarray(radio_map.cell_centers, dtype=np.float64)
+    # Materialising the lazy arrays must be inside the solver timer.
+    elapsed = time.perf_counter() - started
     return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
 
 
