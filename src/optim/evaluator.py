@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.core.cell import Cell
 from src.optim.objective import KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.simulation import perturb, radio, seeds, transmitter
@@ -114,10 +115,7 @@ class Evaluator:
         self._solver = radio.SolverSpec.from_config(cfg)
         self._materials = MaterialSpec.from_config(cfg)
         self._material_seed = seeds.stream(cfg, "materials")
-        # One solver seed for every candidate, deliberately. Sharing the
-        # Monte-Carlo stream makes its noise common to all of them, so the KPI
-        # differences the optimizer compares are much less noisy than the KPIs
-        # themselves.
+        # Shared seed: common Monte-Carlo noise cancels, so KPI *differences* are much cleaner.
         self._solver_seed = seeds.stream(cfg, "solver")
         self._height_m = float(cfg.simulation.ue.height_m)
         self._power_dbm = float(cfg.simulation.antenna.power_rs)
@@ -134,6 +132,7 @@ class Evaluator:
         ):
             print(f"WARNING transmitter {problem}")
         radio.configure_arrays(scene, cfg)
+        self._bounds = bounds
         self._scene: Any | None = scene
 
     def __enter__(self) -> Evaluator:
@@ -152,6 +151,69 @@ class Evaluator:
     def band_labels(self) -> tuple[str, ...]:
         """Band names in the radio map's band-axis order."""
         return tuple(band.name for band in self._bands)
+
+    @property
+    def scene(self) -> Any:
+        """The perturbed scene, with the arrays already attached.
+
+        Exposed so the surrogate's scene channels are built against the very
+        geometry its maps were solved on. Rebuilding the scene to read it would
+        be both the expensive half of a run again and a second chance to
+        perturb it differently.
+
+        Raises:
+            RuntimeError: When the evaluator has been closed.
+        """
+        if self._scene is None:
+            raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
+        return self._scene
+
+    @property
+    def bounds(self) -> scene_module.SceneBounds:
+        """The perturbed scene's extent, read for ``launch_z``."""
+        return self._bounds
+
+    @property
+    def bands(self) -> tuple[radio.Band, ...]:
+        """The bands solved, in the radio map's band-axis order."""
+        return self._bands
+
+    @property
+    def grid_meta(self) -> dict[str, Any]:
+        """The manifest's grid block, which every map here is solved on."""
+        return self._grid_meta
+
+    def solve(self, cells: tuple[Cell, ...], band_index: int) -> np.ndarray:
+        """Ray-trace one band against the scene this evaluator holds.
+
+        Public because the surrogate's tilt sweep needs single-band solves
+        against exactly this scene, perturbation, material draw and solver
+        seed. Building a second scene for it would be both the expensive half
+        of a run again and a second chance to configure it differently.
+
+        Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, ``nan`` where no path
+        reached the tile.
+
+        Raises:
+            RuntimeError: When the evaluator has been closed.
+        """
+        if self._scene is None:
+            raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
+
+        rsrp, _elapsed, centres, _radio_map = radio.solve_band(
+            self._scene,
+            cells,
+            self._bands[band_index],
+            self._solver,
+            self._materials,
+            self._material_seed,
+            self._solver_seed,
+            self._grid_meta,
+            self._height_m,
+            self._power_dbm,
+        )
+        self._centres = centres
+        return rsrp
 
     @property
     def tile_centres(self) -> np.ndarray | None:
@@ -177,29 +239,10 @@ class Evaluator:
         tilt_deg = np.asarray(tilt_deg, dtype=float).reshape(-1)
         cells = self.space.to_cells(tilt_deg)
 
-        # Timed here rather than taken from solve_band's returned elapsed. Dr.Jit
-        # is lazy, so the solver call returns before the map is computed and the
-        # work lands on the first read of `radio_map.rss` — which happens after
-        # that timer has already stopped. Trusting it under-reports the cost of
-        # an evaluation by roughly an order of magnitude, and a budget planned
-        # against it would be wrong by the same factor.
+        # Time here, not from solve_band's elapsed: Dr.Jit is lazy, so work
+        # lands on the first `.rss` read — after solve_band's timer has stopped.
         started = time.perf_counter()
-        maps: list[np.ndarray] = []
-        for band in self._bands:
-            rsrp, _elapsed, centres, _radio_map = radio.solve_band(
-                self._scene,
-                cells,
-                band,
-                self._solver,
-                self._materials,
-                self._material_seed,
-                self._solver_seed,
-                self._grid_meta,
-                self._height_m,
-                self._power_dbm,
-            )
-            maps.append(rsrp)
-            self._centres = centres
+        maps = [self.solve(cells, index) for index in range(len(self._bands))]
         seconds = time.perf_counter() - started
 
         stacked = np.stack(maps)

@@ -3,6 +3,7 @@ defaults:
   - kpi
   - data
   - optim/base
+  - surrogate
   - optim/method: mobo
   - _self_
 

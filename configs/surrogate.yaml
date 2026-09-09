@@ -1,0 +1,36 @@
+# @package surrogate
+#
+# The tilt-delta surrogate. Scope is one scene: the model replaces the ray
+# tracer inside the optimizer loop for the committed scenario, and generalises
+# over tilt rather than over geometry. See notebooks 03a and 03b.
+
+# The tilt sweep notebook 03a solves. 0.5 degrees so integer tilts train the
+# model and the values between them test it; it must divide 1.0.
+sweep:
+  step_deg: 0.5
+
+# The hybrid operator. The three use_* flags are the ablation: the branches are
+# separate, so switching one off measures what it was worth.
+model:
+  width: 32
+  depth: 4
+  modes: 16
+  levels: 3
+  use_fno: true
+  use_wno: true
+  use_spatial_film: true
+
+train:
+  epochs: 12
+  batch_size: 32
+  learning_rate: 2e-3
+  huber_delta: 3.0
+  coverage_weight: 0.2
+  cycle_weight: 0.1
+  device: cuda
+  seed: ${seed}
+
+output:
+  sweep_file: data/interim/tilt_sweep.npz
+  feature_file: data/interim/scene_features.npz
+  model_file: outputs/surrogate/operator.pt

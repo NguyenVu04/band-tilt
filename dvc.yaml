@@ -3,11 +3,12 @@
 # The stages mirror the Taskfile targets and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Five stages are active: the three `simulation_*` stages (notebook 00),
-# `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
-# A surrogate radio-map model, MARL and held-out validation still have no code
-# in src/, so there is nothing to define a stage against. Add those when the
-# modules land instead of guessing at their shape now.
+# Seven stages are active: the three `simulation_*` stages (notebook 00),
+# `preprocessing` (notebook 02), `surrogate_dataset` and `surrogate_train`
+# (notebooks 03a and 03b) and `optimization` (notebooks 04a and 04b).
+# MARL and held-out validation still have no code in src/, so there is nothing
+# to define a stage against. Add those when the modules land instead of
+# guessing at their shape now.
 #
 # `optimization` is deliberately not wired into a downstream stage. It writes a
 # timestamped directory per run, because comparing methods means comparing runs
@@ -141,7 +142,65 @@ stages:
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
 
-  # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
+  # --- Surrogate: the tilt sweep and the scene channels (notebook 03a) ------
+  # Solves every band over its whole tilt range. Cheap only because tilts
+  # decompose per transmitter -- one solve at a given tilt yields all twelve
+  # cells at that tilt -- which the stage verifies before it spends anything.
+  # Needs a CUDA GPU and the Sionna-RT extra, like `simulation_radio`.
+  surrogate_dataset:
+    cmd: python -m src.surrogate.dataset
+    deps:
+      - src/surrogate/dataset.py
+      - src/surrogate/features.py
+      - src/optim/evaluator.py
+      - src/simulation/radio.py
+      - src/simulation/materials.py
+      - src/simulation/perturb.py
+      - src/simulation/transmitter.py
+      - src/simulation/scene.py
+      - src/simulation/grid.py
+      - src/core/cell.py
+      - data/external/scenario.json
+    params:
+      - configs/simulation.yaml:
+          - scene
+          - area
+          - grid
+          - perturbation
+          - materials
+          - transmitters
+          - radio_map
+          - antenna
+          - ue
+          - seed
+      - configs/surrogate.yaml:
+          - sweep
+    outs:
+      - data/interim/tilt_sweep.npz
+      - data/interim/scene_features.npz
+
+  # --- Surrogate: train the tilt-delta operator (notebook 03b) --------------
+  # No ray tracing and no Mitsuba: the sweep and the scene channels are the
+  # only inputs, which is what the previous stage caches them for.
+  surrogate_train:
+    cmd: python -m src.surrogate.train
+    deps:
+      - src/surrogate/train.py
+      - src/surrogate/model.py
+      - src/surrogate/dataset.py
+      - data/interim/tilt_sweep.npz
+      - data/interim/scene_features.npz
+    params:
+      - configs/surrogate.yaml:
+          - model
+          - train
+      - configs/simulation.yaml:
+          - transmitters
+          - radio_map
+    outs:
+      - outputs/surrogate/operator.pt
+
+  # --- Optimization: search the tilt space (notebooks 04a and 04b) ----------
   #
   # Depends on the cell table via configs/simulation.yaml rather than on
   # data/processed/cell.parquet: the search reads the committed tilt bounds from

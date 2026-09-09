@@ -12,7 +12,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 | | |
 |---|---|
-| **Maturity** | **Alpha** — simulation, preprocessing, the Bayesian-optimization arm and run reporting run end to end for one scenario; the surrogate, MARL and held-out validation have no code yet. |
+| **Maturity** | **Alpha** — simulation, preprocessing, the tilt-delta surrogate, the Bayesian-optimization arm and run reporting run end to end for one scenario; MARL and held-out validation have no code yet. |
 | **Owner** | Nguyễn Duy Vũ |
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
@@ -21,9 +21,9 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 | **Decisions** | [docs/adr/](docs/adr/) |
 
 > [!IMPORTANT]
-> **Half the optimization side exists.** Simulation, the five KPIs, the
-> Bayesian-optimization arm and the reporting layer run; the surrogate, MARL and
-> held-out validation do not:
+> **Most of the optimization side exists.** Simulation, the five KPIs, the
+> tilt-delta surrogate, the Bayesian-optimization arm and the reporting layer
+> run; MARL and held-out validation do not:
 >
 > 1. **The cell configuration is fully synthetic, and that is resolved.** An
 >    earlier version of this project waited on a real multi-band operator
@@ -46,11 +46,16 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 >    conserve.
 >    Recorded in
 >    [ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md).
-> 4. **The surrogate, MARL and held-out validation have no code.** There is no
->    `src/surrogate/` package and no `src/optim/marl/`. `src/evaluation/` exists
->    but compares runs already on disk; it does not re-solve anything, so the
->    Sionna-RT re-evaluation on held-out scenarios is still missing — and needs
->    more than one scenario before it can mean anything.
+> 4. **The surrogate is fitted to one scene, deliberately.** `src/surrogate/`
+>    predicts the radio map after a tilt change from the map before it, so the
+>    optimizer can score a candidate without ray tracing. Scope is the committed
+>    scenario: it generalises over tilt, not over geometry. Transfer to unseen
+>    scenes needs the split in point 2 first.
+> 5. **MARL and held-out validation have no code.** There is no
+>    `src/optim/marl/`. `src/evaluation/` exists but compares runs already on
+>    disk; it does not re-solve anything, so the Sionna-RT re-evaluation on
+>    held-out scenarios is still missing — and needs more than one scenario
+>    before it can mean anything.
 >    See [Implementation status](#implementation-status).
 >
 > This is not an operated service and has no on-call rotation.
@@ -111,11 +116,11 @@ and the reasoning behind the choice of KPIs is in
   module and score through the same functions, so the comparison measures the two
   methods rather than two implementations. TuRBO's trust region is a subset of
   that space, never a relaxation of it.
-- **A radio-map surrogate (planned).** Ray tracing is too slow to sit inside a
-  training loop, so a learned model is meant to predict the RSRP map during
-  search, with `src/kpi/` deriving the KPIs from its output — the same code that
-  scores a ray-traced map. Not built yet; see
-  [Implementation status](#implementation-status).
+- **A radio-map surrogate.** Ray tracing is too slow to sit inside a search
+  loop, so `src/surrogate/` predicts the RSRP map after a tilt change from the
+  map before it, and `src/kpi/` derives the KPIs from that output — the same
+  code that scores a ray-traced map. It satisfies the same `ObjectiveEvaluator`
+  protocol the ray tracer does, so a search cannot tell which one it holds.
 - **Scenario-level evaluation (blocked on more scenarios).** Train, validation
   and test are meant to split between whole scenarios, so the held-out numbers
   measure transfer to unseen environments rather than interpolation within one.
@@ -154,9 +159,9 @@ flowchart TB
     kpi["src/kpi<br/>the five KPIs"]
     opt["src/optim<br/>tilt space · Sionna-RT evaluator<br/>multi-objective BO · baselines"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
+    sur["src/surrogate<br/>tilt sweep · fitted pattern<br/>FNO+wavelet operator"]
 
     subgraph future["Not implemented yet — no code in src/"]
-        sur["src/surrogate (planned)<br/>fast radio-map prediction"]
         marl["src/optim/marl (planned)<br/>Multi-Agent RL · TorchRL"]
         val["Held-out validation (planned)<br/>Sionna-RT on unseen scenarios"]
     end
@@ -168,8 +173,8 @@ flowchart TB
     prep -->|UE weights| kpi
     kpi --> opt
     opt -->|run artifacts| rep
-    prep -.-> sur
-    sur -.->|predicted map| kpi
+    sim -->|tilt sweep| sur
+    sur -->|predicted map| kpi
     kpi -.-> marl
     opt -.-> val
     marl -.-> val
@@ -313,7 +318,7 @@ repository, and `DVC_REMOTE_URL` is the only value that may carry a credential.
 
 ## Usage
 
-The implemented part of the pipeline runs as three notebooks, or as scripts
+The implemented part of the pipeline runs as a chain of notebooks, or as scripts
 through the task runner and `dvc repro`. Both call the same functions in
 `src/`, so they cannot diverge.
 
@@ -322,9 +327,11 @@ through the task runner and `dvc repro`. Both call the same functions in
 | 1 — Generate the scenario, radio maps and synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
 | 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `python -m src.data.build` |
-| 4 — Score the committed tilts, then search with the baselines | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
-| 5 — Search with multi-objective Bayesian Optimization | [`03b_mobo`](notebooks/03b_mobo.ipynb) | `task bo` |
-| 6 — Compare the runs, write the tables and figures | [`04_evaluation`](notebooks/04_evaluation.ipynb) | — (reads run directories; writes to `reports/`) |
+| 4 — Sweep the tilt range and fit the antenna pattern | [`03a_surrogate_data`](notebooks/03a_surrogate_data.ipynb) | `task surrogate:dataset` |
+| 5 — Train and score the tilt-delta surrogate | [`03b_surrogate_model`](notebooks/03b_surrogate_model.ipynb) | `task surrogate:train` |
+| 6 — Score the committed tilts, then search with the baselines | [`04a_baseline`](notebooks/04a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
+| 7 — Search with multi-objective Bayesian Optimization | [`04b_mobo`](notebooks/04b_mobo.ipynb) | `task bo` |
+| 8 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | — (reads run directories; writes to `reports/`) |
 
 ```bash
 task lab                # start JupyterLab
@@ -342,10 +349,9 @@ cell-band pairs, beside the incumbent-versus-winner comparison across all five
 KPIs. The MARL arm is not built, so that comparison currently has BO and the two
 baselines in it and nothing else.
 
-Four Taskfile entries are dead, calling modules that do not exist:
+Two Taskfile entries are dead, calling modules that do not exist:
 `task clean:data` (`src.data.clean`), `task marl` (`src.optim.marl.train`),
-`task validate` (`src.evaluation.validate`) and `task surrogate:dataset` /
-`task surrogate:train` (`src.surrogate.*`). See
+`task validate` (`src.evaluation.validate`). See
 [Implementation status](#implementation-status).
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
@@ -378,10 +384,11 @@ band-tilt/
 | `src/data/` — load, schema verification, processed-table build | Implemented (`python -m src.data.build`) |
 | `src/kpi/` — the five KPIs (`hole`, `overlap`, `improvement`, `bps`, `weak`), with `serving.py` and `tiles.py` | Implemented and unit-tested (`tests/test_kpi.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
-| `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
+| `notebooks/` — `00_simulation` through `05_evaluation` | All eight written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, and random-search and rule-based baselines |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`. Reads artifacts only — it never re-solves |
-| `src/surrogate/`, `src/optim/marl/` | Do not exist |
+| `src/surrogate/` | Implemented and unit-tested: scene channels, the tilt sweep, the fitted antenna pattern, the FNO + wavelet operator, training, and a `SurrogateEvaluator` that satisfies the same `ObjectiveEvaluator` protocol the ray tracer does |
+| `src/optim/marl/` | Does not exist |
 | `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which does not compose against `configs/config.yaml` |
 | CI | None. `task lint` and `task test` run locally only. |
 
@@ -393,7 +400,7 @@ band-tilt/
 | `kpi.tolerance.expected_rsrp_improvement` is unmeasured | It is a placeholder, flagged as such in [`configs/kpi.yaml`](configs/kpi.yaml). The other four tolerances sit at the ray tracer's run-to-run spread under a changed solver seed; this one has not been measured that way, so the third priority slot's tie behaviour is unverified |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 | `task clean:data` calls `src.data.clean`, which does not exist | Dead task; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
-| `task marl`, `task validate`, `task surrogate:dataset`, `task surrogate:train` | Dead tasks — they call `src.optim.marl.train`, `src.evaluation.validate` and `src.surrogate.*`, none of which exist |
+| `task marl`, `task validate` | Dead tasks — they call `src.optim.marl.train` and `src.evaluation.validate`, neither of which exists |
 
 ### Standards
 
@@ -530,8 +537,8 @@ Ordered roughly by what unblocks the most.
 | Run `task simulation` for several seeds, so a between-scenario split exists | — | **Blocking most of the below** |
 | Measure `kpi.tolerance.expected_rsrp_improvement` — re-solve the baseline tilt under several solver seeds and take the spread | — | Not started; the value in `configs/kpi.yaml` is a flagged placeholder |
 | Implement scenario-level train/validation/test splitting | multiple scenarios (above) | Not started |
-| Delete or replace the dead tasks: `clean:data`, `marl`, `validate`, `surrogate:dataset`, `surrogate:train` | — | Not started |
-| Design and implement `src/surrogate/` — radio-map prediction from features, trained against the ray-traced maps | the split (above) | Not started |
+| Delete or replace the dead tasks: `clean:data`, `marl`, `validate` | — | Not started |
+| Train the surrogate across scenarios, so it transfers to geometry it has not seen | the split (above) | Not started — the operator in `src/surrogate/` is deliberately fitted to one scene |
 | ~~Implement the BO arm against `configs/optim/`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
 | ~~Implement `src/evaluation/` — load runs, compare methods, report~~ | — | Done for runs already on disk |
 | Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | — | Not started |

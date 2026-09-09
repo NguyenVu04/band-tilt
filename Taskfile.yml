@@ -125,12 +125,12 @@ tasks:
       - uv run python -m {{.PKG}}.data.clean {{.CLI_ARGS}}
 
   surrogate:dataset:
-    desc: 'Generate radio maps and build D_sur (notebook 03 as a script) - EXPENSIVE'
+    desc: 'Sweep the tilt range and cast the scene channels (notebook 03a) - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.surrogate.dataset {{.CLI_ARGS}}
 
   surrogate:train:
-    desc: 'Train the radio-map surrogate (notebook 04 as a script)'
+    desc: 'Train the tilt-delta surrogate on the sweep (notebook 03b)'
     cmds:
       - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
 
@@ -150,7 +150,7 @@ tasks:
       - uv run python -m {{.PKG}}.optim.marl.train optim=marl {{.CLI_ARGS}}
 
   validate:
-    desc: 'Re-evaluate the optimized tilts with Sionna-RT and compare (notebook 06)'
+    desc: 'DEAD - re-evaluate optimized tilts on a held-out scenario (no module yet)'
     cmds:
       - uv run python -m {{.PKG}}.evaluation.validate {{.CLI_ARGS}}
 

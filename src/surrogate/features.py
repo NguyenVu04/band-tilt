@@ -142,9 +142,6 @@ def facade_azimuth(sdf_m: np.ndarray, step_m: float, smooth_cells: float = 1.0) 
     Returns ``nan`` where the field is flat, rather than the spurious angle
     ``arctan2(0, 0)`` would give.
     """
-    # ponytail: raster gradient, so the angle resolves no finer than the cell
-    # lattice and the smoothing can recover. Read the mesh face normals if a
-    # model ever needs true per-facade orientation.
     field = ndimage.gaussian_filter(sdf_m, smooth_cells) if smooth_cells > 0 else sdf_m
     gradient_y, gradient_x = np.gradient(field, step_m)
     azimuth = np.degrees(np.arctan2(gradient_y, gradient_x))
