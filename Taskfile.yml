@@ -98,7 +98,7 @@ tasks:
       - uv run python -m {{.PKG}}.simulation.transmitter {{.CLI_ARGS}}
 
   simulation:scenario:
-    desc: 'Stage 1 - perturb the scene and draw the UE population (needs a CUDA GPU)'
+    desc: 'Stage 1 - raster the scene and draw the UE population (needs a CUDA GPU)'
     cmds:
       - uv run python -m {{.PKG}}.simulation.scenario {{.CLI_ARGS}}
 
@@ -108,7 +108,7 @@ tasks:
       - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
 
   simulation:mdt:
-    desc: 'Stage 3 - sample the radio map at the UEs, add noise and censor'
+    desc: 'Stage 3 - sample the radio map at the UEs and add measurement noise'
     cmds:
       - uv run python -m {{.PKG}}.simulation.mdt {{.CLI_ARGS}}
 

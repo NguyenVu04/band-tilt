@@ -1,10 +1,9 @@
 """Where the MDT's UE reports sit on the radio map's grid.
 
-Two KPIs weight the map by the UE population - the Band Priority Score and the
-Expected RSRP Improvement - and both need the same tile indices under the same
-guarantee that the MDT and the map were built on one grid. Extracted so the
-check exists once: two copies would be free to disagree about which grid a
-report belongs to.
+The Band Priority Score and the PRB demand map both weight the map by the UE
+population, and both need the same tile indices under the same guarantee that
+the MDT and the map were built on one grid. Extracted so the check exists once:
+two copies would be free to disagree about which grid a report belongs to.
 """
 
 from __future__ import annotations

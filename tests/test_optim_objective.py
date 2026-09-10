@@ -18,13 +18,12 @@ from src.optim.objective import (
 )
 
 # Deliberately round and unequal, so a test cannot pass by comparing the wrong
-# KPI against the right tolerance.
+# KPI against the right tolerance. Listed out of priority order on purpose.
 _TOLERANCE = {
     "hole_rate": 0.01,
     "overlap_rate": 0.02,
-    "expected_rsrp_improvement": 0.03,
-    "band_priority_score": 0.04,
     "weak_rate": 0.05,
+    "band_priority_score": 0.04,
 }
 
 
@@ -39,7 +38,6 @@ def _kpi(**overrides: float) -> KpiVector:
     values = {
         "hole_rate": 0.10,
         "overlap_rate": 0.30,
-        "expected_rsrp_improvement": 0.55,
         "band_priority_score": 0.20,
         "weak_rate": 0.10,
     }
@@ -48,31 +46,23 @@ def _kpi(**overrides: float) -> KpiVector:
 
 def test_priority_order_is_the_adr_order() -> None:
     """Reordering this changes which configuration wins."""
-    assert KPI_NAMES == (
-        "hole_rate",
-        "overlap_rate",
-        "band_priority_score",
-        "expected_rsrp_improvement",
-        "weak_rate",
-    )
+    assert KPI_NAMES == ("hole_rate", "overlap_rate", "band_priority_score", "weak_rate")
 
 
-def test_only_the_two_ue_weighted_kpis_are_maximised() -> None:
+def test_only_the_ue_weighted_kpi_is_maximised() -> None:
     """The usual place a sign error hides."""
-    assert MAXIMISED == {"expected_rsrp_improvement", "band_priority_score"}
+    assert MAXIMISED == {"band_priority_score"}
 
 
 def test_ax_objective_signs_every_kpi() -> None:
-    """Minus on the four minimised, bare on the one maximised."""
-    assert ax_objective() == (
-        "-hole_rate, -overlap_rate, band_priority_score, expected_rsrp_improvement, -weak_rate"
-    )
+    """Minus on the three minimised, bare on the one maximised."""
+    assert ax_objective() == "-hole_rate, -overlap_rate, band_priority_score, -weak_rate"
 
 
 def test_as_maximised_flips_only_the_minimised_kpis() -> None:
     """An orientation, not a normalisation: magnitudes are untouched."""
     values = as_maximised([_kpi()])
-    assert np.array_equal(values[0], [-0.10, -0.30, 0.20, 0.55, -0.10])
+    assert np.array_equal(values[0], [-0.10, -0.30, 0.20, -0.10])
 
 
 def test_as_dict_round_trips_through_from_mapping() -> None:
@@ -117,7 +107,7 @@ def test_a_tie_within_tolerance_falls_through_to_the_next_kpi(cfg) -> None:
 def test_differences_within_every_tolerance_keep_the_incumbent(cfg) -> None:
     """Solver noise must not be able to unseat a deployed configuration."""
     incumbent = _kpi()
-    noise = _kpi(hole_rate=0.105, overlap_rate=0.305, expected_rsrp_improvement=0.555)
+    noise = _kpi(hole_rate=0.105, overlap_rate=0.305, band_priority_score=0.21)
     assert lexicographic_best([incumbent, noise], cfg) == 0
 
 
@@ -159,10 +149,9 @@ def test_duplicate_points_both_stay_on_the_front() -> None:
 
 def test_tolerances_are_read_in_priority_order(cfg) -> None:
     """Misalignment here would compare each KPI against another's threshold."""
-    # In KPI_NAMES order, which is not the order the fixture's dict lists them
-    # in — band priority (0.04) outranks expected improvement (0.03). Reading
+    # The fixture lists weak before band priority; KPI_NAMES does not. Reading
     # the dict's own order instead is exactly the misalignment guarded against.
-    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.04, 0.03, 0.05])
+    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.04, 0.05])
 
 
 def test_a_missing_tolerance_block_raises_rather_than_defaulting() -> None:
@@ -190,13 +179,7 @@ def test_hypervolume_credits_only_improvement_over_the_reference() -> None:
 
     incumbent = _kpi()
     worse = _kpi(hole_rate=0.50, overlap_rate=0.90, band_priority_score=0.0)
-    better = _kpi(
-        hole_rate=0.05,
-        overlap_rate=0.20,
-        expected_rsrp_improvement=0.70,
-        band_priority_score=0.40,
-        weak_rate=0.05,
-    )
+    better = _kpi(hole_rate=0.05, overlap_rate=0.20, band_priority_score=0.40, weak_rate=0.05)
 
     assert hypervolume([incumbent], incumbent) == 0.0
     assert hypervolume([worse], incumbent) == 0.0

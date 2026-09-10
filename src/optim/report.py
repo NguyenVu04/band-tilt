@@ -4,7 +4,7 @@
 solutions it proposed, re-derives the Pareto front from what the ray tracer
 measured, and republishes the front as the two tables an operator chooses from.
 
-The front, not a winner. Five objectives do not have a best, and with a
+The front, not a winner. Four objectives do not have a best, and with a
 surrogate in the loop reporting only the single lexicographic pick would trust
 the model twice — once to *find* the front and again to *rank within* it.
 Re-deriving the front from measured KPIs asks it for the first alone.

@@ -30,7 +30,7 @@ tile-based hole rate is several times the UE-weighted one, because most holes
 fall where nobody is.
 
 That is a reporting view and nothing more. The objective remains exactly the
-five KPIs of docs/adr/0001-five-kpis-under-lexicographic-priority.md: no
+four KPIs of docs/adr/0001-five-kpis-under-lexicographic-priority.md: no
 optimizer sees a demand-weighted quantity, none of them joins or replaces a KPI,
 and adding one would supersede that record and invalidate every comparison made
 before it. The thresholds separating hole, weak and good are read from

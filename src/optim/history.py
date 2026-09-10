@@ -94,7 +94,7 @@ def write_pareto_options(
 ) -> tuple[Path, Path]:
     """Republish the verified Pareto front as the two tables an operator chooses from.
 
-    Five objectives do not have a best; they have a front, and which point on
+    Four objectives do not have a best; they have a front, and which point on
     it to deploy is a judgement about what this network needs, not something
     the priority order in ADR 0001 can settle. That rule still runs and marks
     one row ``recommended``, but the rest of the front is published beside it
@@ -193,7 +193,7 @@ class History:
         return [result.kpi for result in self.results]
 
     def frame(self) -> pd.DataFrame:
-        """One row per evaluation: provenance, the five KPIs, all 36 tilts.
+        """One row per evaluation: provenance, the four KPIs, all 36 tilts.
 
         ``on_pareto`` is computed here rather than stored, because it is a
         property of the set and every append can change it. It is computed

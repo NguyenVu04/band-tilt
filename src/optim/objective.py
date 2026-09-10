@@ -1,8 +1,8 @@
 """The KPI vector, its sign convention, and the rule that picks one winner.
 
-The five definitions live in :mod:`src.kpi` and are not restated here. What
+The four definitions live in :mod:`src.kpi` and are not restated here. What
 this module adds is what an optimizer needs around them: one value object
-carrying all five, the orientation that turns them into "larger is better", and
+carrying all four, the orientation that turns them into "larger is better", and
 the lexicographic rule that reduces a Pareto front to the single configuration
 a deployment can act on.
 """
@@ -16,13 +16,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi import (
-    band_priority_score,
-    expected_rsrp_improvement,
-    hole_rate,
-    overlap_rate,
-    weak_rate,
-)
+from src.kpi import band_priority_score, hole_rate, overlap_rate, weak_rate
 
 # Priority order, highest first. The ordering is the point: it is what the
 # lexicographic pick walks, and reordering it changes which configuration wins.
@@ -30,13 +24,12 @@ KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
     "band_priority_score",
-    "expected_rsrp_improvement",
     "weak_rate",
 )
 
 # The KPIs where larger is better. Named once, so no call site re-decides a
 # sign; the other three are minimised.
-MAXIMISED = frozenset({"expected_rsrp_improvement", "band_priority_score"})
+MAXIMISED = frozenset({"band_priority_score"})
 
 # What measured a KPI vector. A run holds both -- the surrogate searches and the
 # ray tracer verifies -- and only one of them is ground truth, so the two are
@@ -51,29 +44,26 @@ SURROGATE = "surrogate"
 
 @dataclass(frozen=True)
 class KpiVector:
-    """One configuration's score on all five KPIs, in priority order.
+    """One configuration's score on all four KPIs, in priority order.
 
     Attributes:
         hole_rate: Share of the grid receiving nothing above ``kpi.hole_dbm``.
         overlap_rate: Share of the grid with at least one overlapping neighbour.
-        expected_rsrp_improvement: Mean sigmoid of the serving-RSRP change over
-            the MDT locations, against what the UEs actually reported.
         band_priority_score: UE-weighted share served by higher-priority bands.
         weak_rate: Share of the grid covered but below ``kpi.weak_dbm``.
     """
 
     hole_rate: float
     overlap_rate: float
-    expected_rsrp_improvement: float
     band_priority_score: float
     weak_rate: float
 
     def as_dict(self) -> dict[str, float]:
-        """The five values keyed by name, shaped for Ax's ``raw_data``."""
+        """The four values keyed by name, shaped for Ax's ``raw_data``."""
         return {name: float(value) for name, value in asdict(self).items()}
 
     def as_array(self) -> np.ndarray:
-        """The five values in :data:`KPI_NAMES` order."""
+        """The four values in :data:`KPI_NAMES` order."""
         return np.array([getattr(self, name) for name in KPI_NAMES], dtype=float)
 
     @classmethod
@@ -96,21 +86,19 @@ def evaluate_kpis(
     mdt: pd.DataFrame,
     cfg: DictConfig,
 ) -> KpiVector:
-    """Score one radio map on all five KPIs.
+    """Score one radio map on all four KPIs.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
             no path was found.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
-        mdt: The UE reports. ``tile_row`` and ``tile_col`` weight the band
-            priority score; the ``rsrp_*`` columns are the measured serving RSRP
-            the expected improvement is scored against.
+        mdt: The UE reports; ``tile_row`` and ``tile_col`` weight the band
+            priority score.
         cfg: Composed config; the KPIs read ``cfg.kpi``.
     """
     return KpiVector(
         hole_rate=hole_rate(rsrp, cfg),
         overlap_rate=overlap_rate(rsrp, cfg),
-        expected_rsrp_improvement=expected_rsrp_improvement(rsrp, mdt, cfg),
         band_priority_score=band_priority_score(rsrp, band_labels, mdt, cfg),
         weak_rate=weak_rate(rsrp, cfg),
     )
@@ -143,7 +131,7 @@ def pareto_mask(kpis: Sequence[KpiVector]) -> np.ndarray:
     """Which entries are non-dominated, as a boolean mask.
 
     Domination is the standard strict rule on the maximised orientation: one
-    point dominates another when it is at least equal on all five and strictly
+    point dominates another when it is at least equal on all four and strictly
     better on at least one. Tolerances play no part here — they belong to the
     single-winner pick, not to the front.
     """
@@ -169,9 +157,9 @@ def hypervolume(kpis: Sequence[KpiVector], reference: KpiVector) -> float:
             nothing, which is the intended reading.
 
     Returns:
-        The dominated volume, in the product of the five KPIs' own units.
+        The dominated volume, in the product of the four KPIs' own units.
 
-        Expect very small numbers: this is a five-way product of improvements
+        Expect very small numbers: this is a four-way product of improvements
         that are themselves fractions, so a real gain can read as ``1e-10``.
         Only the trend carries meaning — plot it on a log scale, and do not
         compare it against a run that used a different reference point.

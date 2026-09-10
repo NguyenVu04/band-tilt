@@ -145,7 +145,7 @@ class SurrogateEvaluator:
         return out.reshape(n_band, n_tx, *self.sweep.shape).astype(np.float32)
 
     def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
-        """Predict this tilt vector's map and score it on all five KPIs."""
+        """Predict this tilt vector's map and score it on all four KPIs."""
         started = time.perf_counter()
         rsrp = self.predict(tilt_deg)
         seconds = time.perf_counter() - started

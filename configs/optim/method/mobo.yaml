@@ -1,5 +1,5 @@
 # @package optim.method
-# Ax multi-objective Bayesian optimization over all five KPIs.
+# Ax multi-objective Bayesian optimization over all four KPIs.
 
 name: mobo
 

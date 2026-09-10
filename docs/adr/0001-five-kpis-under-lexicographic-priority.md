@@ -1,4 +1,4 @@
-# 1. Five KPIs under lexicographic priority
+# 1. Four KPIs under lexicographic priority
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
@@ -15,6 +15,9 @@
   direction rather than superseded. Expected RSRP Improvement replaces Mean
   Overlap Neighbours in the third priority slot; see *Revision note — 2026-09-08*
   below.
+- **Revised:** 2026-09-10 — revised in place at the maintainer's direction.
+  Expected RSRP Improvement is removed, leaving four KPIs; see *Revision note —
+  2026-09-10* below. The file name keeps "five" so existing links still resolve.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -54,25 +57,23 @@ considered for both the serving-cell rule and a dominant-band criterion.
 
 ## Decision
 
-The objective is exactly five KPIs:
+The objective is exactly four KPIs:
 
 | KPI | Definition | Direction |
 |---|---|---|
 | Hole rate | fraction of grid with `R_max <= -120` dBm | minimise |
 | Overlap rate | fraction of grid with any co-band neighbour within 6 dB of that band's serving cell | minimise |
-| Expected RSRP Improvement | `mean_u σ((R_sim(u) − R_real(u)) / τ)` over the MDT reports, `τ = 3` dB | **maximise** |
 | UE-weighted Band Priority Score | UE-weighted fraction of UEs served by higher-priority bands | **maximise** |
 | Weak rate | fraction of grid with `-120 < R_max <= -90` dBm | minimise |
 
 They are ordered lexicographically: **Hole > Overlap > Band Priority Score >
-Expected RSRP Improvement > Weak**. Coverage holes come first, then how often
-layers collide, then whether the right frequency layer is serving the users who
-reported, then whether those users are better off than they are today, and
-finally the marginal quality of what is already covered.
+Weak**. Coverage holes come first, then how often layers collide, then whether
+the right frequency layer is serving the users who reported, and finally the
+marginal quality of what is already covered.
 
-Two of the five are maximised, and they are the same two that are weighted by
-the UE reports rather than uniformly over the grid. The three minimised KPIs are
-shares of the map; the two maximised ones are shares of the traffic.
+One of the four is maximised, and it is the one weighted by the UE reports
+rather than uniformly over the grid. The three minimised KPIs are shares of the
+map; the maximised one is a share of the traffic.
 
 Each objective carries a **tolerance** in `configs/kpi.yaml`. A difference smaller
 than its tolerance is treated as a tie and the comparison moves to the next
@@ -80,8 +81,7 @@ objective. Without this the order does not bind.
 
 Where an optimizer cannot express a lexicographic goal, a scalarized fallback is
 provided. It operates on **normalised** KPIs, and the weights are checked to
-satisfy `lambda_H > lambda_O > lambda_BPS > lambda_EI > lambda_W` rather than
-trusted.
+satisfy `lambda_H > lambda_O > lambda_BPS > lambda_W` rather than trusted.
 
 **Accessibility is excluded** — not as a KPI, not as an objective term, not as a
 serving-cell or dominant-band criterion.
@@ -96,7 +96,7 @@ evaluator and it sits downstream of both the simulator and the model.
 
 **Positive**
 
-- The objective is small enough to reason about and to plot: five columns, one
+- The objective is small enough to reason about and to plot: four columns, one
   comparison table.
 - The priority is explicit, so a configuration that fills holes at the cost of
   overlap is unambiguously better rather than a matter of taste.
@@ -116,24 +116,14 @@ evaluator and it sits downstream of both the simulator and the model.
 - Excluding accessibility means the optimizer can produce a configuration with
   excellent RSRP coverage that is worse to actually connect to, and nothing in
   the formulation will notice.
-- **The objective now mixes two notions of where the map matters.** Hole,
-  overlap and weak rate weight every tile equally; Expected RSRP Improvement and
-  Band Priority Score weight tiles by how many UE reports fall on them. A
-  configuration can therefore improve on slots 3 and 4 while making ground the
-  MDT never sampled worse, and slots 1, 2 and 5 are what has to catch that.
-- **`τ` is a free parameter with nothing behind it.** It is set to 3 dB because
-  3 dB is the conventional just-noticeable RF step and sits above the 2 dB
-  measurement noise of the synthetic MDT — a defensible choice, not a derived
-  one. It also bounds what the KPI can see: at `τ = 3` dB, a 10 dB loss and a
-  30 dB loss both score near zero, so Expected RSRP Improvement cannot tell bad
-  from catastrophic and hole rate has to.
-- **`R_real` carries the reporting model's bias.** It is the strongest RSRP each
-  UE actually reported, so it inherits the MDT's measurement noise and its
-  censoring. The baseline configuration therefore scores slightly under 0.5
-  rather than exactly on it. The offset is identical for every candidate and
-  cannot change a ranking, but 0.5 must not be read as "no change".
-- Throughput and interference are not represented, so an overlap reduction that
-  costs capacity looks like a pure win.
+- **The objective mixes two notions of where the map matters.** Hole, overlap
+  and weak rate weight every tile equally; Band Priority Score weights tiles by
+  how many UE reports fall on them. A configuration can therefore improve slot 3
+  while making ground the MDT never sampled worse, and slots 1, 2 and 4 are what
+  has to catch that.
+- Throughput and interference are not in the objective, so an overlap reduction
+  that costs capacity looks like a pure win. `src/kpi/capacity.py` now models
+  SINR and PRB demand, but only as a diagnostic; see the 2026-09-10 note.
 - Changing any threshold makes every previously produced result incomparable.
 
 **Neutral**
@@ -141,25 +131,23 @@ evaluator and it sits downstream of both the simulator and the model.
 - The scalarized path exists and is lossy by construction. It is a compatibility
   shim for optimizers that need one number, and results produced with it must say
   so.
-- Adding a sixth KPI later is possible but supersedes this record and invalidates
+- Adding a fifth KPI later is possible but supersedes this record and invalidates
   the existing comparisons.
-- Expected RSRP Improvement is the only KPI that compares a candidate against
-  measured data rather than scoring it on its own terms. It is therefore the
-  first thing to fail if the MDT and the radio map stop describing the same
-  scenario.
+- No KPI compares a candidate against measured data any more; every one scores
+  the candidate map on its own terms, with the MDT supplying only UE positions.
 
 ## Alternatives considered
 
 **A single weighted-sum objective.** Simple, works with every optimizer, and
 yields a total order. Rejected as the *definition* because it cannot express a
 strict priority: for any weights there is a trade that sacrifices hole rate for
-enough of the other four, which is exactly the outcome the priority forbids. Kept
+enough of the other three, which is exactly the outcome the priority forbids. Kept
 as a fallback where an optimizer requires it.
 
 **Full multi-objective optimization, reporting a Pareto front.** Makes the
 conflicts explicit and imposes no priority. Rejected as the primary formulation
 because the deliverable is one tilt configuration to deploy, and choosing from a
-five-dimensional front requires exactly the priority this record states — so the
+four-dimensional front requires exactly the priority this record states — so the
 decision reappears, less visibly. A multi-objective acquisition remains available
 in `configs/optim/method/mobo.yaml`, with the priority applied when selecting from the
 front.
@@ -268,3 +256,32 @@ and measuring the tolerance remains on the roadmap.
 The reasoning for preferring the frequency layer over the reported improvement
 is the maintainer's, and is recorded here as their direction rather than
 reconstructed after the fact.
+
+## Revision note — 2026-09-10
+
+Revised in place at the maintainer's direction. **Expected RSRP Improvement is
+removed.** The other four KPIs keep their definitions, directions, thresholds
+and tolerances; the order is now **Hole > Overlap > Band Priority Score > Weak**.
+
+| | Previously recorded | Now |
+|---|---|---|
+| KPIs | five | four |
+| Maximised KPIs | two (Expected RSRP Improvement, BPS) | one (BPS) |
+| Scalarized constraint | `... > lambda_BPS > lambda_EI > lambda_W` | `... > lambda_BPS > lambda_W` |
+
+The same change removes the MDT's synthetic censoring, the per-scenario building
+perturbation and the per-scenario material draw from the simulator. Expected
+RSRP Improvement was the only KPI that read the reported RSRP values, and the
+only one whose tolerance was unmeasured; both gaps close with it.
+
+**What this costs.** As with every revision, results before and after are
+incomparable. Runs on disk are not migrated; their `run.json` records the five
+KPIs that scored them.
+
+**SINR and PRB demand enter as a diagnostic, not an objective.**
+`src/kpi/capacity.py` picks a serving cell-band per UE (band preference above an
+RSRP threshold, else the strongest, under per-cell-band PRB limits) and turns
+full-load co-band SINR into PRBs per UE. The evaluation's demand map is now PRBs
+required per tile. The *Include throughput or SINR* alternative above still
+holds for the objective: the model's load and scheduler assumptions are
+placeholders, and no optimizer sees the result.

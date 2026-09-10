@@ -1,4 +1,4 @@
-"""Build a perturbed scenario, draw UEs, and write its manifest."""
+"""Build a scenario, draw UEs, and write its manifest."""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from src.simulation import density, grid, perturb, sample, seeds, traffic
+from src.simulation import density, grid, sample, seeds, traffic
 from src.simulation import scene as scene_module
 from src.simulation.density import DensitySpec
 from src.simulation.grid import GridSpec
-from src.simulation.perturb import PerturbSpec
 from src.simulation.sample import UeSpec
 from src.simulation.scene import SceneSpec
 from src.simulation.traffic import TrafficSpec
@@ -29,8 +28,6 @@ _IDENTITY_KEYS = (
     "ue",
     "time",
     "density",
-    "perturbation",
-    "materials",
     "seed",
 )
 
@@ -60,12 +57,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     density_spec = DensitySpec.from_config(cfg)
     traffic_spec = TrafficSpec.from_config(cfg)
 
-    scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
-    report = perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
-
-    # Preserve the delivered grid frame; only raise the ray launch height.
-    perturbed = scene_module.bounds_of(scene)
-    bounds = dataclasses.replace(delivered, max_z=max(delivered.max_z, perturbed.max_z))
+    scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
     roi = bounds.inset(float(cfg.simulation.area.margin_m))
 
     raster = grid.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
@@ -92,13 +84,12 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     ue_file = sample.write_csv(
         Path(cfg.simulation.output.ue_file), interval, schedule, x, y, component, raster, ue
     )
-    manifest_file = _write_manifest(cfg, report, raster, bounds, roi, field, schedule, x)
+    manifest_file = _write_manifest(cfg, raster, bounds, roi, field, schedule, x)
 
     eligible = density.eligible_tiles(raster, mask)
     tile_col, tile_row = raster.tile_indices(x, y)
     hotspot_mass = schedule.component_mass[:, 1:].sum(axis=1)
     print(f"scenario: {scenario_id(cfg)}")
-    print(f"removed:  {len(report.removed)} buildings   jittered: {len(report.jittered)}")
     print(
         f"grid:     {raster.n_cols} x {raster.n_rows} tiles, "
         f"{int(np.count_nonzero(eligible))} eligible inside a "
@@ -125,7 +116,6 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
 
 def _write_manifest(
     cfg: DictConfig,
-    report: perturb.PerturbReport,
     raster: grid.Raster,
     bounds: scene_module.SceneBounds,
     roi: scene_module.SceneBounds,
@@ -148,12 +138,6 @@ def _write_manifest(
             "min_y": roi.min_y,
             "max_y": roi.max_y,
         },
-        "perturbation": {
-            "removed": list(report.removed),
-            "jittered": list(report.jittered),
-            "spec": OmegaConf.to_container(cfg.simulation.perturbation, resolve=True),
-        },
-        "materials": OmegaConf.to_container(cfg.simulation.materials, resolve=True),
         "grid": {
             "origin_x": raster.origin_x,
             "origin_y": raster.origin_y,

@@ -1,6 +1,6 @@
 """The search methods, one folder each, behind one interface.
 
-Every method scores its proposals with the same five functions in
+Every method scores its proposals with the same four functions in
 :mod:`src.kpi` and returns the same :class:`~src.optim.history.History`, so a
 comparison between methods is a comparison of search strategies and nothing
 else. Adding one is a folder and a registry entry, not an edit to a dispatch

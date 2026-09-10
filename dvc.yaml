@@ -30,8 +30,8 @@
 
 stages:
   # --- Stage 1: the scenario (notebook 00, section 3) ------------------------
-  # Perturbs the delivered Sionna-RT scene, rasters it into the shared grid, and
-  # draws the time-varying UE population. Fully synthetic: the scene ships with
+  # Rasters the delivered Sionna-RT scene into the shared grid and draws the
+  # time-varying UE population. Fully synthetic: the scene ships with
   # Sionna-RT and the cell layout in configs/simulation.yaml was generated once
   # by `task simulation:layout`, so neither is a file dependency here.
   simulation_scenario:
@@ -40,7 +40,6 @@ stages:
       - src/simulation/scenario.py
       - src/simulation/density.py
       - src/simulation/grid.py
-      - src/simulation/perturb.py
       - src/simulation/sample.py
       - src/simulation/seeds.py
       - src/simulation/traffic.py
@@ -50,8 +49,6 @@ stages:
           - scene
           - area
           - grid
-          - perturbation
-          - materials
           - density
           - time
           - ue
@@ -61,8 +58,8 @@ stages:
       - data/external/scenario.json
 
   # --- Stage 2: the radio map (notebook 00, section 4) -----------------------
-  # Rebuilds the same perturbed scene from the same seed, places the cells at
-  # their configured per-band tilt, and ray-traces one band at a time. The
+  # Rebuilds the same scene, places the cells at their configured per-band
+  # tilt, and ray-traces one band at a time. The
   # expensive stage — it needs a CUDA GPU and the Sionna-RT extra
   # (`task sync:rt`, or a system install with SUMO-style env vars N/A here).
   #
@@ -74,7 +71,6 @@ stages:
     deps:
       - src/simulation/radio.py
       - src/simulation/materials.py
-      - src/simulation/perturb.py
       - src/simulation/seeds.py
       - src/simulation/transmitter.py
       - src/simulation/scenario.py
@@ -87,8 +83,6 @@ stages:
           - scene
           - area
           - grid
-          - perturbation
-          - materials
           - transmitters
           - radio_map
           - antenna
@@ -98,8 +92,7 @@ stages:
       - data/interim/radio_map.npz
 
   # --- Stage 3: the MDT (notebook 00, section 5) ------------------------------
-  # Samples the clean radio map at every UE position, adds receiver noise, and
-  # censors what a real handset would not report.
+  # Samples the clean radio map at every UE position and adds receiver noise.
   simulation_mdt:
     cmd: python -m src.simulation.mdt
     deps:
@@ -161,7 +154,6 @@ stages:
       - src/optim/evaluator.py
       - src/simulation/radio.py
       - src/simulation/materials.py
-      - src/simulation/perturb.py
       - src/simulation/transmitter.py
       - src/simulation/scene.py
       - src/simulation/grid.py
@@ -172,8 +164,6 @@ stages:
           - scene
           - area
           - grid
-          - perturbation
-          - materials
           - transmitters
           - radio_map
           - antenna
@@ -253,7 +243,6 @@ stages:
           - weak_dbm
           - overlap_margin_db
           - band_priority
-          - rsrp_improvement_tau_db
           - tolerance
       - configs/simulation.yaml:
           - transmitters

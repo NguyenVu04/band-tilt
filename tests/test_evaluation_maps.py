@@ -104,14 +104,27 @@ def test_coverage_cdf_places_unreached_tiles_at_the_floor() -> None:
     assert levels[0] == pytest.approx(-100.0)
 
 
-def test_demand_matches_the_bps_weighting() -> None:
-    """Row-major binning, the same one band_priority_score weights by."""
-    mdt = pd.DataFrame({"tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
-    counts = maps.demand(mdt, (3, 4))
+def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
+    """Two UEs on one tile in one interval need twice one UE's PRBs."""
+    from src.kpi import capacity
+
+    cfg.kpi.band_priority = {"b": 1.0}
+    cfg.kpi.capacity = {
+        "rsrp_threshold_dbm": -110.0,
+        "throughput_per_ue_bps": 1e6,
+        "noise_figure_db": 9.0,
+        "bands": {"b": {"scs_hz": 15000, "n_prb": 1000}},
+    }
+    rsrp = np.full((1, 1, 3, 4), -90.0)
+    mdt = pd.DataFrame({"t_index": [0, 0, 0], "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
+    counts = maps.demand(rsrp, ["b"], mdt, cfg)
+
+    noise = capacity.noise_per_re_dbm(15000.0, 9.0)
+    per_ue = capacity.prb_per_ue(1e6, capacity.prb_rate_bps(-90.0 - noise, 180_000.0))
     assert counts.shape == (3, 4)
-    assert counts[0, 1] == 2
-    assert counts[2, 3] == 1
-    assert counts.sum() == 3
+    assert counts[0, 1] == pytest.approx(capacity.prb_required(2, per_ue))
+    assert counts[2, 3] == pytest.approx(per_ue)
+    assert counts.sum() == pytest.approx(3 * per_ue)
 
 
 def test_extent_spans_whole_tiles() -> None:

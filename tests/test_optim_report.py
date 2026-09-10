@@ -83,7 +83,6 @@ class StubEvaluator:
             kpi=KpiVector(
                 hole_rate=float(np.mean((unit - 0.35) ** 2)),
                 overlap_rate=float(np.mean(unit) * 0.5),
-                expected_rsrp_improvement=float(1.0 - np.mean((unit - 0.45) ** 2)),
                 band_priority_score=float(1.0 - np.mean((unit - 0.75) ** 2)),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
             ),
@@ -109,9 +108,9 @@ def space(cfg) -> TiltSpace:
 def _predicted(space: TiltSpace, count: int) -> list[KpiVector]:
     """A spread of KPI vectors, so the front has an interior to thin."""
     rng = np.random.default_rng(0)
-    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, 0.5)]
+    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5)]
     for _ in range(count - 1):
-        unit = rng.random(5)
+        unit = rng.random(4)
         kpis.append(KpiVector(*(float(value) for value in unit)))
     return kpis
 

@@ -6,7 +6,7 @@ scene:
   name: munich
   # Use a mono-polarized CUDA variant required by Sionna-RT.
   mitsuba_variant: cuda_ad_mono_polarized
-  # Keep buildings separate so they can be perturbed.
+  # Keep buildings as separate shapes rather than one merged mesh.
   merge_shapes: false
 
 # Region of interest
@@ -59,29 +59,6 @@ density:
   # before it may hold a hotspot centre. Keeps centres off near-empty ground.
   min_built_volume_fraction: 0.5
 
-# Per-scenario geometry deviations from the delivered scene.
-perturbation:
-  remove:
-    # Buildings deleted outright.
-    n_buildings: 20
-  jitter:
-    # Buildings given random height, offset, and rotation.
-    n_buildings: 40
-    # Height multiplier about the ground plane.
-    height_scale: [0.85, 1.20]
-    # Survey-error bounds for footprint position and orientation.
-    position_m: 2.0
-    orientation_deg: 3.0
-
-# Per-band static materials derived from ITU-R P.2040 coefficients.
-materials:
-  perturbation:
-    # Multiplies the ITU value.
-    relative_permittivity_scale: [0.90, 1.10]
-    conductivity_scale: [0.70, 1.30]
-    # Absolute range; used only with diffuse reflection.
-    scattering_coefficient: [0.0, 0.3]
-
 # Co-located multi-band cells on a square node lattice.
 transmitters:
   layout:
@@ -105,7 +82,7 @@ transmitters:
       b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
       b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
       b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-  # Generated against the unperturbed scene and held fixed across scenarios.
+  # Generated once against the delivered scene and held fixed across scenarios.
   cells:
     - name: n0c0
       x: -380.34
@@ -276,11 +253,6 @@ antenna:
 mdt:
   # Independent receiver measurement error.
   rsrp_noise_sigma_db: 2.0
-  # Randomly unreported share of eligible measurements.
-  drop_fraction: 0.3
-  # Never drop the strongest cell or cells within this margin.
-  protect_within_db: 6.0
-  protect_strongest_n: 1
 
 # Output artifacts for scenario inputs, clean maps, and synthetic reports.
 output:

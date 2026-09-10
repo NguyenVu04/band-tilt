@@ -2,8 +2,7 @@
 
 The three coverage rates say nothing about WHICH layer serves a location; this
 one asks whether the layers the project would rather use are the ones serving
-the ground the users actually stand on. Maximised, as the Expected RSRP
-Improvement is.
+the ground the users actually stand on. Maximised.
 
 The radio map decides the dominant band per grid tile; the MDT supplies the UE
 weight for that tile. Weighting is the point: two tiles with the same dominant
@@ -103,7 +102,7 @@ def band_priority_score(
 
     Returns:
         The score in ``[0, 1]``, larger when more UEs are served by
-        higher-priority bands. **Maximised**, like Expected RSRP Improvement.
+        higher-priority bands. **Maximised**, the only KPI that is.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, when

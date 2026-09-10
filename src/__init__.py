@@ -5,7 +5,7 @@ Layout
 - ``src.core``       the shared domain types: node, cell, tilt
 - ``src.data``       load, validate and split synthetic MDT and cell configuration
 - ``src.radio``      scene construction, radio-map generation, tilt geometry
-- ``src.kpi``        the five KPIs — the only definition of the objective
+- ``src.kpi``        the four KPIs — the only definition of the objective
 - ``src.surrogate``  the fast radio-map predictor that stands in for Sionna-RT
 - ``src.optim``      TuRBO and MARL over the same search space
 - ``src.evaluation`` Sionna-RT validation, method comparison, reporting

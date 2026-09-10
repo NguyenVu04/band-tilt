@@ -20,8 +20,7 @@ class SceneSpec:
             imported. Must be a ``mono_polarized`` one.
         merge_shapes: Let sionna-rt merge shapes sharing a radio material.
             Merging is a solver optimisation, but it collapses a city into a
-            handful of per-material blobs, and a building that is no longer a
-            distinct object cannot be perturbed.
+            handful of per-material blobs.
     """
 
     name: str
@@ -157,9 +156,8 @@ def load(spec: SceneSpec) -> tuple[Any, SceneBounds]:
 def bounds_of(scene: Any) -> SceneBounds:
     """Read a scene's axis-aligned extent.
 
-    Separate from :func:`load` because perturbation changes it: removing or
-    raising buildings moves the bounding box, and the grid must be laid out
-    over what the scene is now.
+    Separate from :func:`load` so an edited scene can be re-measured: the grid
+    must be laid out over what the scene is now.
 
     Raises:
         RuntimeError: When the scene carries no Mitsuba scene to measure.

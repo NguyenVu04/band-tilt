@@ -1,7 +1,7 @@
 """Optimization over the absolute-tilt space.
 
 One decision vector, one objective, three ways of searching it. Every method
-here proposes a tilt for each cell-band pair, has it scored by the five
+here proposes a tilt for each cell-band pair, has it scored by the four
 functions in :mod:`src.kpi`, and writes the same artifacts, so a comparison
 between methods is a comparison of search strategies and nothing else.
 

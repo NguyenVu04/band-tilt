@@ -1,17 +1,16 @@
-"""Simulation stages for perturbed scenes, UEs, maps, and MDT.
+"""Simulation stages for scenes, UEs, maps, and MDT.
 
 Three stages, run in order, each a ``python -m`` entry point:
 
 ``scenario``
-    Perturbs the delivered scene, rasters it, and draws the UE population over
-    the result, once per interval across the horizon. Writes the UE table and a
-    manifest.
+    Rasters the delivered scene and draws the UE population over it, once per
+    interval across the horizon. Writes the UE table and a manifest.
 ``radio``
     Rebuilds that scenario, places the transmitters, and ray-traces one clean
     radio map per band. This artifact is the surrogate's label.
 ``mdt``
-    Samples the radio map at the UE positions, adds measurement error and
-    censors, producing what a UE would actually report.
+    Samples the radio map at the UE positions and adds measurement error,
+    producing what a UE would report.
 
 The population moves over time; the map does not, and does not need to. Tilt
 and geometry are fixed for the whole scenario, so an interval changes only
@@ -31,11 +30,8 @@ Supporting modules, each with one reason to change:
     height above any ``(x, y)``. The only module that touches ``sionna.rt`` or
     ``mitsuba`` directly for geometry.
 ``materials``
-    Frequency-static radio materials and their perturbation, replacing the ITU
-    ones that forbid sub-GHz carriers and silently discard perturbations.
-``perturb``
-    Buildings removed, resized, nudged and turned — this scenario's errors
-    about the real city.
+    Frequency-static radio materials, replacing the ITU ones that forbid
+    sub-GHz carriers.
 ``grid``
     Square tiles over the scene, and the open-ground and building rasters that
     one ray-cast pass yields.

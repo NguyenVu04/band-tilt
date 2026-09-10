@@ -316,7 +316,7 @@ def build_features(cfg: DictConfig, path: str | Path | None = None) -> Path:
     """Build the scene channels and write them beside the sweep.
 
     Cast here and cached because training must not need Mitsuba: the channels
-    are a function of the perturbed scene and the mast positions alone, so they
+    are a function of the scene and the mast positions alone, so they
     are the same for every tilt the optimizer will ever try.
 
     The grid is taken from the scenario manifest rather than rebuilt by

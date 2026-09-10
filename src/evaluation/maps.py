@@ -9,13 +9,14 @@ why that is a diagnostic and not an objective.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.bps import ue_counts
+from src.kpi.capacity import demand_prb
 from src.kpi.serving import max_rsrp
 
 # Display range for RSRP images. The lower bound is the hole threshold, so the
@@ -54,40 +55,40 @@ def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     return np.where(best <= hole_dbm, HOLE, np.where(best <= weak_dbm, WEAK, GOOD))
 
 
-def demand(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
-    """UE reports per tile, accumulated over every interval.
+def demand(
+    rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
+) -> np.ndarray:
+    """PRBs required per tile in its busiest interval; see :func:`src.kpi.capacity.demand_prb`.
 
-    The same raster the Band Priority Score weights by — see
-    :func:`src.kpi.bps.ue_counts` — so the demand shown here is the demand that
-    KPI already acts on.
+    Depends on the map: SINR, and so PRBs per UE, move with the tilts.
     """
-    return ue_counts(mdt, shape)
+    return demand_prb(rsrp, band_labels, mdt, cfg)
 
 
 def coverage_table(rsrp: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> pd.DataFrame:
     """Coverage by area and by demand, one row per class.
 
     Returns:
-        Columns ``tiles``, ``tile_share``, ``reports``, ``demand_share``.
+        Columns ``tiles``, ``tile_share``, ``prb``, ``demand_share``.
 
         ``tile_share`` for the hole row is the hole rate KPI; ``demand_share``
-        is the share of UE reports standing on such a tile. They can differ by
+        is the share of PRB demand standing on such a tile. They can differ by
         a large factor, because holes need not fall where anyone is, and that
         difference is the reason this table exists.
     """
     classes = coverage_class(rsrp, cfg)
-    total_reports = counts.sum()
+    total = counts.sum()
     rows = []
     for index, name in enumerate(COVERAGE_CLASSES):
         mask = classes == index
-        reports = int(counts[mask].sum())
+        prb = float(counts[mask].sum())
         rows.append(
             {
                 "coverage": name,
                 "tiles": int(mask.sum()),
                 "tile_share": float(mask.mean()),
-                "reports": reports,
-                "demand_share": float(reports / total_reports) if total_reports else float("nan"),
+                "prb": prb,
+                "demand_share": float(prb / total) if total else float("nan"),
             }
         )
     return pd.DataFrame(rows)
@@ -141,7 +142,7 @@ def underserved(
 
 
 def coverage_cdf(best: np.ndarray, counts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Share of tiles, and of UE reports, at or below each RSRP level.
+    """Share of tiles, and of demand, at or below each RSRP level.
 
     Args:
         best: Best-server RSRP, ``[n_rows, n_cols]``, possibly ``-inf``.

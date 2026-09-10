@@ -139,7 +139,7 @@ def demand_signal_maps(
 
     occupied = np.where(counts > 0, counts.astype(float), np.nan)
     image = axes[0].imshow(occupied, origin="lower", extent=extent, aspect="equal")
-    figure.colorbar(image, ax=axes[0], label="UE reports, all intervals")
+    figure.colorbar(image, ax=axes[0], label="PRBs required, peak interval")
     _overlay(axes[0], cells, hotspots)
     _map_axes(axes[0], extent, f"Demand — {int((counts > 0).mean() * 100)}% of tiles occupied")
 
@@ -184,7 +184,7 @@ def coverage_cdf(best: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> Figur
 
     figure, axis = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
     axis.plot(levels, tile_share, lw=1.8, label="weighted by tiles (the KPI)")
-    axis.plot(levels, demand_share, lw=1.8, label="weighted by UE reports")
+    axis.plot(levels, demand_share, lw=1.8, label="weighted by PRB demand")
 
     for threshold, name in ((hole_dbm, "hole"), (weak_dbm, "weak")):
         axis.axvline(threshold, color="0.5", ls="--", lw=1)
@@ -211,7 +211,7 @@ def coverage_cdf(best: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> Figur
 def kpi_comparison(deltas: dict[str, pd.DataFrame], cfg: DictConfig) -> Figure:
     """Improvement over the incumbent, per KPI, in units of that KPI's tolerance.
 
-    The five KPIs are on incomparable scales — a share of the grid beside a
+    The four KPIs are on incomparable scales — a share of the grid beside a
     UE-weighted score — so raw deltas cannot share an axis. Dividing by each
     KPI's tolerance
     puts them on one: a bar of height 1 is exactly one noise floor. Positive is

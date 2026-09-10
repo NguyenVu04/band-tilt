@@ -25,7 +25,7 @@ _LOS_TOL_M = 1e-2
 
 @dataclass(frozen=True)
 class SceneFeatures:
-    """What one perturbed scene contributes to the surrogate's input.
+    """What one scene contributes to the surrogate's input.
 
     Two resolutions. The first three arrays are built on the sub-tile grid,
     shaped ``[n_rows * sub, n_cols * sub]``, because a facade is narrower than a
@@ -77,9 +77,6 @@ def build(
     grid, so the channels carry the origin and shape the radio map was solved
     on. A locally recomputed grid could sit half a tile off and every channel
     would still look entirely plausible.
-
-    ``mi_scene`` must be re-read from ``scene.mi_scene`` after any
-    :func:`src.simulation.perturb.apply`, which rebuilds it.
 
     Args:
         mi_scene: The Mitsuba scene to cast against.

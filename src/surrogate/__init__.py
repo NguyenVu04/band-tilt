@@ -34,7 +34,7 @@ solves rather than *tilts x cells*.
     does. A search cannot tell which one it holds.
 
 **None of the scene channels depend on tilt.** They are a function of the
-perturbed scene and the mast positions alone, so a scenario builds them once and
+scene and the mast positions alone, so a scenario builds them once and
 every tilt configuration the optimizer tries reads the same arrays. That is the
 whole reason they are separated from anything the solver produces: a channel
 that had to be rebuilt per evaluation would cost what it is meant to save. It is
@@ -51,8 +51,7 @@ half a tile away from the RSRP it will be trained against.
 Materials are deliberately absent. They are available -- a scene object's name
 carries its ITU material and :func:`src.simulation.materials.evaluate` turns
 that into permittivity and conductivity -- but the scene's palette is small,
-its conductivities are separated mostly by whether a surface is metal, and
-``simulation.materials.perturbation`` moves them only by a modest multiplier.
+and its conductivities are separated mostly by whether a surface is metal.
 Add the channel when a measured residual asks for it, not before.
 """
 

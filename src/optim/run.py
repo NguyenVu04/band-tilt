@@ -39,7 +39,7 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
     """Search the tilt space with the selected method and write the search log.
 
     Returns the history and the directory written to. No deliverable is
-    published here: which point on a five-objective front to deploy is a
+    published here: which point on a four-objective front to deploy is a
     judgement made against measured KPIs, and this phase has none.
     """
     method = str(cfg.optim.method.name)

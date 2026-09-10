@@ -1,21 +1,16 @@
-"""The five KPI definitions, and the reductions they share."""
+"""The four KPI definitions, and the reductions they share."""
 
 from __future__ import annotations
-
-import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import band_priority_score, expected_rsrp_improvement, hole_rate, weak_rate
+from src.kpi import band_priority_score, hole_rate, weak_rate
 from src.kpi.bps import ue_counts
-from src.kpi.improvement import measured_serving_rsrp
 from src.kpi.serving import overlap_neighbors
 from src.kpi.tiles import tile_index
-
-_TAU_DB = 3.0
 
 
 @pytest.fixture
@@ -27,7 +22,6 @@ def cfg():
                 "hole_dbm": -120.0,
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
-                "rsrp_improvement_tau_db": _TAU_DB,
                 "band_priority": {"hi": 3.0, "lo": 1.0},
             }
         }
@@ -106,85 +100,6 @@ def test_ue_counts_bins_row_major() -> None:
     """The weight raster the band priority score multiplies through."""
     mdt = _mdt([{"tile_row": 1, "tile_col": 0}] * 3 + [{"tile_row": 0, "tile_col": 1}])
     assert ue_counts(mdt, (2, 2)).tolist() == [[0, 1], [3, 0]]
-
-
-# --- expected RSRP improvement ---------------------------------------------
-
-
-def test_measured_serving_rsrp_is_the_row_max_over_reported_cells() -> None:
-    """An unreported cell is NaN and cannot be the one serving the UE."""
-    mdt = _mdt(
-        [
-            {"rsrp_a_hi": -95.0, "rsrp_a_lo": -88.0},
-            {"rsrp_a_hi": np.nan, "rsrp_a_lo": -101.0},
-        ]
-    )
-    assert measured_serving_rsrp(mdt).tolist() == [-88.0, -101.0]
-
-
-def test_a_frame_with_no_measurements_is_named_rather_than_reduced() -> None:
-    """Silently reducing the position columns would give a plausible wrong number."""
-    with pytest.raises(ValueError, match="columns in the MDT"):
-        measured_serving_rsrp(_mdt([{"tile_row": 0, "tile_col": 0}]))
-
-
-def test_a_row_reporting_nothing_raises() -> None:
-    """src.data.schema rejects this, so reaching it means the gate was skipped."""
-    with pytest.raises(ValueError, match="report no measurement"):
-        measured_serving_rsrp(_mdt([{"rsrp_a_hi": np.nan, "rsrp_a_lo": np.nan}]))
-
-
-def test_no_change_scores_exactly_one_half(cfg) -> None:
-    """The sigmoid's midpoint, and the reading every delta is relative to."""
-    rsrp = _map([[[-95.0, -100.0]]])
-    mdt = _mdt(
-        [
-            {"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0},
-            {"tile_row": 0, "tile_col": 1, "rsrp_a_hi": -100.0},
-        ]
-    )
-    assert expected_rsrp_improvement(rsrp, mdt, cfg) == pytest.approx(0.5)
-
-
-def test_a_gain_of_tau_scores_the_sigmoid_of_one(cfg) -> None:
-    """Pins tau to the units of the RSRP difference rather than to the score."""
-    rsrp = _map([[[-95.0 + _TAU_DB]]])
-    mdt = _mdt([{"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0}])
-    assert expected_rsrp_improvement(rsrp, mdt, cfg) == pytest.approx(1.0 / (1.0 + np.exp(-1.0)))
-
-
-def test_a_loss_scores_below_one_half(cfg) -> None:
-    """The KPI is maximised, so a weaker candidate must not read as a gain."""
-    rsrp = _map([[[-105.0]]])
-    mdt = _mdt([{"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0}])
-    assert expected_rsrp_improvement(rsrp, mdt, cfg) < 0.5
-
-
-def test_a_tile_turned_into_a_hole_scores_zero_without_warning(cfg) -> None:
-    """The -inf path. np.exp would overflow and warn here; np.tanh does not."""
-    rsrp = _map([[[np.nan]]])
-    mdt = _mdt([{"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0}])
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert expected_rsrp_improvement(rsrp, mdt, cfg) == pytest.approx(0.0)
-
-
-def test_a_non_positive_tau_raises(cfg) -> None:
-    """At zero the sigmoid argument divides by zero; below it the score inverts."""
-    cfg.kpi.rsrp_improvement_tau_db = 0.0
-    mdt = _mdt([{"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0}])
-    with pytest.raises(ValueError, match="must be positive"):
-        expected_rsrp_improvement(_map([[[-95.0]]]), mdt, cfg)
-
-
-def test_the_score_is_weighted_by_report_count(cfg) -> None:
-    """One row per UE per interval, so a busy tile pulls the mean towards itself."""
-    rsrp = _map([[[-95.0 + _TAU_DB, -95.0]]])
-    gain = {"tile_row": 0, "tile_col": 0, "rsrp_a_hi": -95.0}
-    flat = {"tile_row": 0, "tile_col": 1, "rsrp_a_hi": -95.0}
-    balanced = expected_rsrp_improvement(rsrp, _mdt([gain, flat]), cfg)
-    weighted = expected_rsrp_improvement(rsrp, _mdt([gain, gain, gain, flat]), cfg)
-    assert weighted > balanced
 
 
 # --- band priority score ---------------------------------------------------

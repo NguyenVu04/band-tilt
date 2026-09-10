@@ -1,4 +1,4 @@
-"""Ax multi-objective Bayesian optimization over all five KPIs."""
+"""Ax multi-objective Bayesian optimization over all four KPIs."""
 
 from __future__ import annotations
 

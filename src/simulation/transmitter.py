@@ -1,6 +1,6 @@
 """Generate node layouts and build Sionna-RT transmitters.
 
-Layouts use open ground in the unperturbed scene and remain fixed per scenario.
+Layouts use open ground in the delivered scene and remain fixed per scenario.
 """
 
 from __future__ import annotations
@@ -227,11 +227,10 @@ def validate(
 
     Holds the layout to the rule :func:`generate` places it under — a mast
     stands on open ground, at a measured height above it — against whatever the
-    scene holds now. A perturbation that raises a building can swallow a mast
-    mounted against the delivered scene or leave it standing on a roof, and one
-    that removes a building leaves its mast on nothing. All three are reported
-    for the run log; none is silently corrected, because moving a mast to suit a
-    perturbation would defeat the point of holding the layout fixed.
+    scene holds now. A changed scene can swallow a mast, leave it standing on a
+    roof, or leave it on nothing. All three are reported for the run log; none is
+    silently corrected, because moving a mast would defeat the point of holding
+    the layout fixed.
 
     ``free_height_tol_m`` is ``simulation.grid.free_height_tol_m``, so ground and
     building mean the same thing here as everywhere else in the pipeline.
@@ -357,9 +356,8 @@ def _tiles_are_clear(
 def main(cfg: DictConfig) -> None:
     """Generate the cell table and print it. Entry point for ``task simulation:layout``.
 
-    Mounts against the delivered scene with no perturbation applied, which is
-    the point: the layout is surveyed once and then held fixed across every
-    scenario.
+    Mounts against the delivered scene: the layout is surveyed once and then
+    held fixed across every scenario.
     """
     spec = LayoutSpec.from_config(cfg)
     grid_spec = GridSpec.from_config(cfg)
@@ -367,9 +365,7 @@ def main(cfg: DictConfig) -> None:
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
 
     # The raster the UEs are drawn against is built the same way, from the same
-    # stream, so "free tile" means one thing across the whole pipeline. It is
-    # built here from the unperturbed scene, which is what the layout is
-    # surveyed against.
+    # stream, so "free tile" means one thing across the whole pipeline.
     raster = grid_module.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
     roi = bounds.inset(float(cfg.simulation.area.margin_m))
     cells = generate(scene.mi_scene, bounds, roi, raster, spec, grid_spec, default_tilt)

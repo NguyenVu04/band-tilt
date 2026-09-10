@@ -1,8 +1,8 @@
 """Turn a tilt vector into a KPI vector by ray tracing.
 
 The expensive half of every optimization run, and the reason a run is feasible
-at all: the scene, its perturbation and the antenna arrays do not depend on
-tilt, so they are built once at construction and reused for every candidate.
+at all: the scene and the antenna arrays do not depend on tilt, so they are
+built once at construction and reused for every candidate.
 Only the transmitters are rebuilt per evaluation, which is what
 :func:`src.simulation.radio.solve_band` already does.
 
@@ -14,7 +14,6 @@ never learns which one it holds.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import time
 from dataclasses import dataclass, field
@@ -28,12 +27,10 @@ from omegaconf import DictConfig
 from src.core.cell import Cell
 from src.optim.objective import RAY_TRACED, KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
-from src.simulation import perturb, radio, seeds, transmitter
+from src.simulation import radio, seeds, transmitter
 from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
 from src.simulation.grid import GridSpec
-from src.simulation.materials import MaterialSpec
-from src.simulation.perturb import PerturbSpec
 from src.simulation.scene import SceneSpec
 
 
@@ -44,7 +41,7 @@ class EvaluationResult:
     Attributes:
         tilt_deg: The vector evaluated, in :class:`~src.optim.space.TiltSpace`
             dimension order.
-        kpi: Its score on all five KPIs.
+        kpi: Its score on all four KPIs.
         seconds: Wall clock for the ray tracing, summed over bands, measured
             around the point the maps are actually materialised. Excludes
             scoring and anything the caller does, so a run can report
@@ -86,9 +83,8 @@ class ObjectiveEvaluator(Protocol):
 class Evaluator:
     """Ray-trace a tilt vector and score the resulting radio map.
 
-    Construction loads the scene, applies this scenario's building
-    perturbation, attaches the antenna arrays and checks the masts still stand
-    on open ground — everything :func:`src.simulation.radio.solve` does per call
+    Construction loads the scene, attaches the antenna arrays and checks the
+    masts still stand on open ground — everything :func:`src.simulation.radio.solve` does per call
     that does not depend on tilt. It is a large fixed fraction of what one
     evaluation costs, so paying it per candidate would add roughly half again
     to every point in the run.
@@ -120,8 +116,6 @@ class Evaluator:
             radio.Band.from_config(entry) for entry in cfg.simulation.radio_map.bands
         )
         self._solver = radio.SolverSpec.from_config(cfg)
-        self._materials = MaterialSpec.from_config(cfg)
-        self._material_seed = seeds.stream(cfg, "materials")
         # Shared seed: common Monte-Carlo noise cancels, so KPI *differences* are much cleaner.
         self._solver_seed = seeds.stream(cfg, "solver")
         self._height_m = float(cfg.simulation.ue.height_m)
@@ -129,11 +123,7 @@ class Evaluator:
         self._mdt = pd.read_parquet(cfg.data.output.mdt_file)
         self._centres: np.ndarray | None = None
 
-        scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
-        perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
-        bounds = dataclasses.replace(
-            delivered, max_z=max(delivered.max_z, scene_module.bounds_of(scene).max_z)
-        )
+        scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
         for problem in transmitter.validate(
             scene.mi_scene, bounds, self.space.cells, GridSpec.from_config(cfg).free_height_tol_m
         ):
@@ -161,12 +151,11 @@ class Evaluator:
 
     @property
     def scene(self) -> Any:
-        """The perturbed scene, with the arrays already attached.
+        """The scene, with the arrays already attached.
 
         Exposed so the surrogate's scene channels are built against the very
         geometry its maps were solved on. Rebuilding the scene to read it would
-        be both the expensive half of a run again and a second chance to
-        perturb it differently.
+        be the expensive half of a run again.
 
         Raises:
             RuntimeError: When the evaluator has been closed.
@@ -177,7 +166,7 @@ class Evaluator:
 
     @property
     def bounds(self) -> scene_module.SceneBounds:
-        """The perturbed scene's extent, read for ``launch_z``."""
+        """The scene's extent, read for ``launch_z``."""
         return self._bounds
 
     @property
@@ -194,7 +183,7 @@ class Evaluator:
         """Ray-trace one band against the scene this evaluator holds.
 
         Public because the surrogate's tilt sweep needs single-band solves
-        against exactly this scene, perturbation, material draw and solver
+        against exactly this scene, material install and solver
         seed. Building a second scene for it would be both the expensive half
         of a run again and a second chance to configure it differently.
 
@@ -212,8 +201,6 @@ class Evaluator:
             cells,
             self._bands[band_index],
             self._solver,
-            self._materials,
-            self._material_seed,
             self._solver_seed,
             self._grid_meta,
             self._height_m,

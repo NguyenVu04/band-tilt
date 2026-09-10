@@ -67,7 +67,7 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     longer, and one reporting only the time would miss that it spent it well.
 
     Returns:
-        Columns for the run's identity, its budget, its cost, its five KPIs,
+        Columns for the run's identity, its budget, its cost, its four KPIs,
         and how many of them beat the incumbent by more than tolerance.
     """
     rows = []

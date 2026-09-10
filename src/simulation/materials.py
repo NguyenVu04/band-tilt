@@ -1,41 +1,8 @@
-"""Install per-scenario, frequency-static radio materials."""
+"""Install frequency-static ITU radio materials."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
-
-import numpy as np
-from omegaconf import DictConfig
-
-
-@dataclass(frozen=True)
-class MaterialSpec:
-    """How far a scenario's materials may stray from their ITU values.
-
-    Each range is a multiplier drawn uniformly and applied to the ITU value,
-    except ``scattering_coefficient``, which is an absolute value because ITU
-    does not define one.
-
-    Attributes:
-        relative_permittivity_scale: Multiplier range for permittivity.
-        conductivity_scale: Multiplier range for conductivity.
-        scattering_coefficient: Absolute range for the scattering coefficient.
-    """
-
-    relative_permittivity_scale: tuple[float, float]
-    conductivity_scale: tuple[float, float]
-    scattering_coefficient: tuple[float, float]
-
-    @classmethod
-    def from_config(cls, cfg: DictConfig) -> MaterialSpec:
-        """Read ``simulation.materials.perturbation``."""
-        perturbation = cfg.simulation.materials.perturbation
-        return cls(
-            relative_permittivity_scale=_pair(perturbation.relative_permittivity_scale),
-            conductivity_scale=_pair(perturbation.conductivity_scale),
-            scattering_coefficient=_pair(perturbation.scattering_coefficient),
-        )
 
 
 def evaluate(name: str, frequency_hz: float) -> tuple[float, float]:
@@ -62,54 +29,37 @@ def evaluate(name: str, frequency_hz: float) -> tuple[float, float]:
     return float(a * f_ghz**b), float(c * f_ghz**d)
 
 
-def install(
-    scene: Any,
-    frequency_hz: float,
-    spec: MaterialSpec,
-    seed: int,
-) -> dict[str, tuple[float, float, float]]:
-    """Make the scene's materials frequency-static, perturbed, and valid here.
+def install(scene: Any, frequency_hz: float) -> dict[str, tuple[float, float]]:
+    """Make the scene's materials frequency-static and valid at ``frequency_hz``.
 
     Each material keeps its identity — concrete stays concrete — but its
     frequency-update callback is switched off and its properties are set to the
-    ITU values for ``frequency_hz``, scaled by this scenario's draw. Returns
-    the installed ``(permittivity, conductivity, scattering)`` per material.
+    ITU values for ``frequency_hz``, with no scattering. Returns the installed
+    ``(permittivity, conductivity)`` per material.
 
     **Call this before setting** ``scene.frequency``. The frequency setter
     invokes ``frequency_update()`` on every registered material, so a material
-    that still holds its ITU callback will both raise on a carrier outside its
-    published range and overwrite the values set here.
+    that still holds its ITU callback will raise on a carrier outside its
+    published range, such as 700 MHz.
 
     Materials are mutated in place rather than replaced. Building new ones and
     reassigning every object leaves the originals registered but unused, and
     the frequency setter walks the registry rather than the objects, so the
     originals would still raise; they also cannot be unregistered while the
     scene believes they are in use.
-
-    The draw depends only on ``seed`` and the material names, so every band of
-    one scenario sees the same materials — a scenario is one world, not one per
-    band — and re-running for another band recomputes from the ITU value rather
-    than compounding the previous scaling.
-
-    Note that ``scattering_coefficient`` only reaches the result when the
-    solver runs with diffuse reflection enabled; it is otherwise inert.
     """
     import mitsuba as mi
 
-    rng = np.random.default_rng(seed)
-    installed: dict[str, tuple[float, float, float]] = {}
+    installed: dict[str, tuple[float, float]] = {}
     for name in sorted(str(key) for key in scene.radio_materials):
         material = scene.get(name)
         permittivity, conductivity = evaluate(name, frequency_hz)
-        permittivity *= rng.uniform(*spec.relative_permittivity_scale)
-        conductivity *= rng.uniform(*spec.conductivity_scale)
-        scattering = rng.uniform(*spec.scattering_coefficient)
 
         material.frequency_update_callback = None
         material.relative_permittivity = mi.Float(permittivity)
         material.conductivity = mi.Float(conductivity)
-        material.scattering_coefficient = mi.Float(scattering)
-        installed[name] = (permittivity, conductivity, scattering)
+        material.scattering_coefficient = mi.Float(0.0)
+        installed[name] = (permittivity, conductivity)
     return installed
 
 
@@ -129,9 +79,3 @@ def _itu_table() -> dict[str, dict[tuple[float, float], tuple[float, float, floa
             "upgrade may have moved it; this module needs the P.2040 coefficients."
         ) from exc
     return ITU_MATERIALS_PROPERTIES
-
-
-def _pair(values: Any) -> tuple[float, float]:
-    """Read a two-element config range."""
-    low, high = (float(value) for value in values)
-    return low, high

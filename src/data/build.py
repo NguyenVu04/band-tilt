@@ -83,10 +83,9 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
 def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
     """The MDT, typed, with a reported indicator beside every measurement.
 
-    An empty ``rsrp_*`` in the interim CSV means *no path* **or** *not
-    reported*, and the file cannot tell the two apart. Carrying the indicator
-    explicitly stops a later reader mistaking the gap for a zero
-    (``notebooks/01_eda.ipynb`` section 11).
+    An empty ``rsrp_*`` in the interim CSV means the ray tracer found *no
+    path*. Carrying the indicator explicitly stops a later reader mistaking the
+    gap for a zero.
 
     Returns:
         One row per UE report: the position columns, ``scenario_id``, the

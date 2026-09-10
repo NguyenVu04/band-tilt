@@ -5,7 +5,6 @@ Rebuilds the scenario and writes RSRP on its UE grid.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import time
 from dataclasses import dataclass
@@ -17,12 +16,10 @@ import numpy as np
 from omegaconf import DictConfig
 
 from src.core.cell import Cell
-from src.simulation import materials, perturb, seeds, transmitter
+from src.simulation import materials, seeds, transmitter
 from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
 from src.simulation.grid import GridSpec
-from src.simulation.materials import MaterialSpec
-from src.simulation.perturb import PerturbSpec
 from src.simulation.scene import SceneSpec
 
 # Use NaN for tiles no ray reached; weak paths retain finite values.
@@ -128,15 +125,10 @@ def solve(cfg: DictConfig) -> Path:
     cells = transmitter.load(cfg)
     bands = tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands)
     solver_spec = SolverSpec.from_config(cfg)
-    material_spec = MaterialSpec.from_config(cfg)
     power_dbm = float(cfg.simulation.antenna.power_rs)
     height_m = float(cfg.simulation.ue.height_m)
 
-    scene, delivered = scene_module.load(SceneSpec.from_config(cfg))
-    perturb.apply(scene, PerturbSpec.from_config(cfg), seeds.stream(cfg, "scene"))
-    bounds = dataclasses.replace(
-        delivered, max_z=max(delivered.max_z, scene_module.bounds_of(scene).max_z)
-    )
+    scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
 
     _check_tilt_table(cells, bands)
 
@@ -155,8 +147,6 @@ def solve(cfg: DictConfig) -> Path:
             cells,
             band,
             solver_spec,
-            material_spec,
-            seeds.stream(cfg, "materials"),
             seeds.stream(cfg, "solver"),
             grid_meta,
             height_m,
@@ -228,8 +218,6 @@ def solve_band(
     cells: tuple[Cell, ...],
     band: Band,
     spec: SolverSpec,
-    material_spec: MaterialSpec,
-    material_seed: int,
     solver_seed: int,
     grid_meta: dict[str, Any],
     height_m: float,
@@ -253,7 +241,7 @@ def solve_band(
     # registered material's update callback, which would both raise on a carrier
     # outside the material's published ITU range and overwrite this scenario's
     # draw. Installing first switches those callbacks off.
-    materials.install(scene, band.frequency_hz, material_spec, material_seed)
+    materials.install(scene, band.frequency_hz)
     scene.frequency = band.frequency_hz
     scene.bandwidth = band.bandwidth_hz
     scene.temperature = spec.temperature_k

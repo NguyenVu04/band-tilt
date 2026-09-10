@@ -64,14 +64,16 @@ the two. The intended network state includes each layer's signal-strength map,
 demand, and band-specific propagation behaviour.
 
 The repository evaluates this idea entirely in simulation. `src/simulation/`
-perturbs a Sionna-RT scene, generates a time-varying UE population, ray-traces
+loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
 per-band radio maps, and samples them to produce synthetic MDT. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Five shared KPIs - hole rate, overlap rate,
-UE-weighted band priority, expected RSRP improvement, and weak-signal rate -
-score every candidate through [`src/kpi/`](src/kpi/); their definitions and
-priority order are documented in
-[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md).
+from the incumbent configuration. Four shared KPIs - hole rate, overlap rate,
+UE-weighted band priority, and weak-signal rate - score every candidate through
+[`src/kpi/`](src/kpi/); their definitions and priority order are documented in
+[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md). Beside
+them, [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per
+UE under per-cell PRB limits and turns that into the PRB demand map, a
+diagnostic that is not part of the objective.
 
 Because ray tracing is too slow for the inner search loop, `src/surrogate/`
 predicts changed radio maps. `src/optim/report.py` then re-evaluates selected
@@ -90,12 +92,12 @@ not calibrated against operator measurements.
 
 ```mermaid
 flowchart TB
-    scene["Sionna-RT scene<br/>bundled, perturbed per scenario"]
+    scene["Sionna-RT scene<br/>bundled"]
     cells["Cell layout<br/>configs/simulation.yaml, generated once"]
 
     sim["src/simulation<br/>scenario · radio map · synthetic MDT"]
     prep["src/data<br/>schema verification · typed tables"]
-    kpi["src/kpi<br/>the five KPIs"]
+    kpi["src/kpi<br/>the four KPIs · PRB demand"]
     opt["src/optim/run<br/>phase 1 — search<br/>multi-objective BO · baselines"]
     ver["src/optim/report<br/>phase 2 — re-solve the front<br/>Sionna-RT"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
@@ -134,9 +136,9 @@ on a machine with no GPU.
 | Component | Responsibility | Location |
 |---|---|---|
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
-| Simulation | Scene perturbation, UE population, radio-map ray tracing, synthetic MDT | [`src/simulation/`](src/simulation/) |
+| Simulation | UE population, radio-map ray tracing, synthetic MDT | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
-| KPI | The five KPI definitions and the reductions they share | [`src/kpi/`](src/kpi/) |
+| KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Config loading, seeding, plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Surrogate | Predicts the radio map after a tilt change, so the search needs no ray tracing | [`src/surrogate/`](src/surrogate/) |
 | Optimization | The shared search space, the KPI vector and its priority rule, both evaluators, three searches, and the two-phase run and report | [`src/optim/`](src/optim/) |
@@ -206,10 +208,10 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-179 passed
+183 passed
 ```
 
-`tests/` covers `src/simulation/`'s density, region and traffic logic, the five
+`tests/` covers `src/simulation/`'s density, region and traffic logic, the four
 KPIs, and `src/optim/` and `src/evaluation/` — the parts most worth pinning down
 by hand-computed fixtures. It does not yet cover `src/data/` or `src/core/`; see
 [Implementation status](#implementation-status).
@@ -231,8 +233,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 
 | Group | File | Holds |
 |---|---|---|
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, perturbation, materials, the cell layout and tilt bounds, radio-map solver settings, MDT noise/censoring, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, Band Priority Score weights, the improvement sigmoid's sensitivity, and the per-KPI tie tolerances. The priority *order* is not here — it is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, MDT measurement noise, output paths |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, Band Priority Score weights, the per-KPI tie tolerances, and the placeholder `capacity` block for the serving rule and PRB demand. The priority *order* is not here — it is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -309,7 +311,7 @@ neighbours from one corner of the front. They are ranked by NSGA-II crowding
 distance, which keeps the extremes and spreads the rest.
 
 **The deliverable is the front.** `reports/outputs/` gets
-`pareto_<method>.csv` — one row per measured Pareto solution, its five KPIs and
+`pareto_<method>.csv` — one row per measured Pareto solution, its four KPIs and
 each one's delta against the incumbent — and `tilt_options_<method>.csv`, the
 tilt table each of those becomes. ADR 0001's priority order marks one row
 `recommended` and `tilt_change_<method>.csv` carries it, but choosing among
@@ -347,9 +349,9 @@ band-tilt/
 | Area | State |
 |---|---|
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
-| `src/simulation/` — scenario, scene, perturbation, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
+| `src/simulation/` — scenario, scene, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`python -m src.data.build`) |
-| `src/kpi/` — the five KPIs (`hole`, `overlap`, `improvement`, `bps`, `weak`), with `serving.py` and `tiles.py` | Implemented and unit-tested (`tests/test_kpi.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
+| `src/kpi/` — the four KPIs (`hole`, `overlap`, `bps`, `weak`), with `serving.py`, `tiles.py` and `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
 | `notebooks/` — `00_simulation` through `05_evaluation` | All eight written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, random-search and rule-based baselines, and the two phases — `run.py` searches with the surrogate, `report.py` re-solves the front |
@@ -364,7 +366,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
-| `kpi.tolerance.expected_rsrp_improvement` is unmeasured | It is a placeholder, flagged as such in [`configs/kpi.yaml`](configs/kpi.yaml). The other four tolerances sit at the ray tracer's run-to-run spread under a changed solver seed; this one has not been measured that way, so the **fourth** priority slot's tie behaviour is unverified. It moved down from third on 2026-09-09, which narrows the gap's reach without closing it |
+| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The demand map is a diagnostic, so no KPI depends on them |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 | `task clean:data` calls `src.data.clean`, which does not exist | Dead task; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
 | `task marl`, `task validate` | Dead tasks — they call `src.optim.marl.train` and `src.evaluation.validate`, neither of which exists |
@@ -390,12 +392,12 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region and traffic logic; the five KPIs; `src/optim/`'s space, objective, searches and report phase; `src/surrogate/`'s operator and dataset; `src/evaluation/` — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region and traffic logic; the four KPIs and the capacity model; `src/optim/`'s space, objective, searches and report phase; `src/surrogate/`'s operator and dataset; `src/evaluation/` — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
-`src/kpi/`, `src/optim/`, `src/surrogate/` and `src/evaluation/` — 179 tests,
+`src/kpi/`, `src/optim/`, `src/surrogate/` and `src/evaluation/` — 183 tests,
 all passing, none skipped. `src/data/` and `src/core/` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
