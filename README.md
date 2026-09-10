@@ -20,48 +20,6 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 | **Description of record** | this README, plus [CLAUDE.md](CLAUDE.md) |
 | **Decisions** | [docs/adr/](docs/adr/) |
 
-> [!IMPORTANT]
-> **Most of the optimization side exists.** Simulation, the five KPIs, the
-> tilt-delta surrogate, the Bayesian-optimization arm and the reporting layer
-> run; MARL and held-out validation do not:
->
-> 1. **The cell configuration is fully synthetic, and that is resolved.** An
->    earlier version of this project waited on a real multi-band operator
->    export. That export is retired (see
->    [Compliance and data handling](#compliance-and-data-handling)); the cell
->    layout, per-band tilt bounds and baseline tilts are instead generated once
->    by `task simulation:layout` and committed into
->    [`configs/simulation.yaml`](configs/simulation.yaml). Nothing in the active
->    pipeline waits on external data any more.
-> 2. **Only one scenario is on disk.** The intended split is between whole
->    scenarios (`scenario_id`), and that needs several seeds' worth of
->    `task simulation` runs. Until then there is no honest train/validation/test
->    split — see `01_eda.ipynb` section 11.
-> 3. **The BO arm is plain multi-objective BO, not TuRBO.** `src/optim/`
->    searches the tilt space with Ax over all five KPIs. It has **no trust
->    region**, recorded in
->    [ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md).
-> 4. **Optimization runs in two phases, and only the second one measures.**
->    `task bo` searches with the surrogate — minutes, no GPU — and writes a run
->    marked `verified: false`. `task optim:report` then re-solves that run's
->    Pareto front with Sionna-RT and publishes it. Nothing reads an unverified
->    run: `src/evaluation` refuses to load one. **Runs made before 2026-09-09
->    are not comparable to runs made after**, because the search now explores a
->    different objective than it used to, and a fully ray-traced search is no
->    longer reachable.
-> 5. **The surrogate is fitted to one scene, deliberately.** `src/surrogate/`
->    predicts the radio map after a tilt change from the map before it. Scope is
->    the committed scenario: it generalises over tilt, not over geometry.
->    Transfer to unseen scenes needs the split in point 2 first.
-> 6. **MARL and held-out validation have no code.** There is no
->    `src/optim/marl/`. `src/evaluation/` exists but compares runs already on
->    disk; it does not re-solve anything, so the Sionna-RT re-evaluation on
->    held-out scenarios is still missing — and needs more than one scenario
->    before it can mean anything.
->    See [Implementation status](#implementation-status).
->
-> This is not an operated service and has no on-call rotation.
-
 ## Contents
 
 - [Overview](#overview)
