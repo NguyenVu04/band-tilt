@@ -51,8 +51,8 @@ def test_priority_order_is_the_adr_order() -> None:
     assert KPI_NAMES == (
         "hole_rate",
         "overlap_rate",
-        "expected_rsrp_improvement",
         "band_priority_score",
+        "expected_rsrp_improvement",
         "weak_rate",
     )
 
@@ -65,14 +65,14 @@ def test_only_the_two_ue_weighted_kpis_are_maximised() -> None:
 def test_ax_objective_signs_every_kpi() -> None:
     """Minus on the four minimised, bare on the one maximised."""
     assert ax_objective() == (
-        "-hole_rate, -overlap_rate, expected_rsrp_improvement, band_priority_score, -weak_rate"
+        "-hole_rate, -overlap_rate, band_priority_score, expected_rsrp_improvement, -weak_rate"
     )
 
 
 def test_as_maximised_flips_only_the_minimised_kpis() -> None:
     """An orientation, not a normalisation: magnitudes are untouched."""
     values = as_maximised([_kpi()])
-    assert np.array_equal(values[0], [-0.10, -0.30, 0.55, 0.20, -0.10])
+    assert np.array_equal(values[0], [-0.10, -0.30, 0.20, 0.55, -0.10])
 
 
 def test_as_dict_round_trips_through_from_mapping() -> None:
@@ -159,7 +159,10 @@ def test_duplicate_points_both_stay_on_the_front() -> None:
 
 def test_tolerances_are_read_in_priority_order(cfg) -> None:
     """Misalignment here would compare each KPI against another's threshold."""
-    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.03, 0.04, 0.05])
+    # In KPI_NAMES order, which is not the order the fixture's dict lists them
+    # in — band priority (0.04) outranks expected improvement (0.03). Reading
+    # the dict's own order instead is exactly the misalignment guarded against.
+    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.04, 0.03, 0.05])
 
 
 def test_a_missing_tolerance_block_raises_rather_than_defaulting() -> None:

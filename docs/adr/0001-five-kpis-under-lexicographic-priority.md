@@ -8,6 +8,9 @@
 - **Revised:** 2026-08-29 — revised in place to remove the citations to a
   specification document that is no longer treated as a source of truth. No
   decision changed.
+- **Revised:** 2026-09-09 — revised in place at the maintainer's direction.
+  Band Priority Score and Expected RSRP Improvement swap priority slots;
+  see *Revision note — 2026-09-09* below.
 - **Revised:** 2026-09-08 — revised in place, again at the maintainer's
   direction rather than superseded. Expected RSRP Improvement replaces Mean
   Overlap Neighbours in the third priority slot; see *Revision note — 2026-09-08*
@@ -61,11 +64,11 @@ The objective is exactly five KPIs:
 | UE-weighted Band Priority Score | UE-weighted fraction of UEs served by higher-priority bands | **maximise** |
 | Weak rate | fraction of grid with `-120 < R_max <= -90` dBm | minimise |
 
-They are ordered lexicographically: **Hole > Overlap > Expected RSRP Improvement
-> Band Priority Score > Weak**. Coverage holes come first, then how often layers
-collide, then whether the users who actually reported are better off than they
-are today, then whether the right frequency layer is serving them, and finally
-the marginal quality of what is already covered.
+They are ordered lexicographically: **Hole > Overlap > Band Priority Score >
+Expected RSRP Improvement > Weak**. Coverage holes come first, then how often
+layers collide, then whether the right frequency layer is serving the users who
+reported, then whether those users are better off than they are today, and
+finally the marginal quality of what is already covered.
 
 Two of the five are maximised, and they are the same two that are weighted by
 the UE reports rather than uniformly over the grid. The three minimised KPIs are
@@ -77,7 +80,7 @@ objective. Without this the order does not bind.
 
 Where an optimizer cannot express a lexicographic goal, a scalarized fallback is
 provided. It operates on **normalised** KPIs, and the weights are checked to
-satisfy `lambda_H > lambda_O > lambda_EI > lambda_BPS > lambda_W` rather than
+satisfy `lambda_H > lambda_O > lambda_BPS > lambda_EI > lambda_W` rather than
 trusted.
 
 **Accessibility is excluded** — not as a KPI, not as an objective term, not as a
@@ -233,3 +236,35 @@ objective.
 tolerance sits at the ray tracer's run-to-run spread under a changed solver
 seed; this one is a placeholder carried in `configs/kpi.yaml` with that stated,
 and it must be derived the same way before any result is reported against it.
+
+
+## Revision note — 2026-09-09
+
+Revised in place at the maintainer's direction, as this record has been three
+times before. One thing changed: **Band Priority Score and Expected RSRP
+Improvement swap the third and fourth priority slots.** The five KPIs, their
+definitions, their directions and their thresholds are untouched, as is the
+lexicographic mechanism and its tolerances.
+
+The order is now **Hole > Overlap > Band Priority Score > Expected RSRP
+Improvement > Weak**.
+
+**What this costs.** Every result produced before this change is incomparable
+with every result after it, which is the standing consequence of any reordering
+and the reason this is a record rather than a config key. Runs on disk are not
+migrated: their `run.json` carries the config that scored them, so which order a
+past run used is recoverable, but its winner is not the winner the new order
+would pick.
+
+**One consequence worth stating, because it was already a known gap.** This
+record's *Consequences* section flags
+`kpi.tolerance.expected_rsrp_improvement` as **unmeasured** — a placeholder,
+where the other four sit at the ray tracer's run-to-run spread. Until now that
+unmeasured tolerance sat in the third slot, deciding ties before any measured
+one was consulted. It now sits fourth, behind Band Priority Score, whose
+tolerance is measured. That narrows the reach of the gap; it does not close it,
+and measuring the tolerance remains on the roadmap.
+
+The reasoning for preferring the frequency layer over the reported improvement
+is the maintainer's, and is recorded here as their direction rather than
+reconstructed after the fact.

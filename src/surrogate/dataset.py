@@ -127,6 +127,10 @@ class Sweep:
         origin_x: The x of the grid's lower corner.
         origin_y: The y of the grid's lower corner.
         tile_size_m: Side of a square tile.
+        scenario_id: The world these maps were solved in. Carried so a model
+            trained on one scenario cannot be pointed at another: the search
+            and the report phase must share a world, and nothing downstream
+            could tell that they did not.
     """
 
     band_names: tuple[str, ...]
@@ -136,6 +140,7 @@ class Sweep:
     origin_x: float
     origin_y: float
     tile_size_m: float
+    scenario_id: str
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -204,6 +209,7 @@ class Sweep:
                 origin_x=float(data["origin_x"]),
                 origin_y=float(data["origin_y"]),
                 tile_size_m=float(data["tile_size_m"]),
+                scenario_id=str(data["scenario_id"]),
             )
 
 
@@ -373,6 +379,11 @@ class Pattern:
         """The analytic correction for a tilt change: how much gain each tile gains.
 
         This alone is the zero-parameter baseline the learned model has to beat.
+
+        :meth:`Encoder.encode_batch` does not call this, and not by oversight:
+        it needs the before-gain separately for the no-path fill, so it takes
+        both terms from one grouped interpolation rather than paying for the
+        before-gain twice.
         """
         return self.gain(band, elevation_deg - after) - self.gain(band, elevation_deg - before)
 
@@ -386,6 +397,12 @@ class Pattern:
         """
         level = self.base_db[band] + self.gain(band, elevation_deg - tilt_deg)
         return np.where(np.isfinite(level), level, _FLOOR_DBM)
+
+
+def _bin_of(elevation_deg: np.ndarray, tilt_deg: float, edges: np.ndarray) -> np.ndarray:
+    """Which angle bin each tile falls in at one tilt, clipped to the grid."""
+    angle = elevation_deg - tilt_deg
+    return np.clip(np.digitize(angle, edges) - 1, 0, len(edges) - 2)
 
 
 def fit_pattern(sweep_data: Sweep, elevation_deg: np.ndarray) -> Pattern:
@@ -430,26 +447,41 @@ def fit_pattern(sweep_data: Sweep, elevation_deg: np.ndarray) -> Pattern:
         step = float(tilts[1] - tilts[0])
         edges = np.arange(-30.0, 90.0 + step, step)
         centres = 0.5 * (edges[:-1] + edges[1:])
-        rsrp = sweep_data.rsrp[band].astype(np.float64)
+        rsrp = sweep_data.rsrp[band]
 
-        # The angle each tile sees at each tilt, [n_tilt, n_tx, n_rows, n_cols].
-        offsets = elevation_deg[None] - tilts[:, None, None, None]
-        slot = np.clip(np.digitize(offsets, edges) - 1, 0, len(centres) - 1)
+        # Walked one tilt at a time rather than broadcast over the whole sweep.
+        # The angle and its bin index are the same size as the maps, so holding
+        # them for every tilt at once cost twenty times the sweep's own float32
+        # data to produce two curves and a per-tile level.
+        total = np.zeros(len(centres))
+        count = np.zeros(len(centres))
+        for index in range(len(tilts) - 1):
+            difference = rsrp[index].astype(np.float64) - rsrp[index + 1]
+            known = np.isfinite(difference)
+            binned = _bin_of(elevation_deg, tilts[index], edges)[known]
+            total += np.bincount(binned, weights=difference[known], minlength=len(centres))
+            count += np.bincount(binned, minlength=len(centres))
 
-        difference = rsrp[:-1] - rsrp[1:]
-        known = np.isfinite(difference)
-        binned = slot[:-1][known]
-        total = np.bincount(binned, weights=difference[known], minlength=len(centres))
-        count = np.bincount(binned, minlength=len(centres))
         # A bin no pair of tilts reached contributes no step, which holds the
         # curve flat there rather than inventing a slope for it.
         rise = np.divide(total, count, out=np.zeros(len(centres)), where=count > 0)
-
         gain = np.cumsum(rise)
         gain -= gain.max()
+
+        # The level each tile sits at, averaged over the tilts that reached it.
+        # Second pass because it needs the gain the first one produced.
+        level = np.zeros(rsrp.shape[1:])
+        seen = np.zeros(rsrp.shape[1:], dtype=np.int64)
+        for index in range(len(tilts)):
+            bins = _bin_of(elevation_deg, tilts[index], edges)
+            without_gain = rsrp[index].astype(np.float64) - gain[bins]
+            finite = np.isfinite(without_gain)
+            level += np.where(finite, without_gain, 0.0)
+            seen += finite
+        bases.append(np.divide(level, seen, out=np.full(seen.shape, np.nan), where=seen > 0))
+
         gains.append(gain)
         grids.append(centres)
-        bases.append(_masked_mean(rsrp - gain[slot], np.isfinite(rsrp), axis=0))
 
     # Every band is re-sampled onto the finest grid so the pattern is one array.
     offset_deg = max(grids, key=len)
@@ -461,13 +493,6 @@ def fit_pattern(sweep_data: Sweep, elevation_deg: np.ndarray) -> Pattern:
         ),
         base_db=np.stack(bases),
     )
-
-
-def _masked_mean(values: np.ndarray, mask: np.ndarray, axis: int) -> np.ndarray:
-    """Mean over ``axis`` of the masked entries, ``nan`` where none are masked in."""
-    count = mask.sum(axis=axis)
-    total = np.where(mask, values, 0.0).sum(axis=axis)
-    return np.divide(total, count, out=np.full(count.shape, np.nan), where=count > 0)
 
 
 @dataclass(frozen=True)
@@ -532,36 +557,96 @@ class Encoder:
             The input stack, the scalar conditioning, the angle-off-boresight
             maps, the source coverage, and the analytic baseline prediction.
         """
-        elevation = self.elevation[tx]
+        batch = self.encode_batch(
+            np.array([band]),
+            np.array([tx]),
+            np.asarray(source_db)[None],
+            np.array([tilt_before], dtype=float),
+            np.array([tilt_after], dtype=float),
+        )
+        return {key: value[0] for key, value in batch.items()}
+
+    def encode_batch(
+        self,
+        bands: np.ndarray,
+        txs: np.ndarray,
+        source_db: np.ndarray,
+        tilt_before: np.ndarray,
+        tilt_after: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        """The same encoding for many transmitter-band-tilt triples at once.
+
+        The single implementation; :meth:`assemble` is one row of it. A search
+        encodes all 36 dimensions per candidate, and doing that a row at a time
+        cost more than the model did: the per-row path reached
+        :meth:`Pattern.reference`, which builds a level for *every* transmitter
+        and keeps one, so thirty-six rows built four hundred and thirty-two
+        slices. Indexing ``base_db`` by the pairs removes that, and grouping the
+        interpolation by band turns seventy-two ``np.interp`` calls into three.
+
+        Args:
+            bands: Band index per row, ``[n]``.
+            txs: Transmitter index per row, ``[n]``.
+            source_db: Maps to move from, ``[n, n_rows, n_cols]`` in dBm, with
+                ``nan`` where no path reached the tile.
+            tilt_before: The tilt each source was solved at, ``[n]``.
+            tilt_after: The tilt to predict, ``[n]``.
+
+        Returns:
+            The five arrays :meth:`assemble` returns, each with a leading row
+            axis.
+        """
+        elevation = self.elevation[txs]
         source = np.asarray(source_db, dtype=np.float64)
         has_path = np.isfinite(source)
 
-        reference = self.pattern.reference(band, elevation, tilt_before)[tx]
-        filled = np.where(has_path, np.nan_to_num(source), reference)
-        delta_gain = self.pattern.delta(band, elevation, tilt_before, tilt_after)
+        angle_before = elevation - tilt_before[:, None, None]
+        angle_after = elevation - tilt_after[:, None, None]
+        gain_before = self._gain(bands, angle_before)
+        delta_gain = self._gain(bands, angle_after) - gain_before
 
-        span = float(self.sweep.tilts[band][-1])
+        # Paired indexing, so only the rows asked for are built.
+        level = self.pattern.base_db[bands, txs] + gain_before
+        reference = np.where(np.isfinite(level), level, _FLOOR_DBM)
+        filled = np.where(has_path, np.nan_to_num(source), reference)
+
+        span = np.array([self.sweep.tilts[band][-1] for band in bands], dtype=float)
         return {
             "x": np.concatenate(
                 [
-                    ((filled - DB_CENTRE) / DB_SCALE)[None],
-                    has_path[None].astype(np.float64),
-                    (delta_gain / GAIN_SCALE)[None],
-                    self.static[tx],
-                ]
+                    ((filled - DB_CENTRE) / DB_SCALE)[:, None],
+                    has_path[:, None].astype(np.float64),
+                    (delta_gain / GAIN_SCALE)[:, None],
+                    self.static[txs],
+                ],
+                axis=1,
             ),
-            "cond": np.array(
+            "cond": np.concatenate(
                 [
-                    tilt_before / span,
-                    tilt_after / span,
-                    (tilt_after - tilt_before) / span,
-                    *(np.arange(len(self.sweep.band_names)) == band).astype(float),
-                ]
+                    (tilt_before / span)[:, None],
+                    (tilt_after / span)[:, None],
+                    ((tilt_after - tilt_before) / span)[:, None],
+                    (bands[:, None] == np.arange(len(self.sweep.band_names))).astype(float),
+                ],
+                axis=1,
             ),
-            "cond_map": np.stack([elevation - tilt_before, elevation - tilt_after]) / ANGLE_SCALE,
-            "has_path": has_path[None].astype(np.float64),
-            "baseline": (filled + delta_gain)[None],
+            "cond_map": np.stack([angle_before, angle_after], axis=1) / ANGLE_SCALE,
+            "has_path": has_path[:, None].astype(np.float64),
+            "baseline": (filled + delta_gain)[:, None],
         }
+
+    def _gain(self, bands: np.ndarray, angle_deg: np.ndarray) -> np.ndarray:
+        """The pattern at each row's angles, one interpolation per distinct band.
+
+        ``np.interp`` takes a single curve, so the rows are grouped by band
+        rather than walked. Within a group each transmitter still carries its
+        own tilt, which is already in ``angle_deg``.
+        """
+        out = np.empty_like(angle_deg)
+        for band in np.unique(bands):
+            rows = bands == band
+            out[rows] = self.pattern.gain(int(band), angle_deg[rows])
+        return out
 
 
 class TiltPairs(Dataset):

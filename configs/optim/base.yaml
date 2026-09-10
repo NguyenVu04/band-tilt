@@ -11,3 +11,19 @@ output:
   save_radio_map: true
 
 seed: ${seed}
+
+# Phase one: the search. Every candidate is scored by the learned operator, so
+# a few hundred of them cost minutes. There is no ray-traced search — the
+# report phase is what measures.
+search:
+  model_file: ${surrogate.output.model_file}
+  device: cuda
+
+# Phase two: the report. Re-solves the searched front with Sionna-RT and
+# publishes it for choice.
+report:
+  # Solutions re-solved and offered. The incumbent and the priority-order pick
+  # are always among them, so this is the total and not an addition to them.
+  n_solutions: 8
+  # Which run to report on. Empty means the newest for the selected method.
+  run_dir: ""

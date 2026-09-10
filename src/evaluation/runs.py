@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.optim.objective import KpiVector
+from src.optim.objective import RAY_TRACED, KpiVector
 
 # Written beside every run by src.optim.history.write_run.
 _TABLES = ("history", "pareto", "best_tilt")
@@ -99,8 +99,18 @@ class Run:
 
     @property
     def ray_tracing_seconds(self) -> float:
-        """Simulator time, summed over evaluations."""
-        return float(self.history["seconds"].sum())
+        """Simulator time, summed over the evaluations that were ray traced.
+
+        A run holds both phases: the surrogate scored a few hundred candidates
+        in milliseconds and Sionna-RT measured a handful in tens of seconds.
+        Summing the column whole would report the search as simulator time and
+        make the number meaningless. Runs written before the ``source`` column
+        existed were ray traced throughout, so the sum is the same for them.
+        """
+        frame = self.history
+        if "source" in frame:
+            frame = frame[frame["source"] == RAY_TRACED]
+        return float(frame["seconds"].sum())
 
     @cached_property
     def radio_map(self) -> dict[str, np.ndarray]:
@@ -127,12 +137,24 @@ def load(directory: str | Path) -> Run:
 
     Raises:
         RunError: When ``run.json`` or any table is missing, which means the
-            directory is not a run or the run did not finish.
+            directory is not a run or the run did not finish; or when the run
+            has only been searched and not yet reported on, whose KPIs are
+            surrogate predictions and must not reach a comparison as though
+            they were measurements.
     """
     directory = Path(directory)
     meta_path = directory / "run.json"
     if not meta_path.is_file():
         raise RunError(f"No run.json in {directory}; this is not a run directory.")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    # Absent in runs written before the search and report phases were split.
+    # Those ray traced every candidate, so they were verified throughout.
+    if meta.get("verified", True) is False:
+        raise RunError(
+            f"{directory} has been searched but not reported on, so its KPIs are surrogate "
+            "predictions rather than measurements. Run `task optim:report` first."
+        )
 
     tables = {}
     for name in _TABLES:
@@ -141,7 +163,6 @@ def load(directory: str | Path) -> Run:
             raise RunError(f"No {path}. The run did not finish writing.")
         tables[name] = pd.read_parquet(path)
 
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
     return Run(
         method=str(meta["method"]),
         run_id=directory.name,

@@ -140,7 +140,15 @@ def _reverse(
 def _masked_huber(
     predicted: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, delta: float
 ) -> torch.Tensor:
-    """Huber over the masked tiles only, safe when a batch has none."""
+    """Huber over the masked tiles only, safe when a batch has none.
+
+    The loss runs on every tile and the mask is applied after, which does about
+    13% more arithmetic than it needs to. Left that way deliberately: measured
+    at 0.75 ms of a 4.3 s training step, so the waste is a tenth of a
+    millisecond. Skipping it means indexing by the mask, which forces a device
+    synchronisation and a dynamic shape, and on a tensor this small that is
+    likely to cost more than it saves.
+    """
     per_tile = torch.nn.functional.huber_loss(predicted, target, reduction="none", delta=delta)
     return (per_tile * mask).sum() / mask.sum().clamp(min=1.0)
 

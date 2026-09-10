@@ -135,14 +135,25 @@ tasks:
       - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
 
   bo:
-    desc: 'Run multi-objective BO, e.g. task bo -- optim.method.budget.n_iter=50'
+    desc: 'PHASE 1 - search with the surrogate, e.g. task bo -- optim.method.budget.n_iter=50'
     cmds:
       - uv run python -m {{.PKG}}.optim.run optim/method=mobo {{.CLI_ARGS}}
 
   baseline:
-    desc: 'Run a baseline search, e.g. task baseline -- optim/method=rule'
+    desc: 'PHASE 1 - search with a baseline method, e.g. task baseline -- optim/method=rule'
     cmds:
       - uv run python -m {{.PKG}}.optim.run optim/method=random {{.CLI_ARGS}}
+
+  optim:report:
+    desc: 'PHASE 2 - re-solve the searched front with Sionna-RT and publish it - needs a GPU'
+    cmds:
+      - uv run python -m {{.PKG}}.optim.report {{.CLI_ARGS}}
+
+  optim:
+    desc: 'Both phases: search with the surrogate, then report on it with Sionna-RT'
+    cmds:
+      - task: bo
+      - task: optim:report
 
   marl:
     desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=node'

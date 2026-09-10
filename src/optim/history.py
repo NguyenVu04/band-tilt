@@ -19,7 +19,13 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import KPI_NAMES, KpiVector, lexicographic_best, pareto_mask
+from src.optim.objective import (
+    KPI_NAMES,
+    RAY_TRACED,
+    KpiVector,
+    lexicographic_best,
+    pareto_mask,
+)
 from src.optim.space import TiltSpace
 
 
@@ -81,6 +87,34 @@ def write_tilt_change(table: pd.DataFrame, cfg: DictConfig, method: str) -> Path
     # this table needs is already a column.
     table.to_csv(path, index=False)
     return path
+
+
+def write_pareto_options(
+    scores: pd.DataFrame, tilts: pd.DataFrame, cfg: DictConfig, method: str
+) -> tuple[Path, Path]:
+    """Republish the verified Pareto front as the two tables an operator chooses from.
+
+    Five objectives do not have a best; they have a front, and which point on
+    it to deploy is a judgement about what this network needs, not something
+    the priority order in ADR 0001 can settle. That rule still runs and marks
+    one row ``recommended``, but the rest of the front is published beside it
+    rather than discarded.
+
+    Two tables because they answer two questions. ``pareto_<method>.csv`` is
+    one row per solution and says what each one costs and buys.
+    ``tilt_options_<method>.csv`` is one row per solution and cell-band, and is
+    what a chosen row turns into on the antennas.
+
+    Returns:
+        The two paths written, scores first.
+    """
+    directory = Path(cfg.optim.output.deliverable_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    score_path = directory / f"pareto_{method}.csv"
+    tilt_path = directory / f"tilt_options_{method}.csv"
+    scores.to_csv(score_path, index=False)
+    tilts.to_csv(tilt_path, index=False)
+    return score_path, tilt_path
 
 
 @dataclass
@@ -162,7 +196,11 @@ class History:
         """One row per evaluation: provenance, the five KPIs, all 36 tilts.
 
         ``on_pareto`` is computed here rather than stored, because it is a
-        property of the set and every append can change it.
+        property of the set and every append can change it. It is computed
+        **within each source**, not across them: a run holds both surrogate
+        predictions and ray-traced measurements, and a front that mixes the two
+        would let an optimistic prediction dominate a real measurement. Two
+        fronts, each of one thing, is the only reading that means anything.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -171,11 +209,13 @@ class History:
             raise ValueError("no evaluations to tabulate")
 
         tilts = np.array([result.tilt_deg for result in self.results], dtype=float)
+        sources = np.array([result.source for result in self.results])
         frame = pd.DataFrame(
             {
                 "iteration": np.arange(len(self.results)),
                 "phase": self._phases,
                 "generation_node": self._nodes,
+                "source": sources,
                 "seconds": [result.seconds for result in self.results],
             }
         )
@@ -183,7 +223,12 @@ class History:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
-        frame["on_pareto"] = pareto_mask(self.kpis)
+
+        on_pareto = np.zeros(len(self.results), dtype=bool)
+        for source in dict.fromkeys(sources):
+            rows = np.flatnonzero(sources == source)
+            on_pareto[rows] = pareto_mask([self.results[row].kpi for row in rows])
+        frame["on_pareto"] = on_pareto
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
@@ -219,7 +264,8 @@ def write_run(
     cfg: DictConfig,
     *,
     method: str,
-    best_index: int,
+    best_index: int | None = None,
+    incumbent_index: int = 0,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Write every artifact of one run. Returns the locators, keyed by name.
@@ -227,25 +273,56 @@ def write_run(
     The run document carries the whole composed config and the scenario it was
     solved against, so a result can be traced back to the inputs that produced
     it without consulting anything outside its own directory.
+
+    Called twice per run, once per phase. The search phase passes no
+    ``best_index``: it has only surrogate predictions, so it has no winner to
+    name and writes no ``best_tilt``. :mod:`src.optim.report` re-solves the
+    front and calls this again with the winner it measured.
+
+    Args:
+        history: The evaluation log.
+        writer: Where the artifacts go.
+        cfg: The composed config, recorded whole.
+        method: The search that produced the history.
+        best_index: The row to report as the winner, or None while the run
+            holds no ray-traced measurement to pick one from.
+        incumbent_index: The row every delta is measured against. Not always
+            zero: the report phase re-solves the incumbent, and comparing a
+            ray-traced winner against a predicted incumbent would put two
+            measurement systems on either side of one subtraction.
+        extra: Merged into the run document, for whatever the caller knows and
+            this function does not.
     """
     frame = history.frame()
-    best = history.results[best_index]
-    incumbent = history.results[0].kpi if history.results else None
+    ray_traced = frame["source"] == RAY_TRACED
+
+    best = None if best_index is None else history.results[best_index]
+    # A run is verified when the winner it names was measured, not predicted.
+    verified = best is not None and best.source == RAY_TRACED
+    incumbent = history.results[incumbent_index].kpi if history.results else None
 
     written = {
         "history": writer.write_frame("history", frame),
         "pareto": writer.write_frame("pareto", history.pareto_frame()),
-        "best_tilt": writer.write_frame("best_tilt", history.tilt_table(best.tilt_deg)),
     }
+    if best is not None:
+        written["best_tilt"] = writer.write_frame("best_tilt", history.tilt_table(best.tilt_deg))
+
     written["run"] = writer.write_json(
         "run",
         {
             "method": method,
+            "verified": verified,
             "n_evaluations": len(history),
-            "best_iteration": int(best_index),
-            "best_kpi": best.kpi.as_dict(),
+            "n_ray_traced": int(ray_traced.sum()),
+            "best_iteration": None if best_index is None else int(best_index),
+            "best_kpi": None if best is None else best.kpi.as_dict(),
             "incumbent_kpi": incumbent.as_dict() if incumbent is not None else None,
-            "ray_tracing_seconds": float(frame["seconds"].sum()),
+            # Split by what actually did the work: a surrogate search spends
+            # milliseconds, and reporting that as simulator time would make the
+            # comparison against a ray-traced run meaningless.
+            "ray_tracing_seconds": float(frame.loc[ray_traced, "seconds"].sum()),
+            "search_seconds": float(frame.loc[~ray_traced, "seconds"].sum()),
             "n_pareto": int(frame["on_pareto"].sum()),
             "config": OmegaConf.to_container(cfg, resolve=True),
             **(extra or {}),

@@ -23,7 +23,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import evaluate_kpis
+from src.optim.objective import SURROGATE, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.surrogate.dataset import Encoder, Sweep
 from src.surrogate.model import TiltOperator
@@ -77,6 +77,11 @@ class SurrogateEvaluator:
         """Band names in the radio map's band-axis order."""
         return self.sweep.band_names
 
+    @property
+    def scenario_id(self) -> str:
+        """The scenario the sweep behind this model was solved in."""
+        return self.sweep.scenario_id
+
     def __enter__(self) -> SurrogateEvaluator:
         """Return the evaluator, ready to score.
 
@@ -103,22 +108,24 @@ class SurrogateEvaluator:
         self.space.to_cells(values)
 
         n_band, n_tx = len(self.band_labels), len(self.sweep.tx_names)
-        pairs = [
-            (band, tx, float(values[tx * n_band + band]))
-            for band in range(n_band)
-            for tx in range(n_tx)
-        ]
-        batch = [
-            self.encoder.assemble(
-                band, tx, self._anchor[band, tx], float(self.space.baseline[tx * n_band + band]), to
-            )
-            for band, tx, to in pairs
-        ]
+        # Band-major over the 36 slices, so the model's output reshapes straight
+        # back onto the map's [band, tx] axes.
+        bands = np.repeat(np.arange(n_band), n_tx)
+        txs = np.tile(np.arange(n_tx), n_band)
+        # TiltSpace is ordered cell-major and band-minor, which is not the order
+        # a radio map's axes are in.
+        dimension = txs * n_band + bands
+
+        encoded = self.encoder.encode_batch(
+            bands,
+            txs,
+            self._anchor[bands, txs],
+            self.space.baseline[dimension],
+            values[dimension],
+        )
         stacked = {
-            key: torch.from_numpy(
-                np.ascontiguousarray(np.stack([item[key] for item in batch]), dtype=np.float32)
-            ).to(self.device)
-            for key in ("x", "cond", "cond_map", "has_path", "baseline")
+            key: torch.from_numpy(np.ascontiguousarray(value, dtype=np.float32)).to(self.device)
+            for key, value in encoded.items()
         }
 
         with torch.no_grad():
@@ -135,10 +142,7 @@ class SurrogateEvaluator:
                 covered = logit > 0.0
             out = torch.where(covered, predicted, torch.nan).squeeze(1).cpu().numpy()
 
-        rsrp = np.empty((n_band, n_tx, *self.sweep.shape), dtype=np.float32)
-        for index, (band, tx, _to) in enumerate(pairs):
-            rsrp[band, tx] = out[index]
-        return rsrp
+        return out.reshape(n_band, n_tx, *self.sweep.shape).astype(np.float32)
 
     def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
         """Predict this tilt vector's map and score it on all five KPIs."""
@@ -154,6 +158,7 @@ class SurrogateEvaluator:
             kpi=kpi,
             seconds=seconds,
             rsrp=rsrp if self.keep_rsrp else None,
+            source=SURROGATE,
         )
 
     @classmethod
@@ -174,3 +179,40 @@ class SurrogateEvaluator:
 
         model, encoder = load_checkpoint(cfg, path, device)
         return cls(cfg=cfg, encoder=encoder, model=model, device=device, **kwargs)
+
+
+def from_config(cfg: DictConfig, **kwargs: object) -> SurrogateEvaluator:
+    """Build the evaluator ``optim.search`` names, or say exactly what is missing.
+
+    The entry point :mod:`src.optim.run` uses. Both checks below fail loudly
+    rather than degrading: a search is cheap enough to repeat and expensive
+    enough to waste.
+
+    Raises:
+        FileNotFoundError: When no operator has been trained, naming the two
+            tasks that produce one.
+        ValueError: When the sweep the operator was fitted to belongs to a
+            different scenario than this config describes. The search would
+            then explore one world and :mod:`src.optim.report` measure another,
+            and every artifact would still look entirely plausible.
+    """
+    from src.simulation import scenario as scenario_module
+
+    path = Path(cfg.optim.search.model_file)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No trained surrogate at {path}. The search scores candidates with it, so run "
+            "`task surrogate:dataset` then `task surrogate:train` first."
+        )
+
+    evaluator = SurrogateEvaluator.from_checkpoint(
+        cfg, path, str(cfg.optim.search.device), **kwargs
+    )
+    expected = scenario_module.scenario_id(cfg)
+    if evaluator.scenario_id != expected:
+        raise ValueError(
+            f"{path} was fitted on scenario {evaluator.scenario_id}, but this config is "
+            f"{expected}. Re-run `task surrogate:dataset` and `task surrogate:train` against "
+            "the current scenario before searching."
+        )
+    return evaluator

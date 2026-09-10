@@ -23,7 +23,7 @@ from omegaconf import DictConfig
 
 from src.evaluation import maps
 from src.evaluation.compare import TIE
-from src.optim.objective import KPI_NAMES, MAXIMISED, tolerances
+from src.optim.objective import KPI_NAMES, MAXIMISED, RAY_TRACED, tolerances
 
 # One colour per method, kept identical across every figure so a reader learns
 # them once. The incumbent is red everywhere, and is never a method.
@@ -284,10 +284,17 @@ def pareto_plot(runs: list[Any], cfg: DictConfig) -> Figure:
     The trade this problem is made of: the low band reaches furthest, so it
     serves most users and holds the score down, and buying the score means
     tilting it off the ground it was covering.
+
+    Only the ray-traced rows are drawn. A run also holds the surrogate's
+    predictions for every candidate it searched, and plotting those beside the
+    measurements would put a few hundred estimates and a handful of facts on one
+    pair of axes with nothing to tell them apart.
     """
     figure, axis = plt.subplots(figsize=(9.0, 5.5), constrained_layout=True)
     for run in runs:
         history = run.history
+        if "source" in history:
+            history = history[history["source"] == RAY_TRACED]
         colour = METHOD_COLOURS.get(run.method)
         axis.scatter(
             history["hole_rate"],
@@ -295,7 +302,7 @@ def pareto_plot(runs: list[Any], cfg: DictConfig) -> Figure:
             s=18,
             alpha=0.45,
             color=colour,
-            label=f"{run.method} ({len(history)} evals)",
+            label=f"{run.method} ({len(history)} measured)",
         )
         front = history[history["on_pareto"]]
         axis.scatter(

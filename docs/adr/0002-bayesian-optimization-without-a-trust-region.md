@@ -1,7 +1,9 @@
-# 2. Bayesian optimization without a trust region, and without a surrogate
+# 2. Bayesian optimization without a trust region
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Revised:** 2026-09-09 — the search now uses a surrogate; see the revision
+  note at the end
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -56,7 +58,13 @@ evaluation to cost minutes, this decision would deserve revisiting.
 
 The Bayesian arm is **plain multi-objective Bayesian optimization on Ax**, over
 all five KPIs of [ADR 0001](0001-five-kpis-under-lexicographic-priority.md), with
-**no trust region** and **no surrogate**. It optimizes the ray tracer directly.
+**no trust region**.
+
+> **Revised 2026-09-09.** As written, this also said "and **no surrogate**. It
+> optimizes the ray tracer directly." That is no longer how the arm runs. The
+> search scores candidates with a learned surrogate and Sionna-RT re-solves the
+> front it proposes; see the revision note. The no-trust-region decision, and
+> everything below it, stands.
 
 Consequences of that, each a decision in its own right:
 
@@ -70,8 +78,10 @@ with the tolerances now in `configs/kpi.yaml`, selects the single configuration
 to report out of the front. That is the role ADR 0001 reserves for it — "choosing
 from a five-dimensional front requires exactly the priority this record states".
 
-**The search runs at full configured fidelity.** No `samples_per_tx` override
-exists, so the KPIs an optimizer sees are the KPIs the project reports.
+**Every reported KPI is measured at full configured fidelity.** No
+`samples_per_tx` override exists. Since the revision, the KPIs an optimizer
+*sees* during the search are predictions, but no prediction reaches a report:
+`src/optim/report.py` re-solves before anything is published.
 
 **The solver seed is fixed across candidates.** Common random numbers: the
 Monte-Carlo noise is shared, so the KPI *differences* the optimizer compares are
@@ -92,7 +102,8 @@ it a control on the model rather than a separate experiment.
 - The BO arm exists and runs today, instead of waiting on a surrogate that has
   no code and would need its own acceptance criteria.
 - Every reported KPI is ray-traced ground truth, so there is no surrogate error
-  between the optimizer's objective and the deliverable.
+  between the reported objective and the deliverable. This survives the
+  revision: the surrogate moved into the search, not into the report.
 - Dropping the trust region removes the tuning surface that TuRBO's behaviour is
   most sensitive to — region length, success and failure tolerances, restart
   policy — none of which this project could have justified from evidence.
@@ -151,3 +162,52 @@ fidelity.** Rejected on measurement: a decade of fidelity buys under a tenth of
 the wall clock, while shifting every KPI by orders of magnitude more than the
 solver's noise. The search would optimize a different objective than the one
 reported, and would barely finish sooner for it.
+
+
+## Revision note — 2026-09-09
+
+Revised in place at the maintainer's direction, under the exception
+[docs/adr/README.md](README.md) records. The Context above is a measurement
+record and is unchanged; what changed is the Decision's "no surrogate" clause
+and the standing of one rejected alternative.
+
+**What changed.** Optimization is now two phases. `src/optim/run.py` searches
+with `src/surrogate/`, scoring a few hundred candidates in minutes and needing
+no GPU. `src/optim/report.py` then re-solves that run's Pareto front with
+Sionna-RT, re-derives the front from what it measured, and publishes it. A run
+that has only been searched carries `verified: false`, and `src/evaluation`
+refuses to load one — surrogate predictions cannot reach a comparison as though
+they were measurements.
+
+**Why this is not the alternative rejected below.** The last alternative in this
+record — reduce `samples_per_tx` during the search and re-solve the winner —
+was rejected because "the search would optimize a different objective than the
+one reported". That objection was about *fidelity*: the reported number would
+itself have been low-fidelity, and a decade of fidelity bought under a tenth of
+the wall clock. Neither half applies here.
+
+- Every published KPI comes from `Evaluator` at the configured fidelity. The
+  surrogate decides only **which** candidates get measured.
+- What it therefore risks is **ranking**, not measurement — the same class of
+  risk as a weak acquisition function, and bounded the same way: a solution the
+  surrogate ranks out of the shortlist is a solution not found, not a number
+  reported wrongly.
+- The saving is not a tenth. A 161-candidate search falls from roughly an hour
+  and a half of ray tracing to nine solves.
+
+**What is reported changed with it.** This record's Decision says the
+lexicographic rule "applies once, at the end", selecting *the* configuration to
+report. It still runs, but on measured KPIs and to mark one row `recommended`.
+The deliverable is now the **verified front** — `pareto_<method>.csv` and
+`tilt_options_<method>.csv` — because five objectives do not have a best, and
+with a model proposing the front, collapsing it to one point would trust that
+model both to find the front and to rank within it. Choosing among measured
+trade-offs is a judgement this project should put to a person.
+
+**What this costs.** A fully ray-traced search is no longer reachable through
+`task bo`, so the arm this record originally described cannot be reproduced
+without reverting the code. The number of solutions measured per run
+(`optim.report.n_solutions`, default 8) is a budget chosen by judgement, not
+from evidence about how often the surrogate's ranking is wrong — the run
+records its own KPI error on the solutions it offered, and that is the evidence
+to revisit this with.

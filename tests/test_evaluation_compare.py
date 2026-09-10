@@ -89,7 +89,7 @@ def test_the_maximised_kpis_read_the_other_way(cfg: DictConfig, incumbent: KpiVe
 def test_direction_names_every_kpi() -> None:
     """Two KPIs are maximised; a third, or one fewer, would be a sign error."""
     maximised = [name for name in KPI_NAMES if compare.direction(name) == "maximise"]
-    assert maximised == ["expected_rsrp_improvement", "band_priority_score"]
+    assert maximised == ["band_priority_score", "expected_rsrp_improvement"]
 
 
 def test_coverage_comparison_puts_labels_side_by_side() -> None:

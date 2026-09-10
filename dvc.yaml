@@ -16,6 +16,12 @@
 # fixed `outs` for DVC to track. `dvc repro optimization` runs whichever method
 # the `optim/method` default in `configs/config.yaml` currently selects.
 #
+# It is also only the first of the two optimization phases. The search scores
+# candidates with the surrogate and writes an unverified run; `task optim:report`
+# then re-solves that run's front with Sionna-RT and completes it. The report is
+# not a stage here for the same reason: it edits one timestamped directory in
+# place and has no fixed output either.
+#
 # Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
 # so the entries are chosen to be the settings that actually invalidate a stage's
 # output — not every key in the file. A setting that only affects an upstream
@@ -200,7 +206,10 @@ stages:
     outs:
       - outputs/surrogate/operator.pt
 
-  # --- Optimization: search the tilt space (notebooks 04a and 04b) ----------
+  # --- Optimization, phase 1: search the tilt space (notebooks 04a and 04b) --
+  # Scores every candidate with the surrogate, so this stage needs no GPU and
+  # depends on the trained operator rather than on Sionna-RT. The run it writes
+  # is not reportable until `task optim:report` measures its front.
   #
   # Depends on the cell table via configs/simulation.yaml rather than on
   # data/processed/cell.parquet: the search reads the committed tilt bounds from
@@ -218,6 +227,10 @@ stages:
       - src/optim/methods
       - src/optim/run.py
       - src/kpi
+      - src/surrogate/evaluator.py
+      - src/surrogate/model.py
+      - src/surrogate/dataset.py
+      - outputs/surrogate/operator.pt
       - data/external/scenario.json
       - data/processed/mdt.parquet
     params:

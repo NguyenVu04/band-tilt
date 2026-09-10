@@ -26,7 +26,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.core.cell import Cell
-from src.optim.objective import KpiVector, evaluate_kpis
+from src.optim.objective import RAY_TRACED, KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.simulation import perturb, radio, seeds, transmitter
 from src.simulation import scenario as scenario_module
@@ -52,12 +52,19 @@ class EvaluationResult:
         rsrp: The radio map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or None
             when the evaluator was asked not to retain it. Every map of a long
             run does not fit in memory and the run does not need them.
+        source: Which evaluator measured this. A run holds both — the surrogate
+            searches and the ray tracer verifies — and a KPI is only ground
+            truth if it came from the latter, so the distinction has to survive
+            into the artifacts rather than being inferred from a phase name.
+            Defaults to the ray tracer, which is the only producer that does
+            not say so itself.
     """
 
     tilt_deg: np.ndarray
     kpi: KpiVector
     seconds: float
     rsrp: np.ndarray | None = None
+    source: str = RAY_TRACED
 
 
 class ObjectiveEvaluator(Protocol):

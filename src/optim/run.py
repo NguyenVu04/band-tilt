@@ -1,8 +1,14 @@
-"""Run one optimization method and write its artifacts.
+"""Phase one: search the tilt space with the surrogate.
 
-Entry point for ``task bo`` and ``task baseline``. The notebooks call
-:func:`run` directly with a composed config, so the two paths execute the same
-code and produce the same artifacts.
+Entry point for ``task bo`` and ``task baseline``. Every candidate is scored by
+:class:`~src.surrogate.evaluator.SurrogateEvaluator`, so a few hundred of them
+cost minutes and need no GPU, and **nothing here is ground truth**. The run this
+writes is deliberately incomplete: it has a predicted Pareto front and no
+winner, and ``run.json`` says ``verified: false`` so nothing downstream can
+mistake a prediction for a measurement.
+
+:mod:`src.optim.report` is phase two. It re-solves the front with Sionna-RT,
+picks from what it measured, and completes the run directory.
 """
 
 from __future__ import annotations
@@ -15,10 +21,8 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig
 
-from src.optim.evaluator import Evaluator
-from src.optim.history import History, LocalRunWriter, write_run, write_tilt_change
+from src.optim.history import History, LocalRunWriter, write_run
 from src.optim.methods import run_search
-from src.optim.objective import KPI_NAMES
 
 
 def output_directory(cfg: DictConfig, method: str) -> Path:
@@ -32,33 +36,23 @@ def output_directory(cfg: DictConfig, method: str) -> Path:
 
 
 def run(cfg: DictConfig) -> tuple[History, Path]:
-    """Search the tilt space with the selected method and write the results.
+    """Search the tilt space with the selected method and write the search log.
 
-    Returns the history and the directory written to. Besides the run
-    directory, the winner's tilt table is republished to
-    ``cfg.optim.output.deliverable_dir``.
+    Returns the history and the directory written to. No deliverable is
+    published here: which point on a five-objective front to deploy is a
+    judgement made against measured KPIs, and this phase has none.
     """
     method = str(cfg.optim.method.name)
     directory = output_directory(cfg, method)
     started = time.time()
 
-    with Evaluator(cfg) as evaluator:
+    # Imported here rather than at module scope so the report phase, and any
+    # environment without torch, can import this module for output_directory.
+    from src.surrogate.evaluator import from_config
+
+    with from_config(cfg) as evaluator:
         scenario_id = evaluator.scenario_id
         history = run_search(evaluator, cfg)
-        best_index = history.best_index(cfg)
-        best = history.results[best_index]
-
-        radio_map = None
-        if bool(cfg.optim.output.save_radio_map):
-            # Re-solved rather than retained: holding every candidate's map
-            # costs more memory than the run needs, and the winner is not known
-            # until the run is over. The solver seed is fixed, so this repeats
-            # the evaluation that produced the recorded KPIs.
-            evaluator.keep_rsrp = True
-            archived = evaluator.evaluate(best.tilt_deg)
-            radio_map = str(evaluator.write_radio_map(directory / "best_radio_map.npz", archived))
-
-    tilt_change = write_tilt_change(history.tilt_table(best.tilt_deg), cfg, method)
 
     writer = LocalRunWriter(directory)
     written = write_run(
@@ -66,43 +60,31 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
         writer,
         cfg,
         method=method,
-        best_index=best_index,
         extra={
             "scenario_id": scenario_id,
             "wall_clock_seconds": time.time() - started,
-            "best_radio_map": radio_map,
-            "tilt_change": str(tilt_change),
+            "surrogate_model": str(cfg.optim.search.model_file),
         },
     )
 
-    _report(history, best_index, method, directory, written, tilt_change)
+    _report(history, method, directory, written)
     return history, directory
 
 
-def _report(
-    history: History,
-    best_index: int,
-    method: str,
-    directory: Path,
-    written: dict[str, str],
-    tilt_change: Path,
-) -> None:
-    """Print what the run found and where it went."""
-    incumbent = history.results[0].kpi
-    best = history.results[best_index].kpi
+def _report(history: History, method: str, directory: Path, written: dict[str, str]) -> None:
+    """Print what the search proposed and what has to happen next."""
     frame = history.frame()
+    front = int(frame["on_pareto"].sum())
 
-    print(f"\n{method}: {len(history)} evaluations, {int(frame['on_pareto'].sum())} non-dominated")
-    print(f"winner is evaluation {best_index}\n")
-    print(f"{'KPI':<26}{'incumbent':>12}{'best':>12}{'delta':>12}")
-    for name in KPI_NAMES:
-        before, after = getattr(incumbent, name), getattr(best, name)
-        print(f"{name:<26}{before:>12.4f}{after:>12.4f}{after - before:>+12.4f}")
-    print(f"\nray tracing {frame['seconds'].sum():.1f}s over {len(history)} evaluations")
+    print(f"\n{method}: {len(history)} candidates scored, {front} on the predicted front")
+    print(f"surrogate time {frame['seconds'].sum():.1f}s\n")
     print(f"wrote {directory}")
     for name, locator in written.items():
         print(f"  {name}: {locator}")
-    print(f"deliverable: {tilt_change}")
+    print(
+        "\nThese KPIs are predictions, not measurements, and this run is not reportable yet.\n"
+        "Run `task optim:report` to re-solve the front with Sionna-RT and choose from it."
+    )
 
 
 def _quiet_ax_logging() -> None:
@@ -125,7 +107,7 @@ def _quiet_ax_logging() -> None:
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Run one method. Entry point for ``task bo``.
+    """Search with one method. Entry point for ``task bo``.
 
     Example:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0

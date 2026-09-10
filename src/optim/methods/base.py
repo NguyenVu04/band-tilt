@@ -25,6 +25,12 @@ INIT = "init"
 SEARCH = "search"
 SWEEP = "sweep"
 
+# Not produced by any search: :mod:`src.optim.report` appends one of these per
+# solution it re-solves with Sionna-RT. It belongs here anyway, because the
+# column it lands in is this vocabulary and a fifth value invented at the call
+# site would not be part of it.
+VERIFY = "verify"
+
 # How Ax's own generation nodes map onto those phases. Anything not listed is
 # model-driven: Sobol is the only generator that is not.
 PHASE_OF_NODE = {"attached": INCUMBENT, "Sobol": INIT}

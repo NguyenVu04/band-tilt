@@ -12,12 +12,13 @@ import numpy as np
 import pytest
 
 from src.core.cell import Cell, Tilt
-from src.surrogate.dataset import Pattern, Sweep, TiltPairs, fit_pattern
+from src.surrogate.dataset import Encoder, Pattern, Sweep, TiltPairs, fit_pattern
 from src.surrogate.features import SceneFeatures
 
 BANDS = ("b2600", "b1800")
 SHAPE = (8, 10)
 TILE_M = 20.0
+SCENARIO = "scn_test"
 
 
 def _true_gain(offset_deg: np.ndarray) -> np.ndarray:
@@ -62,6 +63,7 @@ def _sweep(elevation: np.ndarray, nan_fraction: float = 0.0) -> tuple[Sweep, np.
             origin_x=0.0,
             origin_y=0.0,
             tile_size_m=TILE_M,
+            scenario_id=SCENARIO,
         ),
         base,
     )
@@ -264,3 +266,65 @@ def test_reference_is_finite_where_no_tilt_ever_found_a_path() -> None:
         base_db=base,
     )
     assert np.isfinite(pattern.reference(0, elevation, 4.0)).all()
+
+
+def _encoder(n_tx: int = 3) -> Encoder:
+    """An encoder over the synthetic sweep, for the batched-encoding tests."""
+    elevation = _elevation(n_tx)
+    sweep, _ = _sweep(elevation, nan_fraction=0.3)
+    return Encoder.build(sweep, _features(elevation), fit_pattern(sweep, elevation), _cells(n_tx))
+
+
+def test_encode_batch_matches_one_pair_at_a_time() -> None:
+    """The batched path is the only implementation, so a row of it must be the row.
+
+    Mixed bands and transmitters on purpose: the failure this guards is a
+    transposed or mis-paired index, which a batch of one band or one
+    transmitter cannot detect.
+    """
+    encoder = _encoder()
+    rng = np.random.default_rng(3)
+    triples = [(0, 2, 1.0, 3.5), (1, 0, 4.0, 2.0), (0, 1, 6.0, 0.5), (1, 2, 3.0, 3.0)]
+    sources = rng.normal(-90.0, 8.0, size=(len(triples), *SHAPE))
+    sources[rng.random(sources.shape) < 0.3] = np.nan
+
+    batch = encoder.encode_batch(
+        np.array([band for band, _, _, _ in triples]),
+        np.array([tx for _, tx, _, _ in triples]),
+        sources,
+        np.array([before for _, _, before, _ in triples]),
+        np.array([after for _, _, _, after in triples]),
+    )
+
+    for row, (band, tx, before, after) in enumerate(triples):
+        single = encoder.assemble(band, tx, sources[row], before, after)
+        for key, value in single.items():
+            assert np.array_equal(batch[key][row], value, equal_nan=True), f"{key} row {row}"
+
+
+def test_encode_batch_pairs_the_transmitter_with_its_own_band() -> None:
+    """Two rows sharing a band but not a transmitter must not share a level.
+
+    ``base_db`` is indexed by the pair. Indexing it by band alone and slicing
+    afterwards is what the batched path replaced, and it is the mistake that
+    would leave every row carrying transmitter zero's propagation term.
+    """
+    encoder = _encoder()
+    source = np.full(SHAPE, -85.0)
+    batch = encoder.encode_batch(
+        np.array([0, 0]),
+        np.array([0, 2]),
+        np.stack([source, source]),
+        np.array([2.0, 2.0]),
+        np.array([4.0, 4.0]),
+    )
+    assert not np.allclose(batch["x"][0, 3], batch["x"][1, 3])  # elevation channel
+
+
+def test_gain_is_interpolated_with_each_row_own_band_curve() -> None:
+    """Grouping the rows by band must not let one band's curve reach another's."""
+    encoder = _encoder()
+    angles = np.tile(np.linspace(0.0, 40.0, SHAPE[0] * SHAPE[1]).reshape(SHAPE), (2, 1, 1))
+    grouped = encoder._gain(np.array([0, 1]), angles)
+    assert np.array_equal(grouped[0], encoder.pattern.gain(0, angles[0]))
+    assert np.array_equal(grouped[1], encoder.pattern.gain(1, angles[1]))
