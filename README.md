@@ -36,84 +36,55 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 ## Overview
 
-Antenna downtilt is the cheapest lever a mobile operator has for shaping
-coverage, and it is largely set by hand. Tilt a cell down and its footprint
-shrinks: interference with neighbours falls, and coverage holes open at the cell
-edge. Tilt it up and the reverse happens. With several frequency bands per node
-the problem compounds — bands have different propagation characteristics, so they
-should not cover the same footprint, and deciding which band should dominate
-where is a coordination problem across dozens of coupled variables.
+A 5G/6G site commonly serves several frequency bands from the same location.
+Those bands should not be configured as interchangeable coverage layers: low
+bands such as 700 MHz propagate farther and penetrate obstacles better, while
+higher bands such as 2600 MHz provide more capacity over a smaller area. A
+mid-band layer connects those roles.
 
-This project formulates that as a constrained optimization over **absolute tilt**
-for every `(cell, band)` pair, evaluated against five KPIs computed from
-Sionna-RT ray-traced radio maps, and compares two solution methods — **TuRBO**
-(trust-region Bayesian Optimization) and **Multi-Agent RL** — under one identical
-problem definition.
+When each band is assigned a static antenna tilt independently, two failures
+become likely. Bands may cover the same near-site area unnecessarily, wasting
+radio resources and increasing interference, while the cell edge may develop a
+coverage hole where the high-band signal fades before a low-band layer reaches
+it. Manual, band-by-band tuning is slow and can miss these interactions.
 
-Everything is simulated end to end. `src/simulation/` perturbs a Sionna-RT scene
-(buildings removed, resized, nudged — modelling survey error), draws a
-time-varying UE population over it, ray-traces one clean radio map per band, and
-samples that map at the UEs with receiver noise and realistic censoring to
-produce the synthetic MDT. Because a scenario is defined by its seed and is
-therefore *regenerated*, not recorded, it can also be perturbed on purpose —
-which is how the project will ask whether an optimized configuration survives
-conditions it was not tuned for, once the optimization side exists.
+This project treats tilt setting as one coordinated, multivariable optimization
+problem. For `N` cells and `B` bands, the conceptual output is a tilt-offset
+vector with one value for every `(cell, band)` pair:
 
-The KPI mathematics lives in [`src/kpi/`](src/kpi/) and nowhere else; the
-thresholds and weights it reads are in [`configs/kpi.yaml`](configs/kpi.yaml),
-and the reasoning behind the choice of KPIs is in
+```text
+delta_tilt = [delta_tilt_1,1, ..., delta_tilt_1,B, ..., delta_tilt_N,B]
+```
+
+The optimizer aims to maximize the union coverage of all frequency layers while
+reducing both redundant overlap and uncovered area. A useful solution preserves
+the physical role of each band: low bands provide the coverage floor and reach
+the cell edge, high bands concentrate service near the site, and mid bands bridge
+the two. The intended network state includes each layer's signal-strength map,
+demand, and band-specific propagation behaviour.
+
+The repository evaluates this idea entirely in simulation. `src/simulation/`
+perturbs a Sionna-RT scene, generates a time-varying UE population, ray-traces
+per-band radio maps, and samples them to produce synthetic MDT. The implemented
+optimizer searches legal **absolute tilt** settings and reports their offsets
+from the incumbent configuration. Five shared KPIs - hole rate, overlap rate,
+UE-weighted band priority, expected RSRP improvement, and weak-signal rate -
+score every candidate through [`src/kpi/`](src/kpi/); their definitions and
+priority order are documented in
 [ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md).
 
-### Capabilities
+Because ray tracing is too slow for the inner search loop, `src/surrogate/`
+predicts changed radio maps. `src/optim/report.py` then re-evaluates selected
+Pareto solutions with Sionna-RT and publishes only the measured front. The
+multi-objective Bayesian Optimization path and two baselines are implemented;
+Multi-Agent Reinforcement Learning and held-out scenario validation remain
+planned.
 
-- **A single, testable objective.** Five KPIs — hole rate, overlap rate, a
-  UE-weighted band priority score, expected RSRP improvement, and weak rate —
-  defined once in `src/kpi/`, in that lexicographic priority order. Three read a
-  plain RSRP array and nothing else; the two UE-weighted ones also read the
-  synthetic MDT. Either way the objective is testable against hand-computed
-  fixtures with no simulator involved.
-- **A shared search space.** TuRBO and MARL derive their bounds from the same
-  module and score through the same functions, so the comparison measures the two
-  methods rather than two implementations. TuRBO's trust region is a subset of
-  that space, never a relaxation of it.
-- **A radio-map surrogate, and a report that does not trust it.** Ray tracing
-  is too slow to sit inside a search loop, so `src/surrogate/` predicts the RSRP
-  map after a tilt change from the map before it. It satisfies the same
-  `ObjectiveEvaluator` protocol the ray tracer does, so a search cannot tell
-  which one it holds. Nothing it predicts is ever published: `src/optim/report.py`
-  re-solves the front it proposed with Sionna-RT, re-derives the front from what
-  was measured, and records the model's error on exactly the solutions it
-  offered.
-- **A front to choose from, not a winner.** Five objectives do not have a best.
-  ADR 0001's priority order still runs and marks one row `recommended`, but the
-  deliverable is the measured Pareto front — `pareto_<method>.csv` beside
-  `tilt_options_<method>.csv` — so which trade-off to deploy stays a judgement
-  a person makes.
-- **Scenario-level evaluation (blocked on more scenarios).** Train, validation
-  and test are meant to split between whole scenarios, so the held-out numbers
-  measure transfer to unseen environments rather than interpolation within one.
-  Only one scenario is on disk today, so this split cannot be made yet.
-- **Band-generic throughout.** Nothing hardcodes the number of bands. Adding one
-  is an edit to `configs/simulation.yaml`'s `radio_map.bands` and
-  `transmitters.cells[*].tilt`.
-
-### Non-goals
-
-- **Minimising reconfiguration effort.** `delta_tilt` is derived after
-  optimization for reporting only; there is no penalty on how far an antenna
-  moves. The research question is which configuration is best, not how to get
-  there cheaply.
-- **Accessibility, throughput, and interference KPIs.** Excluded from the
-  formulation. The available data supports neither — MDT carries RSRP and
-  position, not connection outcomes, and modelling throughput would need load and
-  scheduler assumptions that would dominate the result
-  ([ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md)).
-- **Validation against a live network.** Robustness is studied by perturbing
-  simulated scenarios, not by comparing against measurements from a real network.
-  Every number this project produces comes from simulation, and no part of the
-  chain is calibrated against reality.
-- **Deployment to a live network.** There is no OSS/northbound integration and
-  none is planned. The output is a tilt table, not a configuration push.
+The practical goal is to replace repeated manual tilt tuning with site-wide
+coordination that removes avoidable coverage holes, reduces redundant overlap,
+and assigns each frequency layer the role its propagation characteristics suit.
+The project does not model a live-network deployment path, and its results are
+not calibrated against operator measurements.
 
 ## Architecture
 
@@ -430,121 +401,6 @@ all passing, none skipped. `src/data/` and `src/core/` have no tests yet.
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in
 CI as on a laptop with no GPU — once CI exists.
-
-## Compliance and data handling
-
-**MDT is synthetic.** Both the UE positions and their RSRP are generated by
-`src/simulation/` — the UE population from a time-varying density model over the
-scene, the RSRP by Sionna-RT ray tracing against that same scene. No `ue_id`
-corresponds to a person, no position was observed, and nothing in the pipeline
-is personal data. There is no DPIA to write and no lawful basis to establish,
-because there is no data subject.
-
-| | |
-|---|---|
-| **Data categories** | Simulated UE position in the scene's local frame, simulation timestamp, tile index, cell-band, simulated RSRP |
-| **Provenance** | Generated from a bundled Sionna-RT scene, a synthetic UE-density model and per-cell tilt configuration. Regenerable from the scenario manifest (`data/external/scenario.json`) and the seed. |
-| **Personal data** | None |
-| **Retention** | Governed by storage cost, not by law. Meant to live in DVC for the life of the project; DVC is not yet initialised, so today the only copy is each contributor's local `data/`. |
-| **Residency** | Wherever the DVC remote ends up configured; none exists yet. |
-
-### The retired operator export
-
-An earlier formulation used a real MDT export — 41,481 measurements from 1,490
-devices over roughly two weeks. That file **did** contain device-level location
-traces: a pseudonymous identifier, coordinates and a timestamp per measurement,
-and sequences of those points describe where a device went and when. Trajectory
-data is notoriously re-identifiable, so it was personal data under most regimes
-despite carrying no name, MSISDN or IMSI.
-
-It is no longer an input to this project — `data/` in this repository carries no
-`raw/` directory and `dvc.yaml` no longer defines a stage that reads one. There
-is also no DVC remote configured in this repository (see
-[External dependencies](#external-dependencies)), so there is nowhere here a
-copy of `measurement_data.csv` could persist; if one exists it is on someone's
-disk or in a remote from before this formulation, not tracked by anything here.
-
-> [!WARNING]
-> **Do not reintroduce the operator export as a project input** without first
-> settling what the earlier version of this section called for and never
-> obtained: the lawful basis for research use, whether the pseudonymisation is
-> sufficient given the trajectory structure, a retention period, and whether raw
-> coordinates may appear in published figures. None of that was ever assessed.
-> Deleting it from the DVC remote is the cleaner option if nothing depends on it.
-
-The repository never commits data: `data/` is gitignored (meant to become
-DVC-tracked once DVC is initialised), `.env` is gitignored, and no identifier
-appears in any committed file.
-
-## Versioning and reproducibility
-
-This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-**The public API is** the `src/` module and function signatures, and the
-`configs/` schema. Everything else — notebook internals, `app/`, the contents of
-`reports/` — may change in any release. While the project is Alpha, signatures
-change without a major version bump; the ADRs record the changes that matter.
-
-### Artifact lineage
-
-Code alone does not reproduce a result that depends on data, on a random seed,
-and on a ray-tracing configuration.
-
-| Layer | Versioned by | Answers |
-|---|---|---|
-| Code and configuration | Git, plus the Hydra config saved beside each run in `outputs/hydra/` | By what procedure was this produced? |
-| Data and artifacts | DVC (`.dvc` files committed, contents in the remote) — **not yet set up**; `task dvc:init` has not been run in this repository | Which exact inputs and outputs? |
-| Runs and results | MLflow (`./mlruns` by default) | What happened, and how did it score? |
-| Simulation fidelity | `cfg.simulation.radio_map` and `cfg.simulation.grid`, recorded in the radio map's own `.npz` metadata | Against what ground truth? |
-| Which evaluator measured a KPI | The `source` column of `history.parquet`, and `verified` in `run.json` | Is this row a prediction or a measurement? |
-| Scenario | `scenario_id` and its manifest (`data/external/scenario.json`) — scene perturbation, density, time schedule, seed | Which world was this measured in? |
-
-Restore a past result today: check out the commit, then `task dvc:repro` to
-regenerate `data/` locally (there is no remote yet to `dvc pull` from).
-
-Three things invalidate stored results rather than adding to them, because they
-change the ground truth itself: the ray-tracing settings, the grid resolution,
-and the KPI thresholds or their order. `dvc.yaml` expresses the first two as
-parameter dependencies on the `simulation_radio` stage so a change forces a
-rebuild; the third needs an ADR (see [ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md)
-for the existing one).
-
-Artifact retention follows the DVC remote's policy; none is configured yet.
-
-## Governance
-
-| | |
-|---|---|
-| **Maintainer** | Nguyễn Duy Vũ — sole maintainer; there is no `CODEOWNERS` file |
-| **Review requirement** | Self-review before merge; one approval once there is a second contributor |
-| **Merge policy** | Squash onto `main`, linear history, `task check` green |
-| **Decision records** | [`docs/adr/`](docs/adr/) |
-
-Architecturally significant changes need an ADR **before** implementation. A
-change to the KPI definitions, the decision variable, the angle convention, the
-split scheme, or what a reported result may be computed from is always
-significant — see [docs/adr/README.md](docs/adr/README.md).
-
-## Roadmap
-
-Ordered roughly by what unblocks the most.
-
-| Item | Blocked on | Status |
-|---|---|---|
-| Run `task dvc:init` and configure a remote | — | Not started; `data/` is presently gitignored only |
-| Run `task simulation` for several seeds, so a between-scenario split exists | — | **Blocking most of the below** |
-| Measure `kpi.tolerance.expected_rsrp_improvement` — re-solve the baseline tilt under several solver seeds and take the spread | — | Not started; the value in `configs/kpi.yaml` is a flagged placeholder |
-| Implement scenario-level train/validation/test splitting | multiple scenarios (above) | Not started |
-| Delete or replace the dead tasks: `clean:data`, `marl`, `validate` | — | Not started |
-| ~~Put the surrogate in the search loop, and re-solve only the front~~ | — | Done, as two phases with a verified front ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md), revision note) |
-| Measure `optim.report.n_solutions` against how often the surrogate's ranking is wrong | several runs' `pareto_verified.parquet` | Not started; 8 is a judgement, and every run now records the evidence to revise it |
-| Train the surrogate across scenarios, so it transfers to geometry it has not seen | the split (above) | Not started — the operator in `src/surrogate/` is deliberately fitted to one scene |
-| ~~Implement the BO arm against `configs/optim/`~~ | — | Done, as multi-objective BO without a trust region ([ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md)) |
-| ~~Implement `src/evaluation/` — load runs, compare methods, report~~ | — | Done for runs already on disk |
-| Implement `src/optim/marl/` (Multi-Agent RL) over the same search space | — | Not started |
-| Add held-out validation — re-solve optimized tilts with Sionna-RT on unseen scenarios | the split (above), and MARL results | Not started; `task validate` already points at the module that would do it |
-| Decide the fate of `app/` (finish it as a serving layer, or remove the template scaffolding) | — | Not started |
-| CI (`task check` on every push) | — | Not started |
 
 ## License
 
