@@ -12,7 +12,14 @@ import numpy as np
 import pytest
 
 from src.core.cell import Cell, Tilt
-from src.surrogate.dataset import Encoder, Pattern, Sweep, TiltPairs, fit_pattern
+from src.surrogate.dataset import (
+    DecompositionReport,
+    Encoder,
+    Pattern,
+    Sweep,
+    TiltPairs,
+    fit_pattern,
+)
 from src.surrogate.features import SceneFeatures
 
 BANDS = ("b2600", "b1800")
@@ -328,3 +335,28 @@ def test_gain_is_interpolated_with_each_row_own_band_curve() -> None:
     grouped = encoder._gain(np.array([0, 1]), angles)
     assert np.array_equal(grouped[0], encoder.pattern.gain(0, angles[0]))
     assert np.array_equal(grouped[1], encoder.pattern.gain(1, angles[1]))
+
+
+def _report(others: float, repeat: float, moved: float) -> DecompositionReport:
+    return DecompositionReport(
+        moved_cell="c0",
+        band=BANDS[0],
+        max_abs_delta_db=others,
+        repeat_max_abs_delta_db=repeat,
+        moved_max_abs_delta_db=moved,
+    )
+
+
+def test_decomposition_holds_reads_the_untouched_map_against_repeat_noise() -> None:
+    """The verdict is relative: the same numbers pass or fail on the noise floor.
+
+    ``RadioMapSolver`` accumulates with atomic adds, so a sound solver still
+    differs in the last bits between two solves of one tilt. A fixed tolerance
+    would either hide real coupling or fail on a machine that is merely noisier.
+    """
+    assert _report(others=1e-6, repeat=1e-5, moved=3.0).holds
+    assert not _report(others=1e-3, repeat=1e-5, moved=3.0).holds
+    # Bit-identical solves: the strict test the noise floor generalises.
+    assert _report(others=0.0, repeat=0.0, moved=3.0).holds
+    # A null result -- nothing moved at all -- is a failure, not a pass.
+    assert not _report(others=0.0, repeat=0.0, moved=0.0).holds

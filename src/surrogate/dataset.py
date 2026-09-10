@@ -63,33 +63,48 @@ class DecompositionReport:
         moved_cell: The cell whose tilt was changed.
         band: The band solved.
         max_abs_delta_db: Largest change over the transmitters that did *not*
-            move. Zero means the per-slice surrogate is sound.
-        moved_max_abs_delta_db: Largest change on the transmitter that did,
+            move.
+        repeat_max_abs_delta_db: Largest change between two solves of the *same*
+            tilt vector -- the solver's own run-to-run noise, and the yardstick
+            ``max_abs_delta_db`` is read against.
+        moved_max_abs_delta_db: Largest change on the transmitter that did move,
             reported so a null result cannot be mistaken for success.
     """
 
     moved_cell: str
     band: str
     max_abs_delta_db: float
+    repeat_max_abs_delta_db: float
     moved_max_abs_delta_db: float
 
     @property
     def holds(self) -> bool:
-        """True when untouched transmitters were bit-identical and the moved one moved."""
-        return self.max_abs_delta_db == 0.0 and self.moved_max_abs_delta_db > 0.0
+        """True when the untouched maps stayed inside the repeat noise and the moved one left it."""
+        return (
+            self.max_abs_delta_db <= self.repeat_max_abs_delta_db
+            and self.moved_max_abs_delta_db > self.repeat_max_abs_delta_db
+        )
 
 
 def check_decomposition(
     cfg: DictConfig, band_index: int = 0, delta_deg: float = 4.0
 ) -> DecompositionReport:
-    """Solve one band twice, moving a single cell, and compare the rest.
+    """Solve one band three times, moving a single cell in the last, and compare the rest.
 
     The whole surrogate design rests on the answer, so it is measured rather
     than argued: physics says transmitters do not couple, but a solver sharing
     one Monte-Carlo stream across transmitters could still let one cell's
     orientation shift another cell's samples.
 
-    Costs two band-solves. Needs a CUDA GPU and the ``rt`` extra.
+    The third solve is what makes the answer readable. ``RadioMapSolver``
+    accumulates path contributions into the map with atomic adds, whose order
+    across GPU threads is not fixed, so even two solves of an identical tilt
+    vector differ in the last bits. Bit-equality would therefore fail on a sound
+    solver. Repeating one tilt measures that noise on this machine instead of
+    assuming a tolerance for it, and collapses to the strict test when the
+    solver turns out to be exactly reproducible.
+
+    Costs three band-solves. Needs a CUDA GPU and the ``rt`` extra.
     """
     with Evaluator(cfg) as evaluator:
         space = evaluator.space
@@ -101,15 +116,21 @@ def check_decomposition(
         after[dimension] = min(before[dimension] + delta_deg, space.upper[dimension])
 
         first = evaluator.solve(space.to_cells(before), band_index)
+        repeat = evaluator.solve(space.to_cells(before), band_index)
         second = evaluator.solve(space.to_cells(after), band_index)
 
-    delta = np.abs(np.nan_to_num(second, nan=_FLOOR_DBM) - np.nan_to_num(first, nan=_FLOOR_DBM))
+    def _delta(one: np.ndarray, other: np.ndarray) -> np.ndarray:
+        return np.abs(np.nan_to_num(one, nan=_FLOOR_DBM) - np.nan_to_num(other, nan=_FLOOR_DBM))
+
+    delta = _delta(second, first)
     others = np.ones(delta.shape[0], dtype=bool)
     others[0] = False
     return DecompositionReport(
         moved_cell=space.cells[0].name,
         band=band.name,
         max_abs_delta_db=float(delta[others].max()),
+        # Over every transmitter: none of them moved between these two solves.
+        repeat_max_abs_delta_db=float(_delta(repeat, first).max()),
         moved_max_abs_delta_db=float(delta[0].max()),
     )
 
@@ -806,7 +827,8 @@ def build(cfg: DictConfig) -> tuple[Path, Path]:
     report = check_decomposition(cfg)
     print(
         f"decomposition: moving {report.moved_cell}/{report.band} changed the other "
-        f"transmitters by at most {report.max_abs_delta_db:g} dB "
+        f"transmitters by at most {report.max_abs_delta_db:g} dB, against "
+        f"{report.repeat_max_abs_delta_db:g} dB of solver repeat noise "
         f"(its own map moved {report.moved_max_abs_delta_db:.1f} dB)"
     )
     if not report.holds:
