@@ -68,12 +68,13 @@ loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
 per-band radio maps, and samples them to produce synthetic MDT. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
 from the incumbent configuration. Four shared KPIs - hole rate, overlap rate,
-UE-weighted band priority, and weak-signal rate - score every candidate through
-[`src/kpi/`](src/kpi/); their definitions and priority order are documented in
-[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md). Beside
-them, [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per
-UE under per-cell PRB limits and turns that into the PRB demand map, a
-diagnostic that is not part of the objective.
+band priority (how many UEs the prioritised bands serve), and weak-signal rate -
+score every candidate through [`src/kpi/`](src/kpi/); their definitions and
+priority order are documented in
+[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md).
+[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE
+under per-cell PRB limits; band priority counts that serving band, and the PRB
+demand map built from it is a diagnostic outside the objective.
 
 Because ray tracing is too slow for the inner search loop, `src/surrogate/`
 predicts changed radio maps. `src/optim/report.py` then re-evaluates selected
@@ -366,7 +367,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
-| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The demand map is a diagnostic, so no KPI depends on them |
+| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The Band Priority Score counts the serving band, so an objective depends on them |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 | `task clean:data` calls `src.data.clean`, which does not exist | Dead task; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
 | `task marl`, `task validate` | Dead tasks — they call `src.optim.marl.train` and `src.evaluation.validate`, neither of which exists |

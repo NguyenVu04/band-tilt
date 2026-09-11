@@ -62,7 +62,7 @@ def band_priority_score(
     mdt: pd.DataFrame,
     cfg: DictConfig,
 ) -> float:
-    """UE-weighted share of UEs served by higher-priority bands.
+    """Mean normalised priority weight of each UE's serving band.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.

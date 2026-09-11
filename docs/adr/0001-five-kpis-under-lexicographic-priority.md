@@ -18,6 +18,10 @@
 - **Revised:** 2026-09-10 — revised in place at the maintainer's direction.
   Expected RSRP Improvement is removed, leaving four KPIs; see *Revision note —
   2026-09-10* below. The file name keeps "five" so existing links still resolve.
+- **Revised:** 2026-09-11 — revised in place at the maintainer's direction.
+  Band Priority Score counts each UE's serving band under the capacity model's
+  serving rule rather than the strongest band on its tile; see *Revision note —
+  2026-09-11* below.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -63,7 +67,7 @@ The objective is exactly four KPIs:
 |---|---|---|
 | Hole rate | fraction of grid with `R_max <= -120` dBm | minimise |
 | Overlap rate | fraction of grid with any co-band neighbour within 6 dB of that band's serving cell | minimise |
-| UE-weighted Band Priority Score | UE-weighted fraction of UEs served by higher-priority bands | **maximise** |
+| Band Priority Score | mean normalised priority weight `w̃` of the band each covered UE is served by under the serving rule (`src/kpi/capacity.py`); a PRB-blocked UE scores 0 | **maximise** |
 | Weak rate | fraction of grid with `-120 < R_max <= -90` dBm | minimise |
 
 They are ordered lexicographically: **Hole > Overlap > Band Priority Score >
@@ -117,13 +121,15 @@ evaluator and it sits downstream of both the simulator and the model.
   excellent RSRP coverage that is worse to actually connect to, and nothing in
   the formulation will notice.
 - **The objective mixes two notions of where the map matters.** Hole, overlap
-  and weak rate weight every tile equally; Band Priority Score weights tiles by
-  how many UE reports fall on them. A configuration can therefore improve slot 3
+  and weak rate weight every tile equally; Band Priority Score scores each UE
+  report. A configuration can therefore improve slot 3
   while making ground the MDT never sampled worse, and slots 1, 2 and 4 are what
   has to catch that.
-- Throughput and interference are not in the objective, so an overlap reduction
-  that costs capacity looks like a pure win. `src/kpi/capacity.py` now models
-  SINR and PRB demand, but only as a diagnostic; see the 2026-09-10 note.
+- Throughput is not in the objective, so an overlap reduction that costs
+  capacity looks like a pure win. SINR and PRB limits enter only indirectly,
+  through the serving rule Band Priority Score counts by, and every
+  `kpi.capacity` value is a placeholder — slot 3 is only as good as those values;
+  see the 2026-09-11 note.
 - Changing any threshold makes every previously produced result incomparable.
 
 **Neutral**
@@ -285,3 +291,35 @@ full-load co-band SINR into PRBs per UE. The evaluation's demand map is now PRBs
 required per tile. The *Include throughput or SINR* alternative above still
 holds for the objective: the model's load and scheduler assumptions are
 placeholders, and no optimizer sees the result.
+
+## Revision note — 2026-09-11
+
+Revised in place at the maintainer's direction. **Band Priority Score changes
+definition**; its slot, direction, weights and tolerance value are unchanged.
+
+| | Previously recorded | Now |
+|---|---|---|
+| Band counted | strongest layer on the UE's tile (`dominant_band`) | the UE's serving band from `src/kpi/capacity.py`: band preference above `kpi.capacity.rsrp_threshold_dbm`, else the strongest, under per-cell-band PRB limits |
+| Unit summed | tiles, weighted by UE report count | UE reports, one term each |
+| PRB-blocked UE | not modelled | in the denominator at weight 0 |
+| UE on a hole | excluded | excluded |
+
+The score is `mean over covered UEs of w̃[band_u]`, with `w̃` the min-max
+normalised `kpi.band_priority`. It asks how many UEs the prioritised bands
+actually serve, not how many stand where a prioritised band is loudest.
+
+**What this costs.** Band Priority Score values before and after are
+incomparable, and so is any winner that slot 3 decided. Runs on disk are not
+migrated.
+
+**Two statements above no longer hold.** The 2026-09-10 note's "no optimizer
+sees the result" is now false: the serving rule, its SINR and its PRB limits
+decide slot 3. The *Include throughput or SINR* alternative is correspondingly
+walked back in part — SINR and load now shape the objective, on placeholder
+values.
+
+**`kpi.tolerance.band_priority_score` is unmeasured for the new definition.**
+It was set at the ray tracer's run-to-run spread of the old score. The value is
+carried unchanged and must be re-derived the same way before any result is
+reported against it — the gap the 2026-09-08 note recorded for Expected RSRP
+Improvement, now in slot 3.

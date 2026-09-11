@@ -19,7 +19,8 @@ is hole, overlap, band priority, weak - see
 docs/adr/0001-five-kpis-under-lexicographic-priority.md.
 
 :mod:`src.kpi.capacity` sits beside them: the serving-cell rule the Band
-Priority Score counts by, and the PRB demand, a diagnostic outside the objective.
+Priority Score counts by, and the PRB demand map, a diagnostic outside the
+objective.
 """
 
 from src.kpi.bps import band_priority_score

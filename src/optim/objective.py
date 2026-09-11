@@ -49,7 +49,7 @@ class KpiVector:
     Attributes:
         hole_rate: Share of the grid receiving nothing above ``kpi.hole_dbm``.
         overlap_rate: Share of the grid with at least one overlapping neighbour.
-        band_priority_score: UE-weighted share served by higher-priority bands.
+        band_priority_score: Mean normalised priority weight of each UE's serving band.
         weak_rate: Share of the grid covered but below ``kpi.weak_dbm``.
     """
 
