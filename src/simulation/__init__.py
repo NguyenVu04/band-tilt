@@ -56,10 +56,6 @@ spelled. Every other function takes just the settings it uses.
 
 The scene's extent is deliberately absent from the config: it is read from the
 loaded scene, because a restated bound does not raise when it drifts from the
-geometry, it silently samples UEs off the scene. What the config does state is
-``area.margin_m``, the inset from that extent. Everything placed on purpose —
-UEs, hotspot centres, masts — stays inside it, because near the boundary there
-is no geometry beyond the edge to block or reflect anything and the radio map
-reads optimistically there. The grid and the map still span the full extent, so
-energy arriving from the margin is not lost.
+geometry, it silently samples UEs off the scene. UEs, hotspot centres and masts
+may be placed anywhere on the scene's open ground, edges included.
 """

@@ -165,32 +165,25 @@ def neighbourhood_volume(volume: np.ndarray, raster: Raster, radius_m: float) ->
     return total
 
 
-def eligible_tiles(raster: Raster, roi: np.ndarray) -> np.ndarray:
-    """Tiles that may hold a UE: open ground, inside the region of interest.
+def eligible_tiles(raster: Raster) -> np.ndarray:
+    """Tiles that may hold a UE: any holding open ground.
 
     The single definition of eligibility, shared by the hotspot draw and the
     per-tile weights so the two cannot drift apart.
     """
-    return (raster.free_fraction > 0.0) & roi
+    return raster.free_fraction > 0.0
 
 
 def draw_hotspots(
     raster: Raster,
     spec: DensitySpec,
     rng: np.random.Generator,
-    roi: np.ndarray,
 ) -> tuple[Hotspot, ...]:
     """Draw hotspot centres, weighted by surrounding building volume.
 
     Centres are restricted to eligible tiles. A centre inside a building would
     put its mass on whatever ring of open tiles happens to surround the block,
-    which is neither the intended shape nor a reproducible one; a centre in the
-    margin would put a share of the population where the radio map is least
-    trustworthy.
-
-    The weighting still counts building volume from the *whole* scene, margin
-    included: a hotspot just inside the boundary is genuinely surrounded by the
-    blocks beyond it, and pretending otherwise would bias centres inward twice.
+    which is neither the intended shape nor a reproducible one.
 
     The weight alone does not keep centres off near-empty ground: it is linear
     in building volume, and the outskirts hold enough tiles that their small
@@ -206,7 +199,7 @@ def draw_hotspots(
     if spec.n_hotspots == 0:
         return ()
 
-    allowed = eligible_tiles(raster, roi)
+    allowed = eligible_tiles(raster)
     candidate_weights = neighbourhood_volume(
         built_volume(raster), raster, spec.built_volume_radius_m
     )
@@ -219,8 +212,7 @@ def draw_hotspots(
         if n_eligible < spec.n_hotspots:
             raise ValueError(
                 f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
-                "grid tiles hold open ground inside the region of interest. Lower "
-                "n_hotspots, the tile size, or simulation.area.margin_m."
+                "grid tiles hold open ground. Lower n_hotspots or the tile size."
             )
     else:
         candidate_weights = _above_threshold(candidate_weights, spec)
@@ -249,7 +241,7 @@ def draw_hotspots(
     return tuple(hotspots)
 
 
-def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> DensityField:
+def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
     """Build the mixture the UE positions are drawn from.
 
     Weights carry the density function alone. They are deliberately NOT scaled
@@ -264,13 +256,13 @@ def field(raster: Raster, spec: DensitySpec, seed: int, roi: np.ndarray) -> Dens
     the sampled density proportional to the density function times the tile's
     *true* open area, with the estimate used for nothing but eligibility.
 
-    Tiles with no open ground at all are excluded, as are tiles outside the
-    region of interest, since no position in either could ever be accepted.
+    Tiles with no open ground at all are excluded, since no position in one
+    could ever be accepted.
     """
     rng = np.random.default_rng(seed)
-    hotspots = draw_hotspots(raster, spec, rng, roi)
+    hotspots = draw_hotspots(raster, spec, rng)
 
-    eligible = eligible_tiles(raster, roi).ravel().astype(np.float64)
+    eligible = eligible_tiles(raster).ravel().astype(np.float64)
     centre_x, centre_y = raster.tile_centres()
     centre_x = centre_x.ravel()
     centre_y = centre_y.ravel()

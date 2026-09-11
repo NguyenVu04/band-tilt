@@ -77,40 +77,6 @@ class SceneBounds:
         """
         return self.max_z + 10.0
 
-    def inset(self, margin_m: float) -> SceneBounds:
-        """This extent pulled in by ``margin_m`` on all four horizontal sides.
-
-        The region of interest. Near the scene boundary there is no geometry
-        beyond the edge to reflect or block anything, so power leaks outward
-        and the radio map reads optimistically there. Everything the scenario
-        places on purpose -- UEs, hotspot centres, masts -- is confined to this
-        interior; the grid and the radio map still span the full extent, so
-        rays arriving from the margin are not lost.
-
-        The z bounds are carried through unchanged: the margin is horizontal,
-        and ``launch_z`` must still clear the tallest geometry in the *whole*
-        scene, not merely the part inside the region.
-
-        Raises:
-            ValueError: When the margin is negative, or so large that it leaves
-                no interior.
-        """
-        if margin_m < 0:
-            raise ValueError(f"simulation.area.margin_m must not be negative, got {margin_m}")
-        if 2.0 * margin_m >= min(self.width_m, self.depth_m):
-            raise ValueError(
-                f"simulation.area.margin_m of {margin_m} m leaves no interior in a scene "
-                f"{self.width_m:.1f} x {self.depth_m:.1f} m"
-            )
-        return SceneBounds(
-            min_x=self.min_x + margin_m,
-            max_x=self.max_x - margin_m,
-            min_y=self.min_y + margin_m,
-            max_y=self.max_y - margin_m,
-            min_z=self.min_z,
-            max_z=self.max_z,
-        )
-
 
 def load(spec: SceneSpec) -> tuple[Any, SceneBounds]:
     """Load the scene and read its extent.

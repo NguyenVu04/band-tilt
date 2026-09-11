@@ -59,28 +59,25 @@ class UeSpec:
 def sample_positions(
     mi_scene: Any,
     bounds: SceneBounds,
-    roi: SceneBounds,
     raster: Raster,
     field: DensityField,
     schedule: Schedule,
     grid_spec: GridSpec,
     seed: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Draw every interval's UEs, rejecting any inside a building or the margin.
+    """Draw every interval's UEs, rejecting any inside a building.
 
     Assigns each UE a mixture component once, from the mass its own interval
     carries, then repeatedly draws a tile from that component and a uniform
-    position inside it, keeping the positions that land on open ground inside
-    the region of interest. Returns ``(interval, x, y, component)``, where
-    component is ``-1`` for the uniform background and the hotspot index
-    otherwise.
+    position inside it, keeping the positions that land on open ground.
+    Returns ``(interval, x, y, component)``, where component is ``-1`` for the
+    uniform background and the hotspot index otherwise.
 
     The rejection is not merely a filter: it is what weights a tile by its open
     area, so the resulting density is the density function times the tile's
-    true open area rather than times a sub-sampled estimate of it. The region
-    test rides along for the same reason — a tile whose centre is inside the
-    boundary can still reach past it, and rejecting the overhang is what makes
-    the region an exact edge rather than a half-tile approximation.
+    true open area rather than times a sub-sampled estimate of it. It also
+    rejects the overhang of edge tiles past the scene: the ray there misses and
+    comes back ``nan``.
 
     Raises:
         RuntimeError: When draws keep landing on buildings, which means the
@@ -117,14 +114,7 @@ def sample_positions(
         candidate_x = raster.origin_x + (cols + rng.random(pending.size)) * raster.tile_size_m
         candidate_y = raster.origin_y + (rows + rng.random(pending.size)) * raster.tile_size_m
         height = scene.surface_height(mi_scene, candidate_x, candidate_y, bounds.launch_z)
-        accepted = (
-            np.isfinite(height)
-            & (height <= grid_spec.free_height_tol_m)
-            & (candidate_x >= roi.min_x)
-            & (candidate_x <= roi.max_x)
-            & (candidate_y >= roi.min_y)
-            & (candidate_y <= roi.max_y)
-        )
+        accepted = np.isfinite(height) & (height <= grid_spec.free_height_tol_m)
 
         x[pending[accepted]] = candidate_x[accepted]
         y[pending[accepted]] = candidate_y[accepted]
@@ -133,9 +123,8 @@ def sample_positions(
             break
     else:
         raise RuntimeError(
-            f"{pending.size} UE positions still land on a building or outside the region "
-            f"of interest after {_MAX_REDRAW_ROUNDS} redraws. The open-ground raster and "
-            "the scene disagree."
+            f"{pending.size} UE positions still land on a building after "
+            f"{_MAX_REDRAW_ROUNDS} redraws. The open-ground raster and the scene disagree."
         )
 
     return interval, x, y, component - 1

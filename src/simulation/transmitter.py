@@ -116,7 +116,6 @@ def load(cfg: DictConfig) -> tuple[Cell, ...]:
 def generate(
     mi_scene: Any,
     bounds: SceneBounds,
-    roi: SceneBounds,
     raster: Raster,
     spec: LayoutSpec,
     grid_spec: GridSpec,
@@ -137,21 +136,19 @@ def generate(
     per cell-band pair is what is being optimized.
 
     Raises:
-        ValueError: When the lattice does not fit inside the region of
-            interest, or when a node finds no open ground within
-            ``spec.snap_radius_m``. Both are config changes rather than
-            something to snap away, and neither may be answered by placing a
-            mast on a building.
+        ValueError: When the lattice does not fit inside the scene, or when a
+            node finds no open ground within ``spec.snap_radius_m``. Both are
+            config changes rather than something to snap away, and neither may
+            be answered by placing a mast on a building.
     """
     span = (_LATTICE_SIDE - 1) * spec.node_spacing_m
-    if span > min(roi.width_m, roi.depth_m):
+    if span > min(bounds.width_m, bounds.depth_m):
         raise ValueError(
             f"a {_LATTICE_SIDE}x{_LATTICE_SIDE} lattice at "
             f"simulation.transmitters.layout.node_spacing_m={spec.node_spacing_m} spans "
-            f"{span:.1f} m, which does not fit the {roi.width_m:.1f} x {roi.depth_m:.1f} m "
-            "region of interest. Lower the spacing to at most "
-            f"{min(roi.width_m, roi.depth_m) / (_LATTICE_SIDE - 1):.1f} m, or lower "
-            "simulation.area.margin_m."
+            f"{span:.1f} m, which does not fit the {bounds.width_m:.1f} x "
+            f"{bounds.depth_m:.1f} m scene. Lower the spacing to at most "
+            f"{min(bounds.width_m, bounds.depth_m) / (_LATTICE_SIDE - 1):.1f} m."
         )
 
     centre_x = 0.5 * (bounds.min_x + bounds.max_x)
@@ -165,7 +162,6 @@ def generate(
         x, y, z = _mount(
             mi_scene,
             bounds,
-            roi,
             raster,
             centre_x + offset_x,
             centre_y + offset_y,
@@ -258,7 +254,6 @@ def validate(
 def _mount(
     mi_scene: Any,
     bounds: SceneBounds,
-    roi: SceneBounds,
     raster: Raster,
     x: float,
     y: float,
@@ -275,7 +270,8 @@ def _mount(
     still be on a building. Each surviving candidate is therefore cast
     individually and kept only when the ray comes back at or below
     ``free_height_tol_m`` — the same open-ground test the UEs were drawn
-    against. That cast also supplies the ground height to stand the mast on.
+    against. That cast also supplies the ground height to stand the mast on,
+    and misses for a candidate beyond the scene edge, which rejects it.
 
     Raises:
         ValueError: When no candidate within ``spec.snap_radius_m`` is open
@@ -293,7 +289,6 @@ def _mount(
             candidates_y = y + radius * np.sin(angles)
 
         usable = _tiles_are_clear(raster, candidates_x, candidates_y, spec)
-        usable &= _inside(roi, candidates_x, candidates_y)
         index = np.flatnonzero(usable)
         if index.size == 0:
             continue
@@ -319,11 +314,6 @@ def _mount(
     )
 
 
-def _inside(roi: SceneBounds, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Which of these points lie in the region of interest."""
-    return (x >= roi.min_x) & (x <= roi.max_x) & (y >= roi.min_y) & (y <= roi.max_y)
-
-
 def _tiles_are_clear(
     raster: Raster,
     x: np.ndarray,
@@ -335,8 +325,8 @@ def _tiles_are_clear(
     Direct accumulation over the disc of tile offsets, as in
     :func:`src.simulation.density.neighbourhood_volume`; the radius spans a
     handful of tiles, so nothing cleverer pays for itself. Offsets are clipped
-    to the grid, which can only re-test an in-bounds tile, and a node outside
-    the region is rejected separately anyway.
+    to the grid, which can only re-test an in-bounds tile, and a node beyond
+    the scene is rejected by its ground cast anyway.
     """
     radius_tiles = int(math.ceil(spec.clearance_radius_m / raster.tile_size_m))
     col, row = raster.tile_indices(x, y)
@@ -367,8 +357,7 @@ def main(cfg: DictConfig) -> None:
     # The raster the UEs are drawn against is built the same way, from the same
     # stream, so "free tile" means one thing across the whole pipeline.
     raster = grid_module.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
-    roi = bounds.inset(float(cfg.simulation.area.margin_m))
-    cells = generate(scene.mi_scene, bounds, roi, raster, spec, grid_spec, default_tilt)
+    cells = generate(scene.mi_scene, bounds, raster, spec, grid_spec, default_tilt)
 
     print(f"# {len(cells)} cells over {len(cells) // spec.cells_per_node} nodes")
     print(f"# {len(cells) * len(default_tilt)} cell-band tilts, all at the layout default")

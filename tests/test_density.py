@@ -16,7 +16,6 @@ from src.simulation.grid import Raster
 
 BLOCK = (slice(0, 2), slice(0, 2))
 LONE = (7, 7)
-ROI = np.ones((8, 8), dtype=bool)
 
 
 def _raster() -> Raster:
@@ -51,7 +50,7 @@ def _centre_tiles(spec: DensitySpec, draws: int = 200) -> set[tuple[int, int]]:
     raster = _raster()
     seen = set()
     for seed in range(draws):
-        for hotspot in draw_hotspots(raster, spec, np.random.default_rng(seed), ROI):
+        for hotspot in draw_hotspots(raster, spec, np.random.default_rng(seed)):
             seen.add((int(hotspot.y // 10.0), int(hotspot.x // 10.0)))
     return seen
 
@@ -85,7 +84,7 @@ def test_a_floor_that_starves_the_draw_is_an_error() -> None:
     n_at_peak = int(np.count_nonzero(volume >= 0.99 * volume.max()))
 
     with pytest.raises(ValueError, match="min_built_volume_fraction"):
-        draw_hotspots(raster, _spec(0.99, n_at_peak + 1), np.random.default_rng(0), ROI)
+        draw_hotspots(raster, _spec(0.99, n_at_peak + 1), np.random.default_rng(0))
 
 
 def test_a_scene_with_no_buildings_still_falls_back_to_uniform() -> None:
@@ -98,7 +97,7 @@ def test_a_scene_with_no_buildings_still_falls_back_to_uniform() -> None:
         mean_built_height=np.zeros((8, 8)),
     )
 
-    assert len(draw_hotspots(bare, _spec(0.25), np.random.default_rng(0), ROI)) == 2
+    assert len(draw_hotspots(bare, _spec(0.25), np.random.default_rng(0))) == 2
 
 
 @pytest.mark.parametrize("fraction", [-0.1, 1.0, 1.5])

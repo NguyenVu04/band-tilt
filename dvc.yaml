@@ -47,7 +47,6 @@ stages:
     params:
       - configs/simulation.yaml:
           - scene
-          - area
           - grid
           - density
           - time
@@ -81,7 +80,6 @@ stages:
     params:
       - configs/simulation.yaml:
           - scene
-          - area
           - grid
           - transmitters
           - radio_map
@@ -162,7 +160,6 @@ stages:
     params:
       - configs/simulation.yaml:
           - scene
-          - area
           - grid
           - transmitters
           - radio_map

@@ -23,7 +23,6 @@ from src.simulation.traffic import TrafficSpec
 # Output paths do not affect scenario identity.
 _IDENTITY_KEYS = (
     "scene",
-    "area",
     "grid",
     "ue",
     "time",
@@ -58,11 +57,9 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     traffic_spec = TrafficSpec.from_config(cfg)
 
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
-    roi = bounds.inset(float(cfg.simulation.area.margin_m))
 
     raster = grid.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
-    mask = grid.roi_mask(raster, roi)
-    field = density.field(raster, density_spec, seeds.stream(cfg, "density"), mask)
+    field = density.field(raster, density_spec, seeds.stream(cfg, "density"))
     schedule = traffic.build(
         traffic_spec,
         ue.count_range,
@@ -73,7 +70,6 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     interval, x, y, component = sample.sample_positions(
         scene.mi_scene,
         bounds,
-        roi,
         raster,
         field,
         schedule,
@@ -84,16 +80,15 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     ue_file = sample.write_csv(
         Path(cfg.simulation.output.ue_file), interval, schedule, x, y, component, raster, ue
     )
-    manifest_file = _write_manifest(cfg, raster, bounds, roi, field, schedule, x)
+    manifest_file = _write_manifest(cfg, raster, bounds, field, schedule, x)
 
-    eligible = density.eligible_tiles(raster, mask)
+    eligible = density.eligible_tiles(raster)
     tile_col, tile_row = raster.tile_indices(x, y)
     hotspot_mass = schedule.component_mass[:, 1:].sum(axis=1)
     print(f"scenario: {scenario_id(cfg)}")
     print(
         f"grid:     {raster.n_cols} x {raster.n_rows} tiles, "
-        f"{int(np.count_nonzero(eligible))} eligible inside a "
-        f"{cfg.simulation.area.margin_m} m margin"
+        f"{int(np.count_nonzero(eligible))} eligible"
     )
     print(f"hotspots: {len(field.hotspots)}")
     print(
@@ -118,7 +113,6 @@ def _write_manifest(
     cfg: DictConfig,
     raster: grid.Raster,
     bounds: scene_module.SceneBounds,
-    roi: scene_module.SceneBounds,
     field: density.DensityField,
     schedule: traffic.Schedule,
     x: np.ndarray,
@@ -131,13 +125,6 @@ def _write_manifest(
         "scenario_id": scenario_id(cfg),
         "seed": int(cfg.simulation.seed),
         "scene": OmegaConf.to_container(cfg.simulation.scene, resolve=True),
-        "area": {
-            "margin_m": float(cfg.simulation.area.margin_m),
-            "min_x": roi.min_x,
-            "max_x": roi.max_x,
-            "min_y": roi.min_y,
-            "max_y": roi.max_y,
-        },
         "grid": {
             "origin_x": raster.origin_x,
             "origin_y": raster.origin_y,

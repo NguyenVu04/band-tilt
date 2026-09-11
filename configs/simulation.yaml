@@ -9,11 +9,6 @@ scene:
   # Keep buildings as separate shapes rather than one merged mesh.
   merge_shapes: false
 
-# Region of interest
-area:
-  # Keep UEs, hotspots, and masts away from scene edges.
-  margin_m: 0.0
-
 # Measurement grid shared by UE density and radio maps.
 grid:
   # Tile side length.
@@ -198,7 +193,7 @@ radio_map:
   # Scene temperature used for thermal-noise power.
   temperature: 298.15
   # Rays launched per transmitter.
-  samples_per_tx: 10000000
+  samples_per_tx: 1000000
   # Longest path the solver traces, in interactions.
   max_depth: 5
   # Propagation mechanisms recorded with each output map.
@@ -217,14 +212,14 @@ radio_map:
   # Integer Hz values avoid YAML scientific-notation parsing issues.
   bands:
     - name: b2600
-      frequency: 2600000000
-      bandwidth: 100000000
+      frequency: 2600000000 # 2.6 GHz
+      bandwidth: 20000000 # 20 MHz
     - name: b1800
-      frequency: 1800000000
-      bandwidth: 100000000
+      frequency: 1800000000 # 1.8 GHz
+      bandwidth: 20000000 # 20 MHz
     - name: b700
-      frequency: 700000000
-      bandwidth: 100000000
+      frequency: 700000000 # 700 MHz
+      bandwidth: 20000000 # 20 MHz
 
 # Sionna-RT planar arrays; spacings are in wavelengths.
 antenna:
@@ -252,7 +247,7 @@ antenna:
 # Synthetic UE reports derived from the clean radio map.
 mdt:
   # Independent receiver measurement error.
-  rsrp_noise_sigma_db: 2.0
+  rsrp_noise_sigma_db: 4.0
 
 # Output artifacts for scenario inputs, clean maps, and synthetic reports.
 output:

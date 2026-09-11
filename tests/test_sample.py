@@ -55,11 +55,10 @@ def _schedule() -> Schedule:
     )
 
 
-def _draw(roi: SceneBounds = BOUNDS) -> tuple[np.ndarray, ...]:
+def _draw() -> tuple[np.ndarray, ...]:
     return sample_positions(
         mi_scene=None,
         bounds=BOUNDS,
-        roi=roi,
         raster=_raster(),
         field=_field(),
         schedule=_schedule(),
@@ -74,20 +73,6 @@ def test_every_interval_gets_the_count_it_asked_for() -> None:
 
     assert x.size == y.size == component.size == sum(COUNTS)
     np.testing.assert_array_equal(interval, np.repeat([0, 1, 2], COUNTS))
-
-
-def test_positions_stay_inside_the_region_of_interest() -> None:
-    """The overhang past the region is rejected, not merely the tiles outside it.
-
-    A tile whose centre is inside can still reach past the boundary, so the
-    region has to be an exact edge rather than a half-tile approximation.
-    """
-    roi = SceneBounds(min_x=10.0, max_x=30.0, min_y=10.0, max_y=30.0, min_z=0.0, max_z=10.0)
-
-    _, x, y, _ = _draw(roi)
-
-    assert (x >= roi.min_x).all() and (x <= roi.max_x).all()
-    assert (y >= roi.min_y).all() and (y <= roi.max_y).all()
 
 
 def test_background_draws_are_reported_as_component_minus_one() -> None:

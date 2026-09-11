@@ -35,9 +35,9 @@ tolerance:
 # KPI. Every value is a PLACEHOLDER pending the maintainer's numbers.
 capacity:
   # Below this the preferred band is skipped for the next one.
-  rsrp_threshold_dbm: -110.0
+  rsrp_threshold_dbm: -90.0
   # Average throughput each UE requires.
-  throughput_per_ue_bps: 5000000
+  throughput_per_ue_bps: 40000000 # 40 Mbps
   # UE receiver noise figure, added to kTB per resource element.
   noise_figure_db: 9.0
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).

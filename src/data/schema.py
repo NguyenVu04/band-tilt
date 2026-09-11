@@ -52,8 +52,9 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
 
     mdt = artifacts.mdt
     grid = artifacts.manifest["grid"]
-    area = artifacts.manifest["area"]
     n_rows, n_cols = artifacts.shape
+    max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
+    max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
     position = [column for column in mdt.columns if not column.startswith("rsrp_")]
     measurement = [column for column in mdt.columns if column.startswith("rsrp_")]
 
@@ -114,13 +115,13 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         *_count((mdt["tile_col"] < 0) | (mdt["tile_col"] >= n_cols)),
     )
     record(
-        "x, y inside the region of interest",
+        "x, y inside the grid extent",
         _MANIFEST,
         *_count(
-            (mdt["x"] < area["min_x"])
-            | (mdt["x"] > area["max_x"])
-            | (mdt["y"] < area["min_y"])
-            | (mdt["y"] > area["max_y"])
+            (mdt["x"] < grid["origin_x"])
+            | (mdt["x"] > max_x)
+            | (mdt["y"] < grid["origin_y"])
+            | (mdt["y"] > max_y)
         ),
     )
     record(

@@ -148,21 +148,3 @@ def build(mi_scene: Any, bounds: SceneBounds, spec: GridSpec, seed: int) -> Rast
         free_fraction=free.mean(axis=(2, 3)).astype(np.float64),
         mean_built_height=mean_built_height,
     )
-
-
-def roi_mask(raster: Raster, roi: SceneBounds) -> np.ndarray:
-    """Tiles whose centre lies inside ``roi``, shaped ``[n_rows, n_cols]``.
-
-    ``roi`` is an already-inset extent (:meth:`SceneBounds.inset`), so the
-    margin is applied in one place and every stage masks against the same
-    region. Tile membership is decided on the centre alone: a tile straddling
-    the boundary is either in or out, which keeps the mask a property of the
-    grid rather than of how finely the tile was sub-sampled.
-    """
-    centre_x, centre_y = raster.tile_centres()
-    return (
-        (centre_x >= roi.min_x)
-        & (centre_x <= roi.max_x)
-        & (centre_y >= roi.min_y)
-        & (centre_y <= roi.max_y)
-    )
