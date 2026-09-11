@@ -130,12 +130,14 @@ def demand_signal_maps(
     darkest colour: about half the grid holds no report at all, and "nobody
     here" is a different statement from "one person here".
 
-    The third panel is the intersection worth acting on — tiles that are busy
-    and not well covered — as distinct from tiles that are merely dark.
+    The signal is drawn twice, as best-server RSRP and as best SINR over every
+    cell-band. The last panel is the intersection worth acting on — tiles that
+    are busy and not well covered — as distinct from tiles that are merely dark.
     """
     extent = maps.extent_of(radio)
     best = maps.best_server(rsrp)
-    figure, axes = plt.subplots(1, 3, figsize=(15.0, 4.6), constrained_layout=True)
+    sinr = maps.best_sinr(rsrp, [str(label) for label in radio["band_label"]], cfg)
+    figure, axes = plt.subplots(1, 4, figsize=(20.0, 4.6), constrained_layout=True)
 
     occupied = np.where(counts > 0, counts.astype(float), np.nan)
     image = axes[0].imshow(occupied, origin="lower", extent=extent, aspect="equal")
@@ -155,8 +157,20 @@ def demand_signal_maps(
     _overlay(axes[1], cells, hotspots)
     _map_axes(axes[1], extent, "Signal — best-server RSRP")
 
-    flagged = maps.underserved(rsrp, counts, cfg, quantile)
     image = axes[2].imshow(
+        sinr,
+        origin="lower",
+        extent=extent,
+        aspect="equal",
+        vmin=maps.SINR_LIMITS[0],
+        vmax=maps.SINR_LIMITS[1],
+    )
+    figure.colorbar(image, ax=axes[2], label="SINR [dB]")
+    _overlay(axes[2], cells, hotspots)
+    _map_axes(axes[2], extent, "Signal — best SINR")
+
+    flagged = maps.underserved(rsrp, counts, cfg, quantile)
+    image = axes[3].imshow(
         flagged.astype(float),
         origin="lower",
         extent=extent,
@@ -165,9 +179,9 @@ def demand_signal_maps(
         vmin=0,
         vmax=1,
     )
-    figure.colorbar(image, ax=axes[2], label="busy and not well covered", ticks=[0, 1])
-    _overlay(axes[2], cells, hotspots)
-    _map_axes(axes[2], extent, f"Under-served — {int(flagged.sum())} tiles")
+    figure.colorbar(image, ax=axes[3], label="busy and not well covered", ticks=[0, 1])
+    _overlay(axes[3], cells, hotspots)
+    _map_axes(axes[3], extent, f"Under-served — {int(flagged.sum())} tiles")
     return figure
 
 

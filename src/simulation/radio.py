@@ -1,6 +1,6 @@
 """Ray-trace one clean radio map per band.
 
-Rebuilds the scenario and writes RSRP on its UE grid.
+Rebuilds the scenario and writes RSRP and SINR on its UE grid.
 """
 
 from __future__ import annotations
@@ -140,9 +140,10 @@ def solve(cfg: DictConfig) -> Path:
 
     configure_arrays(scene, cfg)
     maps = []
+    sinr_maps = []
     centres = None
     for band in bands:
-        rsrp, elapsed, centres, _radio_map = solve_band(
+        rsrp, elapsed, centres, radio_map = solve_band(
             scene,
             cells,
             band,
@@ -153,6 +154,7 @@ def solve(cfg: DictConfig) -> Path:
             power_dbm,
         )
         maps.append(rsrp)
+        sinr_maps.append(sinr_db(radio_map, rsrp))
         # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
         served = np.isfinite(rsrp).any(axis=0)
@@ -169,6 +171,8 @@ def solve(cfg: DictConfig) -> Path:
     np.savez_compressed(
         path,
         rsrp_dbm=np.stack(maps).astype(np.float32),
+        # Same axes as rsrp_dbm; see sinr_db for the noise basis.
+        sinr_db=np.stack(sinr_maps).astype(np.float32),
         band_hz=np.array([band.frequency_hz for band in bands]),
         band_label=np.array([band.name for band in bands]),
         # One tilt per cell-band pair, [band, tx], matching rsrp_dbm's leading
@@ -296,21 +300,39 @@ def solve_band(
     return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
 
 
+def sinr_db(radio_map: Any, rsrp: np.ndarray) -> np.ndarray:
+    """SINR of each transmitter in dB, ``[n_tx, n_rows, n_cols]``, from sionna-rt.
+
+    ``RadioMap.sinr`` counts every other transmitter in the scene - the band's
+    co-band cells, at full load - as interference, plus thermal noise
+    ``k * T * scene.bandwidth``. The noise spans the whole carrier while RSRP is
+    per resource element, so noise-limited tiles read pessimistic; that is
+    sionna-rt's own definition, kept as-is. NaN wherever ``rsrp`` has no path.
+    """
+    sinr = np.asarray(radio_map.sinr, dtype=np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        value = 10.0 * np.log10(sinr)
+    return np.where(np.isfinite(rsrp), value, _NO_PATH)
+
+
 def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
-    """Check every cell carries a tilt for every band.
+    """Check every cell carries a tilt and a PRB limit for every band.
 
     Checked once, up front, so a mismatched table names every gap rather than
     failing on whichever band happens to be solved first.
 
     Raises:
-        ValueError: When any cell-band pair has no tilt.
+        ValueError: When any cell-band pair has no tilt or no ``max_prb``.
     """
     missing = [
-        f"{cell.name}/{band.name}" for cell in cells for band in bands if band.name not in cell.tilt
+        f"{cell.name}/{band.name}"
+        for cell in cells
+        for band in bands
+        if band.name not in cell.tilt or band.name not in cell.max_prb
     ]
     if missing:
         raise ValueError(
-            f"{len(missing)} cell-band pairs have no tilt: {', '.join(missing[:8])}"
+            f"{len(missing)} cell-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
             f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
             "simulation.radio_map.bands; re-run `task simulation:layout` if the bands changed."
         )

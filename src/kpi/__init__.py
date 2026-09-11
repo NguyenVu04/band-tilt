@@ -18,8 +18,8 @@ weighted by the UE reports rather than uniformly over the grid. Priority order
 is hole, overlap, band priority, weak - see
 docs/adr/0001-five-kpis-under-lexicographic-priority.md.
 
-:mod:`src.kpi.capacity` sits beside them: the serving-cell rule and PRB demand,
-a diagnostic that is not part of the objective.
+:mod:`src.kpi.capacity` sits beside them: the serving-cell rule the Band
+Priority Score counts by, and the PRB demand, a diagnostic outside the objective.
 """
 
 from src.kpi.bps import band_priority_score

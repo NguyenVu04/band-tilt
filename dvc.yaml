@@ -90,20 +90,29 @@ stages:
       - data/interim/radio_map.npz
 
   # --- Stage 3: the MDT (notebook 00, section 5) ------------------------------
-  # Samples the clean radio map at every UE position and adds receiver noise.
+  # Samples the clean radio map at every UE position and adds receiver noise,
+  # then serves each UE from its reports to write the PRB demand map.
   simulation_mdt:
     cmd: python -m src.simulation.mdt
     deps:
       - src/simulation/mdt.py
       - src/simulation/seeds.py
+      - src/kpi/capacity.py
+      - src/core/cell.py
       - data/external/ue_positions.csv
       - data/interim/radio_map.npz
     params:
       - configs/simulation.yaml:
           - mdt
           - seed
+          - transmitters
+          - radio_map
+      - configs/kpi.yaml:
+          - capacity
+          - band_priority
     outs:
       - data/interim/mdt.csv
+      - data/interim/demand_map.npz
 
   # --- Stage 4: preprocessing (notebook 02) -----------------------------------
   # Verifies the simulation output against the contract named in each check

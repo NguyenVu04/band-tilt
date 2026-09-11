@@ -1,7 +1,9 @@
-"""Serving-layer quantities the KPIs are built from.
+"""Coverage quantities the grid KPIs are built from.
 
-Two reductions over the RSRP array, each read by two KPIs. They live here so
-that neither is written twice and the four coverage KPIs cannot drift apart.
+Two reductions over the RSRP array, read by the hole, weak and overlap rates
+and the Band Priority Score's hole gate. They live here so that neither is
+written twice and the KPIs cannot drift apart. The band that serves a UE in the
+Band Priority Score is :mod:`src.kpi.capacity`'s rule, not the strongest layer.
 
 The overlap rule here is CO-BAND: within one band, the strongest transmitter
 serves and the other transmitters on that same band are its neighbours; the
@@ -37,27 +39,6 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
         received.
     """
     return _finite(rsrp).max(axis=(0, 1))
-
-
-def dominant_band(rsrp: np.ndarray) -> np.ndarray:
-    """Band of the strongest cell-band layer at each location.
-
-    Args:
-        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-
-    Returns:
-        Band index into axis 0, shape ``[n_rows, n_cols]``.
-
-    Notes:
-        Deliberately not the co-band serving rule used by
-        :func:`overlap_neighbors`: this is the band of ``argmax`` over every
-        ``(cell, band)`` pair, which is what the Band Priority Score defines.
-
-        An uncovered location still returns an index, because ``argmax`` over an
-        all ``-inf`` column is well defined and arbitrary. Callers must gate on
-        the hole condition rather than trust it.
-    """
-    return _finite(rsrp).max(axis=1).argmax(axis=0)
 
 
 def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:

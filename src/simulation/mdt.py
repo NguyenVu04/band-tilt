@@ -1,7 +1,9 @@
-"""Create synthetic UE reports from radio-map samples.
+"""Create synthetic UE reports and the PRB demand map from radio-map samples.
 
-Adds independent RSRP measurement error. Every cell-band with a path is
-reported; NaN means only that the ray tracer found no path.
+Adds independent RSRP and SINR measurement error. Every cell-band with a path
+is reported; NaN means only that the ray tracer found no path. Each UE is then
+served from what it reported, by :mod:`src.kpi.capacity`, and the PRBs it needs
+there - at its first choice when blocked - make up the demand map.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.kpi import capacity
 from src.simulation import seeds
 
 # Each interval is independent, so MDT rows have no UE identifier.
@@ -25,44 +28,54 @@ class MdtSpec:
     """How far a report may stray from the truth.
 
     Attributes:
-        rsrp_noise_sigma_db: Standard deviation of the receiver measurement
-            error.
+        rsrp_noise_sigma_db: Standard deviation of the RSRP measurement error.
+        sinr_noise_sigma_db: Standard deviation of the SINR measurement error.
     """
 
     rsrp_noise_sigma_db: float
+    sinr_noise_sigma_db: float
 
     def __post_init__(self) -> None:
         """Reject a negative noise level.
 
         Raises:
-            ValueError: When ``rsrp_noise_sigma_db`` is negative.
+            ValueError: When either sigma is negative.
         """
         if self.rsrp_noise_sigma_db < 0:
             raise ValueError("simulation.mdt.rsrp_noise_sigma_db must not be negative")
+        if self.sinr_noise_sigma_db < 0:
+            raise ValueError("simulation.mdt.sinr_noise_sigma_db must not be negative")
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> MdtSpec:
         """Read ``simulation.mdt``."""
-        return cls(rsrp_noise_sigma_db=float(cfg.simulation.mdt.rsrp_noise_sigma_db))
+        return cls(
+            rsrp_noise_sigma_db=float(cfg.simulation.mdt.rsrp_noise_sigma_db),
+            sinr_noise_sigma_db=float(cfg.simulation.mdt.sinr_noise_sigma_db),
+        )
 
 
-def measure(clean: np.ndarray, spec: MdtSpec, seed: int) -> np.ndarray:
-    """Add measurement error, returning reported RSRP.
+def measure(clean: np.ndarray, sigma_db: float, seed: int) -> np.ndarray:
+    """Add Gaussian measurement error in dB, returning the reported values.
 
-    ``clean`` is ``[n_ue, n_measurement]`` in dBm, NaN where the ray tracer
-    found no path; NaN stays NaN.
+    ``clean`` is ``[n_ue, n_measurement]``, NaN where the ray tracer found no
+    path; NaN stays NaN.
     """
     rng = np.random.default_rng(seed)
-    return clean + rng.normal(0.0, spec.rsrp_noise_sigma_db, size=clean.shape)
+    return clean + rng.normal(0.0, sigma_db, size=clean.shape)
 
 
 def build(cfg: DictConfig) -> Path:
-    """Read the radio map and UE table, write the MDT. Returns the output path.
+    """Read the radio map and UE table, write the MDT and the demand map.
+
+    Returns the MDT path. Also writes ``simulation.output.demand_map_file``:
+    ``prb_required`` ``[n_t, n_rows, n_cols]``, aligned to ``t_index``.
 
     Raises:
         FileNotFoundError: When an earlier stage has not been run.
         ValueError: When the radio map and the UE table are from different
-            scenarios, or the UEs fall outside the map's grid.
+            scenarios, the UEs fall outside the map's grid, or the config
+            does not cover the map's bands and cells.
     """
     ue_path = Path(cfg.simulation.output.ue_file)
     map_path = Path(cfg.simulation.output.radio_map_file)
@@ -73,6 +86,8 @@ def build(cfg: DictConfig) -> Path:
     ues = pd.read_csv(ue_path)
     with np.load(map_path, allow_pickle=False) as data:
         rsrp = data["rsrp_dbm"]
+        sinr = data["sinr_db"]
+        scenario = str(data["scenario_id"])
         tx_names = [str(name) for name in data["tx_name"]]
         band_labels = [str(label) for label in data["band_label"]]
         n_cols = int(data["n_cols"])
@@ -87,13 +102,16 @@ def build(cfg: DictConfig) -> Path:
             "different grids."
         )
 
-    # [band, tx, row, col] sampled at each UE's tile -> [ue, band, tx], then
+    # [band, tx, row, col] sampled at each UE's tile -> [ue, tx, band], then
     # flattened so a cell's bands sit next to each other.
-    sampled = rsrp[:, :, row, col].transpose(2, 1, 0)
-    clean = sampled.reshape(len(ues), -1).astype(np.float64)
-    columns = [f"rsrp_{tx}_{band}" for tx in tx_names for band in band_labels]
+    n_band, n_tx = rsrp.shape[:2]
+    clean = rsrp[:, :, row, col].transpose(2, 1, 0).reshape(len(ues), -1).astype(np.float64)
+    clean_sinr = sinr[:, :, row, col].transpose(2, 1, 0).reshape(len(ues), -1).astype(np.float64)
+    pairs = [f"{tx}_{band}" for tx in tx_names for band in band_labels]
 
-    reported = measure(clean, MdtSpec.from_config(cfg), seeds.stream(cfg, "mdt"))
+    spec = MdtSpec.from_config(cfg)
+    reported = measure(clean, spec.rsrp_noise_sigma_db, seeds.stream(cfg, "mdt"))
+    reported_sinr = measure(clean_sinr, spec.sinr_noise_sigma_db, seeds.stream(cfg, "mdt_sinr"))
 
     heard = np.isfinite(clean)
     covered = heard.any(axis=1)
@@ -101,18 +119,47 @@ def build(cfg: DictConfig) -> Path:
     ues = ues.loc[covered].reset_index(drop=True)
     heard = heard[covered]
     reported = reported[covered]
+    reported_sinr = reported_sinr[covered]
 
     frame = pd.concat(
-        [ues[list(POSITION_COLUMNS)], pd.DataFrame(reported, columns=columns, index=ues.index)],
+        [
+            ues[list(POSITION_COLUMNS)],
+            pd.DataFrame(reported, columns=[f"rsrp_{p}" for p in pairs], index=ues.index),
+            pd.DataFrame(reported_sinr, columns=[f"sinr_{p}" for p in pairs], index=ues.index),
+        ],
         axis=1,
     )
     path = Path(cfg.simulation.output.mdt_file)
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False, float_format="%.3f", na_rep="")
 
+    # Serve from the reports, back in [ue, band, tx] for the capacity rule.
+    t_index = ues["t_index"].to_numpy()
+    band, _tx, prb_per_ue = capacity.serve_rows(
+        reported.reshape(-1, n_tx, n_band).transpose(0, 2, 1),
+        reported_sinr.reshape(-1, n_tx, n_band).transpose(0, 2, 1),
+        t_index,
+        capacity.CapacitySpec.from_config(cfg, band_labels, n_tx),
+    )
+    t_values, prb = capacity.prb_by_interval(
+        t_index,
+        ues["tile_row"].to_numpy(),
+        ues["tile_col"].to_numpy(),
+        prb_per_ue,
+        (n_rows, n_cols),
+    )
+    demand_path = Path(cfg.simulation.output.demand_map_file)
+    demand_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        demand_path,
+        prb_required=prb.astype(np.float32),
+        t_index=t_values,
+        scenario_id=scenario,
+    )
+
     n_intervals = int(ues["t_index"].nunique())
     print(
-        f"ue:        {len(ues)} rows x {len(columns)} measurements "
+        f"ue:        {len(ues)} rows x {len(pairs)} cell-bands of RSRP and SINR "
         f"({n_no_signal} no-signal UEs dropped)"
     )
     print(
@@ -121,7 +168,10 @@ def build(cfg: DictConfig) -> Path:
     )
     print(f"reachable: {heard.mean():6.1%} of measurements had a path")
     print(f"per ue:    {heard.sum(axis=1).min()} to {heard.sum(axis=1).max()} cells reported")
+    print(f"admitted:  {(band >= 0).mean():6.1%} of UEs fit a cell-band's PRBs")
+    print(f"demand:    peak tile {prb.max():.1f} PRBs in one interval")
     print(f"mdt:       {path}")
+    print(f"demand:    {demand_path}  shape {prb.shape} [t, row, col]")
     return path
 
 

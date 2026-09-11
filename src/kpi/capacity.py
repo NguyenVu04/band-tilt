@@ -1,13 +1,15 @@
-"""Serving-cell choice and PRB demand - a diagnostic beside the KPIs, not one.
+"""Serving-cell choice and PRB demand.
 
-A temporary serving rule: prefer bands in ``kpi.band_priority`` order while the
+The one serving rule in the project, read by the MDT stage, the Band Priority
+Score and the demand map: prefer bands in ``kpi.band_priority`` order while the
 band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take the
-strongest cell-band; a cell-band out of PRBs passes the UE to the next candidate
-in that same ranking.
+strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
+the UE to the next candidate in that same ranking.
 
-SINR assumes every co-band transmitter is fully loaded, so it is a lower bound
-on what a scheduler would see. PRBs are kept fractional: an average over an
-interval, and smooth in tilt.
+SINR is sionna-rt's ``RadioMap.sinr`` recomputed from RSRP: every co-band
+transmitter fully loaded, plus ``k * T * B`` over the band bandwidth, so a
+predicted map without SINR scores the same as a ray-traced one. PRBs are kept
+fractional: an average over an interval, and smooth in tilt.
 """
 
 from __future__ import annotations
@@ -18,66 +20,81 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
+from scipy.constants import Boltzmann
 
+from src.core.cell import Cell
 from src.kpi.tiles import tile_index
 
 # TS 38.211 4.4.4.1: one resource block is 12 consecutive subcarriers.
 SUBCARRIERS_PER_PRB = 12
 
-# Thermal noise density kT at 290 K.
-_THERMAL_DBM_PER_HZ = -174.0
-
 
 @dataclass(frozen=True)
 class CapacitySpec:
-    """``kpi.capacity`` and the band preference, aligned to the radio map's bands.
+    """The serving and PRB settings, aligned to the radio map's bands and cells.
 
     Attributes:
         band_rank: Preference per band, 0 most preferred, shape ``[n_band]``.
         rsrp_threshold_dbm: Below this a band is skipped for the next one.
-        throughput_per_ue_bps: Average throughput each UE requires.
-        noise_figure_db: UE receiver noise figure.
+        throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
-        n_prb: PRB limit per cell-band, per band, shape ``[n_band]``.
+        max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
+        noise_dbm: Thermal noise ``k * T * B`` per band, shape ``[n_band]``.
     """
 
     band_rank: np.ndarray
     rsrp_threshold_dbm: float
     throughput_per_ue_bps: float
-    noise_figure_db: float
     scs_hz: np.ndarray
-    n_prb: np.ndarray
-
-    @property
-    def noise_dbm(self) -> np.ndarray:
-        """Noise power per resource element, per band."""
-        return noise_per_re_dbm(self.scs_hz, self.noise_figure_db)
+    max_prb: np.ndarray
+    noise_dbm: np.ndarray
 
     @classmethod
-    def from_config(cls, cfg: DictConfig, band_labels: Sequence[str]) -> CapacitySpec:
-        """Read ``kpi.capacity`` and ``kpi.band_priority``.
+    def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
+        """Read ``kpi.capacity``, ``kpi.band_priority`` and the simulation's cells and bands.
+
+        The cells are taken in config order, which is the radio map's tx axis:
+        :func:`src.simulation.radio.solve` writes them in that order and
+        preprocessing checks ``tx_name`` against the config.
 
         Raises:
-            ValueError: When a band has no priority weight or no capacity entry.
+            ValueError: When a band has no priority weight, capacity entry or
+                bandwidth, or the config holds other than ``n_tx`` cells.
+            KeyError: When a cell has no ``max_prb`` for a band.
         """
         capacity = cfg.kpi.capacity
+        radio_map = cfg.simulation.radio_map
+        bandwidth = {str(entry.name): float(entry.bandwidth) for entry in radio_map.bands}
         missing = [
             label
             for label in band_labels
-            if label not in cfg.kpi.band_priority or label not in capacity.bands
+            if label not in cfg.kpi.band_priority
+            or label not in capacity.bands
+            or label not in bandwidth
         ]
         if missing:
             raise ValueError(
-                f"No kpi.band_priority or kpi.capacity.bands entry for {', '.join(missing)}."
+                "No kpi.band_priority, kpi.capacity.bands or simulation.radio_map.bands entry "
+                f"for {', '.join(missing)}."
+            )
+        cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
+        if len(cells) != n_tx:
+            raise ValueError(
+                f"simulation.transmitters.cells holds {len(cells)} cells for a radio map with "
+                f"{n_tx} transmitters."
             )
         weight = np.array([float(cfg.kpi.band_priority[label]) for label in band_labels])
         return cls(
             band_rank=np.argsort(np.argsort(-weight, kind="stable"), kind="stable"),
             rsrp_threshold_dbm=float(capacity.rsrp_threshold_dbm),
             throughput_per_ue_bps=float(capacity.throughput_per_ue_bps),
-            noise_figure_db=float(capacity.noise_figure_db),
             scs_hz=np.array([float(capacity.bands[label].scs_hz) for label in band_labels]),
-            n_prb=np.array([float(capacity.bands[label].n_prb) for label in band_labels]),
+            max_prb=np.array(
+                [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
+            ),
+            noise_dbm=thermal_noise_dbm(
+                float(radio_map.temperature), np.array([bandwidth[label] for label in band_labels])
+            ),
         )
 
 
@@ -99,9 +116,11 @@ class Serving:
     load: np.ndarray
 
 
-def noise_per_re_dbm(scs_hz: float | np.ndarray, noise_figure_db: float) -> np.ndarray:
-    """Thermal noise plus noise figure over one subcarrier, in dBm."""
-    return _THERMAL_DBM_PER_HZ + 10.0 * np.log10(np.asarray(scs_hz, dtype=float)) + noise_figure_db
+def thermal_noise_dbm(temperature_k: float, bandwidth_hz: float | np.ndarray) -> np.ndarray:
+    """Thermal noise ``k * T * B`` in dBm, as ``sionna.rt.Scene.thermal_noise_power``."""
+    power_w = Boltzmann * temperature_k * np.asarray(bandwidth_hz, dtype=float)
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(power_w) + 30.0
 
 
 def sinr_db(rsrp: np.ndarray, noise_dbm: float | np.ndarray) -> np.ndarray:
@@ -109,7 +128,7 @@ def sinr_db(rsrp: np.ndarray, noise_dbm: float | np.ndarray) -> np.ndarray:
 
     Args:
         rsrp: RSRP in dBm, ``[n_band, n_tx, ...]``, NaN where no path.
-        noise_dbm: Noise per resource element, scalar or one per band.
+        noise_dbm: Noise power, scalar or one per band.
 
     Returns:
         Same shape as ``rsrp``: each layer against every other transmitter on
@@ -191,7 +210,7 @@ def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Se
     n_ue, n_band, n_tx = rsrp.shape
     bandwidth = prb_bandwidth_hz(spec.scs_hz)[None, :, None]
     need = prb_per_ue(spec.throughput_per_ue_bps, prb_rate_bps(sinr, bandwidth))
-    limit = np.repeat(spec.n_prb, n_tx)
+    limit = spec.max_prb.ravel()
 
     band = np.full(n_ue, -1)
     tx = np.full(n_ue, -1)
@@ -215,43 +234,63 @@ def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Se
     return Serving(band=band, tx=tx, prb_per_ue=per_ue, load=load.reshape(n_band, n_tx))
 
 
+def serve_rows(
+    rsrp: np.ndarray, sinr: np.ndarray, t_index: np.ndarray, spec: CapacitySpec
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run :func:`select_serving` once per interval.
+
+    Args:
+        rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
+        sinr: ``[n_ue, n_band, n_tx]`` SINR in dB at the same UEs.
+        t_index: Interval of each UE; UEs compete for PRBs only within one.
+        spec: The capacity settings.
+
+    Returns:
+        ``(band, tx, prb_per_ue)`` per UE, as :class:`Serving` holds them.
+    """
+    band = np.full(len(t_index), -1)
+    tx = np.full(len(t_index), -1)
+    per_ue = np.full(len(t_index), np.nan)
+    for value in np.unique(t_index):
+        at = np.flatnonzero(t_index == value)
+        serving = select_serving(rsrp[at], sinr[at], spec)
+        band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
+    return band, tx, per_ue
+
+
 def serve_intervals(
     rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
 ) -> pd.DataFrame:
-    """Run :func:`select_serving` for every interval of the MDT.
+    """Serve every MDT row from the radio map, via :func:`serve_rows`.
 
     Args:
         rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``. RSRP and
             SINR are read at each UE's tile, so the result follows the tilts.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         mdt: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
-        cfg: Composed config; reads ``kpi.capacity`` and ``kpi.band_priority``.
+        cfg: Composed config; see :meth:`CapacitySpec.from_config`.
 
     Returns:
         One row per MDT row, index aligned: ``t_index``, ``tile_row``,
-        ``tile_col``, ``band``, ``tx``, ``sinr_db`` (at the serving or first
-        choice), ``prb_per_ue``.
+        ``tile_col``, ``band``, ``tx``, ``sinr_db`` (at the serving cell-band,
+        NaN when blocked), ``prb_per_ue``.
 
     Raises:
-        ValueError: When the MDT is off the map's grid or a band has no
-            capacity entry.
+        ValueError: When the MDT is off the map's grid or the config does not
+            cover the map's bands and cells.
     """
-    spec = CapacitySpec.from_config(cfg, band_labels)
+    spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
     row, col = tile_index(mdt, rsrp.shape[-2:])
     sinr = sinr_db(rsrp, spec.noise_dbm)
     t_index = mdt["t_index"].to_numpy()
 
+    band, tx, per_ue = serve_rows(
+        rsrp[:, :, row, col].transpose(2, 0, 1),
+        sinr[:, :, row, col].transpose(2, 0, 1),
+        t_index,
+        spec,
+    )
     out = pd.DataFrame({"t_index": t_index, "tile_row": row, "tile_col": col}, index=mdt.index)
-    band = np.full(len(mdt), -1)
-    tx = np.full(len(mdt), -1)
-    per_ue = np.full(len(mdt), np.nan)
-    for value in np.unique(t_index):
-        at = np.flatnonzero(t_index == value)
-        r, c = row[at], col[at]
-        serving = select_serving(
-            rsrp[:, :, r, c].transpose(2, 0, 1), sinr[:, :, r, c].transpose(2, 0, 1), spec
-        )
-        band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
     out["band"], out["tx"], out["prb_per_ue"] = band, tx, per_ue
     served = band >= 0
     out["sinr_db"] = np.nan
@@ -259,27 +298,46 @@ def serve_intervals(
     return out
 
 
+def prb_by_interval(
+    t_index: np.ndarray,
+    row: np.ndarray,
+    col: np.ndarray,
+    prb_per_ue: np.ndarray,
+    shape: tuple[int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """PRBs required per tile in each interval: the sum of its UEs' PRBs.
+
+    A UE with no reachable cell-band (NaN) adds nothing.
+
+    Returns:
+        ``(t_values, prb)``: the sorted intervals present, and ``prb`` shaped
+        ``[n_t, n_rows, n_cols]`` aligned to them.
+    """
+    n_rows, n_cols = shape
+    size = n_rows * n_cols
+    t_values, t_pos = np.unique(t_index, return_inverse=True)
+    flat = t_pos * size + row * n_cols + col
+    prb = np.bincount(flat, weights=np.nan_to_num(prb_per_ue), minlength=len(t_values) * size)
+    return t_values, prb.reshape(len(t_values), n_rows, n_cols)
+
+
 def demand_prb(
     rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
 ) -> np.ndarray:
     """PRBs required per tile in its busiest interval, ``[n_rows, n_cols]``.
 
-    Per interval, a tile needs the sum of its UEs' PRBs - its UE count times
-    PRBs per UE when all share a serving cell-band. A blocked UE still counts at
-    its first choice: this is demand, not what was served. The raster keeps the
-    maximum over intervals.
+    A blocked UE still counts at its first choice: this is demand, not what
+    was served.
 
     Raises:
         ValueError: As :func:`serve_intervals`.
     """
-    n_rows, n_cols = rsrp.shape[-2:]
     served = serve_intervals(rsrp, band_labels, mdt, cfg)
-    flat = served["tile_row"].to_numpy() * n_cols + served["tile_col"].to_numpy()
-    weight = np.nan_to_num(served["prb_per_ue"].to_numpy())
-    t_index = served["t_index"].to_numpy()
-    peak = np.zeros(n_rows * n_cols)
-    for value in np.unique(t_index):
-        at = t_index == value
-        per_tile = np.bincount(flat[at], weights=weight[at], minlength=n_rows * n_cols)
-        peak = np.maximum(peak, per_tile)
-    return peak.reshape(n_rows, n_cols)
+    _, prb = prb_by_interval(
+        served["t_index"].to_numpy(),
+        served["tile_row"].to_numpy(),
+        served["tile_col"].to_numpy(),
+        served["prb_per_ue"].to_numpy(),
+        rsrp.shape[-2:],
+    )
+    return prb.max(axis=0)

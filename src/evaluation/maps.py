@@ -16,13 +16,16 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import demand_prb
+from src.kpi.capacity import CapacitySpec, demand_prb, sinr_db
 from src.kpi.serving import max_rsrp
 
 # Display range for RSRP images. The lower bound is the hole threshold, so the
 # darkest colour and "uncovered" mean the same thing to the eye; the upper bound
 # is chosen for contrast and carries no meaning.
 RSRP_LIMITS = (-120.0, -60.0)
+
+# Display range for SINR images, chosen for contrast; it carries no meaning.
+SINR_LIMITS = (-20.0, 30.0)
 
 # Coverage classes, worst first. The order is the one a stacked bar or a legend
 # should use, and the integers are what `coverage_class` returns.
@@ -41,6 +44,19 @@ def best_server(rsrp: np.ndarray) -> np.ndarray:
         ``[n_rows, n_cols]`` in dBm, ``-inf`` where nothing is received.
     """
     return max_rsrp(rsrp)
+
+
+def best_sinr(rsrp: np.ndarray, band_labels: Sequence[str], cfg: DictConfig) -> np.ndarray:
+    """Highest SINR at each tile over every cell-band layer, in dB.
+
+    Recomputed from RSRP by :func:`src.kpi.capacity.sinr_db`, so a map that
+    stores no SINR - an optimizer's or the surrogate's - draws the same way.
+
+    Returns:
+        ``[n_rows, n_cols]`` in dB, ``-inf`` where nothing is received.
+    """
+    spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
+    return sinr_db(rsrp, spec.noise_dbm).max(axis=(0, 1))
 
 
 def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:

@@ -7,8 +7,7 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import band_priority_score, hole_rate, weak_rate
-from src.kpi.bps import ue_counts
+from src.kpi import band_priority_score, capacity, hole_rate, weak_rate
 from src.kpi.serving import overlap_neighbors
 from src.kpi.tiles import tile_index
 
@@ -23,7 +22,35 @@ def cfg():
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
                 "band_priority": {"hi": 3.0, "lo": 1.0},
-            }
+                "capacity": {
+                    "rsrp_threshold_dbm": -100.0,
+                    # Low enough that no fixture UE is blocked unless it asks to be.
+                    "throughput_per_ue_bps": 1.0,
+                    "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
+                },
+            },
+            "simulation": {
+                "radio_map": {
+                    "temperature": 290.0,
+                    "bands": [
+                        {"name": "hi", "bandwidth": 20e6},
+                        {"name": "lo", "bandwidth": 20e6},
+                    ],
+                },
+                "transmitters": {
+                    "cells": [
+                        {
+                            "name": "c0",
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 30.0,
+                            "azimuth_deg": 0.0,
+                            "tilt": {},
+                            "max_prb": {"hi": 100, "lo": 100},
+                        }
+                    ]
+                },
+            },
         }
     )
 
@@ -96,27 +123,43 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
         tile_index(_mdt([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
-def test_ue_counts_bins_row_major() -> None:
-    """The weight raster the band priority score multiplies through."""
-    mdt = _mdt([{"tile_row": 1, "tile_col": 0}] * 3 + [{"tile_row": 0, "tile_col": 1}])
-    assert ue_counts(mdt, (2, 2)).tolist() == [[0, 1], [3, 0]]
-
-
 # --- band priority score ---------------------------------------------------
 
 
-def test_band_priority_score_weights_tiles_by_ue_count(cfg) -> None:
-    """Band 'hi' dominates tile 0 and 'lo' tile 1; tile 0 carries three of four UEs."""
-    rsrp = _map([[[-80.0, -100.0]], [[-90.0, -85.0]]])
-    mdt = _mdt([{"tile_row": 0, "tile_col": 0}] * 3 + [{"tile_row": 0, "tile_col": 1}])
+def test_band_priority_score_counts_the_serving_band_not_the_strongest(cfg) -> None:
+    """Tile 0: 'hi' clears -100 dBm and serves though 'lo' is stronger.
+
+    Tile 1: 'hi' is below the threshold, so 'lo' serves. Three of four UEs
+    stand on tile 0.
+    """
+    rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
+    mdt = _mdt(
+        [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3
+        + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
+    )
     assert band_priority_score(rsrp, ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
+
+
+def test_a_blocked_ue_counts_at_weight_zero(cfg) -> None:
+    """Each band holds one UE's PRBs: the second UE takes 'lo', the third is blocked."""
+    # Alone on its band, SINR is RSRP over noise; each UE then needs 0.6 PRB.
+    noise = capacity.thermal_noise_dbm(290.0, 20e6)
+    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * float(
+        capacity.prb_rate_bps(-80.0 - noise, 180_000.0)
+    )
+    cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
+    rsrp = _map([[[-80.0]], [[-80.0]]])
+    mdt = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
+    assert band_priority_score(rsrp, ["hi", "lo"], mdt, cfg) == pytest.approx(1.0 / 3.0)
 
 
 def test_a_ue_standing_on_a_hole_is_excluded_from_both_sums(cfg) -> None:
     """No band serves it, so it can neither raise nor lower the score."""
     rsrp = _map([[[-80.0, -130.0]], [[-90.0, -140.0]]])
-    served_only = _mdt([{"tile_row": 0, "tile_col": 0}])
-    with_hole = _mdt([{"tile_row": 0, "tile_col": 0}, {"tile_row": 0, "tile_col": 1}])
+    served_only = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}])
+    with_hole = _mdt(
+        [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
+    )
     assert band_priority_score(rsrp, ["hi", "lo"], with_hole, cfg) == pytest.approx(
         band_priority_score(rsrp, ["hi", "lo"], served_only, cfg)
     )

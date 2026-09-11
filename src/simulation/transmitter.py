@@ -96,6 +96,12 @@ def default_tilts(cfg: DictConfig) -> dict[str, Tilt]:
     return {str(band): Tilt.from_config(value) for band, value in entries.items()}
 
 
+def default_max_prb(cfg: DictConfig) -> dict[str, int]:
+    """Read ``simulation.transmitters.layout.default_max_prb``, keyed by band name."""
+    entries = cfg.simulation.transmitters.layout.default_max_prb
+    return {str(band): int(value) for band, value in entries.items()}
+
+
 def load(cfg: DictConfig) -> tuple[Cell, ...]:
     """Read the cell table from ``simulation.transmitters.cells``.
 
@@ -120,6 +126,7 @@ def generate(
     spec: LayoutSpec,
     grid_spec: GridSpec,
     default_tilt: dict[str, Tilt],
+    max_prb: dict[str, int],
 ) -> tuple[Cell, ...]:
     """Lay nodes out on a square lattice and stand each on open ground.
 
@@ -131,9 +138,9 @@ def generate(
     exactly the open-ground definition the UEs were drawn against.
 
     Every cell is stamped with ``default_tilt`` — the same starting tilt per
-    band. That is a starting point, not a constraint: the emitted table is the
-    authority afterwards, and its entries are meant to diverge, since one tilt
-    per cell-band pair is what is being optimized.
+    band — and with ``max_prb``. That is a starting point, not a constraint:
+    the emitted table is the authority afterwards, and its entries are meant
+    to diverge, since one tilt per cell-band pair is what is being optimized.
 
     Raises:
         ValueError: When the lattice does not fit inside the scene, or when a
@@ -179,6 +186,7 @@ def generate(
                     z=z,
                     azimuth_deg=azimuth % 360.0,
                     tilt=dict(default_tilt),
+                    max_prb=dict(max_prb),
                 )
             )
     return tuple(cells)
@@ -357,7 +365,9 @@ def main(cfg: DictConfig) -> None:
     # The raster the UEs are drawn against is built the same way, from the same
     # stream, so "free tile" means one thing across the whole pipeline.
     raster = grid_module.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
-    cells = generate(scene.mi_scene, bounds, raster, spec, grid_spec, default_tilt)
+    cells = generate(
+        scene.mi_scene, bounds, raster, spec, grid_spec, default_tilt, default_max_prb(cfg)
+    )
 
     print(f"# {len(cells)} cells over {len(cells) // spec.cells_per_node} nodes")
     print(f"# {len(cells) * len(default_tilt)} cell-band tilts, all at the layout default")
@@ -380,6 +390,8 @@ def main(cfg: DictConfig) -> None:
                 f"        {band}: {{baseline_deg: {tilt.baseline_deg}, "
                 f"bounds_deg: [{tilt.bounds_deg[0]}, {tilt.bounds_deg[1]}]}}"
             )
+        limits = ", ".join(f"{band}: {value}" for band, value in cell.max_prb.items())
+        print(f"      max_prb: {{{limits}}}")
 
 
 if __name__ == "__main__":

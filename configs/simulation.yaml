@@ -77,6 +77,9 @@ transmitters:
       b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
       b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
       b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+    # Initial per-band PRB limit for generated cells; 106 is 20 MHz at 15 kHz
+    # SCS (TS 38.101-1 Table 5.3.2-1), so it must track kpi.capacity.bands.scs_hz.
+    default_max_prb: {b2600: 106, b1800: 106, b700: 106}
   # Generated once against the delivered scene and held fixed across scenarios.
   cells:
     - name: n0c0
@@ -88,6 +91,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n0c1
       x: -380.34
       y: -489.80
@@ -97,6 +101,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n0c2
       x: -380.34
       y: -489.80
@@ -106,6 +111,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c0
       x: -465.72
       y: 352.86
@@ -115,6 +121,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c1
       x: -465.72
       y: 352.86
@@ -124,6 +131,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c2
       x: -465.72
       y: 352.86
@@ -133,6 +141,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c0
       x: 257.15
       y: -470.78
@@ -142,6 +151,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c1
       x: 257.15
       y: -470.78
@@ -151,6 +161,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c2
       x: 257.15
       y: -470.78
@@ -160,6 +171,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n3c0
       x: 192.83
       y: 229.83
@@ -169,6 +181,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n3c1
       x: 192.83
       y: 229.83
@@ -178,6 +191,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n3c2
       x: 192.83
       y: 229.83
@@ -187,6 +201,7 @@ transmitters:
         b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
         b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
         b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      max_prb: {b2600: 106, b1800: 106, b700: 106}
 
 # Radio-map solver settings. Each band is solved separately.
 radio_map:
@@ -248,6 +263,8 @@ antenna:
 mdt:
   # Independent receiver measurement error.
   rsrp_noise_sigma_db: 4.0
+  # Independent SINR measurement error, in dB.
+  sinr_noise_sigma_db: 4.0
 
 # Output artifacts for scenario inputs, clean maps, and synthetic reports.
 output:
@@ -255,6 +272,7 @@ output:
   manifest_file: data/external/scenario.json
   radio_map_file: data/interim/radio_map.npz
   mdt_file: data/interim/mdt.csv
+  demand_map_file: data/interim/demand_map.npz
 
 # Base seed. GPU ray-map accumulation is not bit-reproducible.
 seed: ${seed}

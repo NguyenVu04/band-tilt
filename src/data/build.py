@@ -3,7 +3,7 @@
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
 ``mdt.parquet`` is the synthetic MDT, typed, with an explicit reported
-indicator beside every measurement.
+indicator beside every cell-band's RSRP and SINR.
 """
 
 from __future__ import annotations
@@ -42,8 +42,9 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
 
     Returns:
         ``n_cell * n_band`` rows carrying the cell's geometry, the band, the
-        baseline tilt and its bounds, and ``rsrp_column`` — the name of the
-        matching column in ``mdt.parquet``, which is what joins the two files.
+        baseline tilt and its bounds, the ``max_prb`` limit, and
+        ``rsrp_column``/``sinr_column`` — the names of the matching columns in
+        ``mdt.parquet``, which is what joins the two files.
     """
     cells = transmitter.load(cfg)
     bands = {str(entry.name): Band.from_config(entry) for entry in cfg.simulation.radio_map.bands}
@@ -69,7 +70,9 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
                     "tilt_baseline_deg": tilt.baseline_deg,
                     "tilt_min_deg": low,
                     "tilt_max_deg": high,
+                    "max_prb": cell.max_prb_for(label),
                     "rsrp_column": f"rsrp_{cell.name}_{label}",
+                    "sinr_column": f"sinr_{cell.name}_{label}",
                     "scenario_id": artifacts.scenario_id,
                 }
             )
@@ -89,21 +92,24 @@ def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
 
     Returns:
         One row per UE report: the position columns, ``scenario_id``, the
-        ``rsrp_*`` measurements and the matching ``reported_*`` flags. Sorted so
-        the output does not depend on the order the simulator emitted rows.
+        ``rsrp_*`` and ``sinr_*`` measurements and the ``reported_*`` flags,
+        which cover both since SINR has a path exactly where RSRP does. Sorted
+        so the output does not depend on the order the simulator emitted rows.
     """
     measurement = artifacts.measurement_columns
+    sinr = artifacts.sinr_columns
     frame = artifacts.mdt.copy()
 
     reported = frame[measurement].notna()
     reported.columns = [column.replace("rsrp_", "reported_", 1) for column in measurement]
 
     frame = frame.astype(_DTYPES)
-    frame[measurement] = frame[measurement].astype("float32")
+    frame[measurement + sinr] = frame[measurement + sinr].astype("float32")
     frame["scenario_id"] = pd.Categorical([artifacts.scenario_id] * len(frame))
 
     frame = pd.concat(
-        [frame[[*POSITION_COLUMNS, "scenario_id"]], frame[measurement], reported], axis=1
+        [frame[[*POSITION_COLUMNS, "scenario_id"]], frame[measurement], frame[sinr], reported],
+        axis=1,
     )
     return frame.sort_values(
         ["t_index", "tile_row", "tile_col", "x", "y"], kind="stable"

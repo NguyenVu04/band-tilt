@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from omegaconf import DictConfig
 
@@ -61,6 +61,7 @@ class Cell:
         z: Mast height above the scene's ground plane.
         azimuth_deg: Boresight bearing, counter-clockwise from the x axis.
         tilt: One :class:`Tilt` per band name.
+        max_prb: PRBs each band of this cell can schedule at most, per band name.
     """
 
     name: str
@@ -69,6 +70,32 @@ class Cell:
     z: float
     azimuth_deg: float
     tilt: dict[str, Tilt]
+    # Defaulted so tilt-only callers (the surrogate) need not invent limits;
+    # max_prb_for raises for a band that was never given one.
+    max_prb: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Reject a PRB limit no UE could be scheduled under.
+
+        Raises:
+            ValueError: When any ``max_prb`` entry is not positive.
+        """
+        bad = {band: value for band, value in self.max_prb.items() if value <= 0}
+        if bad:
+            raise ValueError(f"cell {self.name!r} has non-positive max_prb {bad}")
+
+    def max_prb_for(self, band_name: str) -> int:
+        """The PRB limit this cell carries on one band.
+
+        Raises:
+            KeyError: When the cell has no entry for that band.
+        """
+        if band_name not in self.max_prb:
+            raise KeyError(
+                f"cell {self.name!r} has no max_prb for band {band_name!r}. Every cell "
+                f"needs one per band; this one has {sorted(self.max_prb)}."
+            )
+        return self.max_prb[band_name]
 
     def tilt_for(self, band_name: str) -> Tilt:
         """The tilt this cell carries on one band.
@@ -94,4 +121,5 @@ class Cell:
             z=float(entry.z),
             azimuth_deg=float(entry.azimuth_deg),
             tilt={str(band): Tilt.from_config(value) for band, value in entry.tilt.items()},
+            max_prb={str(band): int(value) for band, value in entry.get("max_prb", {}).items()},
         )

@@ -1,6 +1,6 @@
 # @package kpi
 # Thresholds and weights defining the four KPIs, plus the capacity model behind
-# the PRB demand map.
+# the serving rule and the PRB demand map.
 
 # Strongest signal at or below which a location is a coverage hole.
 hole_dbm: -120.0
@@ -31,19 +31,19 @@ tolerance:
   band_priority_score: 0.001
   weak_rate: 0.004
 
-# Serving-cell choice and PRB demand (src/kpi/capacity.py). A diagnostic, not a
-# KPI. Every value is a PLACEHOLDER pending the maintainer's numbers.
+# Serving-cell choice and PRB demand (src/kpi/capacity.py). The serving band is
+# what the Band Priority Score counts. Every value is a PLACEHOLDER pending the
+# maintainer's numbers.
 capacity:
   # Below this the preferred band is skipped for the next one.
   rsrp_threshold_dbm: -90.0
-  # Average throughput each UE requires.
+  # Assumed required throughput of each UE; sets PRBs per UE.
   throughput_per_ue_bps: 40000000 # 40 Mbps
-  # UE receiver noise figure, added to kTB per resource element.
-  noise_figure_db: 9.0
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).
-  # n_prb: PRB limit per cell-band; 106 is 20 MHz at 15 kHz SCS
-  # (TS 38.101-1 Table 5.3.2-1).
+  # Only the PRB bandwidth uses it. SINR noise is kTB over the band bandwidth
+  # (simulation.radio_map), as sionna-rt's RadioMap.sinr computes it. The PRB
+  # limit per cell-band is simulation.transmitters.cells[].max_prb.
   bands:
-    b2600: {scs_hz: 15000, n_prb: 106}
-    b1800: {scs_hz: 15000, n_prb: 106}
-    b700: {scs_hz: 15000, n_prb: 106}
+    b2600: {scs_hz: 15000}
+    b1800: {scs_hz: 15000}
+    b700: {scs_hz: 15000}
