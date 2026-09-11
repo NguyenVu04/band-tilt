@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.serving import max_rsrp
+from src.kpi.capacity import max_rsrp
 
 
 def weak_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:

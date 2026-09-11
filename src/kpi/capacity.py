@@ -10,6 +10,10 @@ SINR is sionna-rt's ``RadioMap.sinr`` recomputed from RSRP: every co-band
 transmitter fully loaded, plus ``k * T * B`` over the band bandwidth, so a
 predicted map without SINR scores the same as a ray-traced one. PRBs are kept
 fractional: an average over an interval, and smooth in tilt.
+
+:func:`max_rsrp`, the strongest layer at each location, also lives here: the
+hole and weak rates and the Band Priority Score's hole gate read it. It is not
+the serving rule.
 """
 
 from __future__ import annotations
@@ -23,10 +27,9 @@ from omegaconf import DictConfig
 from scipy.constants import Boltzmann
 
 from src.core.cell import Cell
-from src.kpi.tiles import tile_index
 
 # TS 38.211 4.4.4.1: one resource block is 12 consecutive subcarriers.
-SUBCARRIERS_PER_PRB = 12
+_SUBCARRIERS_PER_PRB = 12
 
 
 @dataclass(frozen=True)
@@ -92,14 +95,14 @@ class CapacitySpec:
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
             ),
-            noise_dbm=thermal_noise_dbm(
+            noise_dbm=_thermal_noise_dbm(
                 float(radio_map.temperature), np.array([bandwidth[label] for label in band_labels])
             ),
         )
 
 
 @dataclass(frozen=True)
-class Serving:
+class _Serving:
     """One interval's assignment.
 
     Attributes:
@@ -116,7 +119,59 @@ class Serving:
     load: np.ndarray
 
 
-def thermal_noise_dbm(temperature_k: float, bandwidth_hz: float | np.ndarray) -> np.ndarray:
+def finite(rsrp: np.ndarray) -> np.ndarray:
+    """RSRP with the ray tracer's no-path NaN replaced by ``-inf``.
+
+    Substituting once, here, is what lets every threshold comparison downstream
+    run without a NaN special case: an unreachable location compares as a hole
+    on its own.
+    """
+    return np.where(np.isfinite(rsrp), rsrp, -np.inf)
+
+
+def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
+    """Strongest signal at each location, over every cell-band layer.
+
+    Args:
+        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
+            no path was found.
+
+    Returns:
+        ``R_max(g)``, shape ``[n_rows, n_cols]``, ``-inf`` where nothing is
+        received.
+    """
+    return finite(rsrp).max(axis=(0, 1))
+
+
+def _tile_index(mdt: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """The MDT's ``(row, col)`` tile indices, checked against the map's grid.
+
+    Args:
+        mdt: Synthetic MDT, one row per UE per interval, carrying ``tile_row``
+            and ``tile_col``.
+        shape: The radio map's ``(n_rows, n_cols)``.
+
+    Returns:
+        ``(row, col)``, each of shape ``[n_report]``, ready to index a
+        ``[n_rows, n_cols]`` raster.
+
+    Raises:
+        ValueError: When a UE falls outside the map's grid, which means the MDT
+            and the radio map were built on different grids.
+    """
+    n_rows, n_cols = shape
+    row = mdt["tile_row"].to_numpy()
+    col = mdt["tile_col"].to_numpy()
+    if row.min() < 0 or row.max() >= n_rows or col.min() < 0 or col.max() >= n_cols:
+        raise ValueError(
+            f"MDT tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
+            f"outside the radio map's {n_rows} x {n_cols} grid. The two were built on "
+            "different grids."
+        )
+    return row, col
+
+
+def _thermal_noise_dbm(temperature_k: float, bandwidth_hz: float | np.ndarray) -> np.ndarray:
     """Thermal noise ``k * T * B`` in dBm, as ``sionna.rt.Scene.thermal_noise_power``."""
     power_w = Boltzmann * temperature_k * np.asarray(bandwidth_hz, dtype=float)
     with np.errstate(divide="ignore"):
@@ -142,38 +197,38 @@ def sinr_db(rsrp: np.ndarray, noise_dbm: float | np.ndarray) -> np.ndarray:
         return 10.0 * np.log10(power / (interference + noise))
 
 
-def spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
+def _spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
     """Shannon spectral efficiency ``log2(1 + SINR)`` in bit/s/Hz."""
     return np.log2(1.0 + 10.0 ** (np.asarray(sinr, dtype=float) / 10.0))
 
 
-def prb_bandwidth_hz(scs_hz: float | np.ndarray) -> np.ndarray:
+def _prb_bandwidth_hz(scs_hz: float | np.ndarray) -> np.ndarray:
     """Bandwidth of one PRB: 12 subcarriers of ``scs_hz``."""
-    return SUBCARRIERS_PER_PRB * np.asarray(scs_hz, dtype=float)
+    return _SUBCARRIERS_PER_PRB * np.asarray(scs_hz, dtype=float)
 
 
-def prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndarray:
+def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndarray:
     """Throughput of one PRB, ``B_PRB * log2(1 + SINR)``, in bit/s."""
-    return np.asarray(bandwidth_hz, dtype=float) * spectral_efficiency(sinr)
+    return np.asarray(bandwidth_hz, dtype=float) * _spectral_efficiency(sinr)
 
 
-def required_throughput_bps(n_ue: float | np.ndarray, per_ue_bps: float) -> np.ndarray:
+def _required_throughput_bps(n_ue: float | np.ndarray, per_ue_bps: float) -> np.ndarray:
     """Throughput a tile requires: its UE count times the per-UE requirement."""
     return np.asarray(n_ue, dtype=float) * per_ue_bps
 
 
-def prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
+def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
     """PRBs one UE needs at a given per-PRB rate; ``inf`` where the rate is zero."""
     with np.errstate(divide="ignore"):
         return np.divide(per_ue_bps, np.asarray(rate_bps, dtype=float))
 
 
-def prb_required(n_ue: float | np.ndarray, per_ue_prb: float | np.ndarray) -> np.ndarray:
+def _prb_required(n_ue: float | np.ndarray, per_ue_prb: float | np.ndarray) -> np.ndarray:
     """PRBs a tile requires: its UE count times the PRBs per UE."""
     return np.asarray(n_ue, dtype=float) * np.asarray(per_ue_prb, dtype=float)
 
 
-def candidate_order(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
+def _candidate_order(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
     """Cell-bands one location may be served by, most preferred first.
 
     Args:
@@ -196,10 +251,10 @@ def candidate_order(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: floa
     return order[heard[order]]
 
 
-def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Serving:
+def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _Serving:
     """Assign one interval's UEs to cell-bands under the PRB limits.
 
-    UEs are taken in the order given; each walks its :func:`candidate_order`
+    UEs are taken in the order given; each walks its :func:`_candidate_order`
     and takes the first cell-band with room for it.
 
     Args:
@@ -208,8 +263,8 @@ def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Se
         spec: The capacity settings.
     """
     n_ue, n_band, n_tx = rsrp.shape
-    bandwidth = prb_bandwidth_hz(spec.scs_hz)[None, :, None]
-    need = prb_per_ue(spec.throughput_per_ue_bps, prb_rate_bps(sinr, bandwidth))
+    bandwidth = _prb_bandwidth_hz(spec.scs_hz)[None, :, None]
+    need = _prb_per_ue(spec.throughput_per_ue_bps, _prb_rate_bps(sinr, bandwidth))
     limit = spec.max_prb.ravel()
 
     band = np.full(n_ue, -1)
@@ -219,7 +274,7 @@ def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Se
     # ponytail: Python loop over UEs; vectorise if this enters the search loop.
     for ue in range(n_ue):
         ue_need = need[ue].ravel()
-        order = candidate_order(rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm)
+        order = _candidate_order(rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm)
         order = order[np.isfinite(ue_need[order])]
         if order.size == 0:
             continue
@@ -231,13 +286,13 @@ def select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> Se
         load[chosen] += ue_need[chosen]
         per_ue[ue] = ue_need[chosen]
         band[ue], tx[ue] = divmod(int(chosen), n_tx)
-    return Serving(band=band, tx=tx, prb_per_ue=per_ue, load=load.reshape(n_band, n_tx))
+    return _Serving(band=band, tx=tx, prb_per_ue=per_ue, load=load.reshape(n_band, n_tx))
 
 
 def serve_rows(
     rsrp: np.ndarray, sinr: np.ndarray, t_index: np.ndarray, spec: CapacitySpec
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run :func:`select_serving` once per interval.
+    """Run :func:`_select_serving` once per interval.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
@@ -246,14 +301,14 @@ def serve_rows(
         spec: The capacity settings.
 
     Returns:
-        ``(band, tx, prb_per_ue)`` per UE, as :class:`Serving` holds them.
+        ``(band, tx, prb_per_ue)`` per UE, as :class:`_Serving` holds them.
     """
     band = np.full(len(t_index), -1)
     tx = np.full(len(t_index), -1)
     per_ue = np.full(len(t_index), np.nan)
     for value in np.unique(t_index):
         at = np.flatnonzero(t_index == value)
-        serving = select_serving(rsrp[at], sinr[at], spec)
+        serving = _select_serving(rsrp[at], sinr[at], spec)
         band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
     return band, tx, per_ue
 
@@ -280,7 +335,7 @@ def serve_intervals(
             cover the map's bands and cells.
     """
     spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
-    row, col = tile_index(mdt, rsrp.shape[-2:])
+    row, col = _tile_index(mdt, rsrp.shape[-2:])
     sinr = sinr_db(rsrp, spec.noise_dbm)
     t_index = mdt["t_index"].to_numpy()
 

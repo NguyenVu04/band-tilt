@@ -57,8 +57,8 @@ def cfg():
 
 def test_thermal_noise_is_kt_times_bandwidth() -> None:
     """Noise at 290 K over 1 Hz is -173.975 dBm, and scales as 10 log10(B)."""
-    assert capacity.thermal_noise_dbm(290.0, 1.0) == pytest.approx(-173.975, abs=1e-3)
-    assert capacity.thermal_noise_dbm(290.0, 20e6) == pytest.approx(-173.975 + 73.010, abs=1e-3)
+    assert capacity._thermal_noise_dbm(290.0, 1.0) == pytest.approx(-173.975, abs=1e-3)
+    assert capacity._thermal_noise_dbm(290.0, 20e6) == pytest.approx(-173.975 + 73.010, abs=1e-3)
 
 
 def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
@@ -78,34 +78,34 @@ def test_sinr_counts_only_co_band_interference() -> None:
 
 def test_rate_and_prbs_follow_the_shannon_formula() -> None:
     """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
-    assert capacity.spectral_efficiency(0.0) == pytest.approx(1.0)
-    rate = capacity.prb_rate_bps(0.0, capacity.prb_bandwidth_hz(15000.0))
+    assert capacity._spectral_efficiency(0.0) == pytest.approx(1.0)
+    rate = capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0))
     assert rate == pytest.approx(_B_PRB)
-    per_ue = capacity.prb_per_ue(5 * _B_PRB, rate)
+    per_ue = capacity._prb_per_ue(5 * _B_PRB, rate)
     assert per_ue == pytest.approx(5.0)
-    assert capacity.prb_required(3, per_ue) == pytest.approx(15.0)
-    assert capacity.required_throughput_bps(3, 1e6) == pytest.approx(3e6)
-    assert capacity.prb_per_ue(1.0, 0.0) == np.inf
+    assert capacity._prb_required(3, per_ue) == pytest.approx(15.0)
+    assert capacity._required_throughput_bps(3, 1e6) == pytest.approx(3e6)
+    assert capacity._prb_per_ue(1.0, 0.0) == np.inf
 
 
 def test_the_preferred_band_serves_when_it_clears_the_threshold() -> None:
     """'hi' tx1 is above -100 dBm, so it wins over a much stronger 'lo'."""
     rsrp = np.array([[-105.0, -99.0], [-60.0, -70.0]])
-    order = capacity.candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [1, 2, 3, 0]
 
 
 def test_a_band_below_the_threshold_passes_to_the_next() -> None:
     """No 'hi' cell clears the threshold, so 'lo' comes first, strongest cell first."""
     rsrp = np.array([[-105.0, -110.0], [-95.0, -80.0]])
-    order = capacity.candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [3, 2, 0, 1]
 
 
 def test_below_every_threshold_the_strongest_serves_and_no_path_is_dropped() -> None:
     """The fallback is plain RSRP order; an unreachable layer is never a candidate."""
     rsrp = np.array([[-105.0, np.nan], [-120.0, -101.0]])
-    order = capacity.candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [3, 0, 2]
 
 
@@ -115,7 +115,7 @@ def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
     rsrp = np.array([[[-90.0], [-95.0]]] * 2)  # [ue, band, tx]
     # log2(1 + SINR) = 1/6 at the first choice, 1/6 at the second.
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity.select_serving(rsrp, sinr, spec)
+    serving = capacity._select_serving(rsrp, sinr, spec)
     assert serving.band.tolist() == [0, 1]
     assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
     assert serving.load[:, 0].tolist() == pytest.approx([6.0, 6.0])
@@ -126,7 +126,7 @@ def test_a_ue_with_no_room_anywhere_is_blocked_but_keeps_its_demand(cfg) -> None
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-90.0], [np.nan]]] * 2)
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity.select_serving(rsrp, sinr, spec)
+    serving = capacity._select_serving(rsrp, sinr, spec)
     assert serving.band.tolist() == [0, -1]
     assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
 
@@ -173,7 +173,7 @@ def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     assert peak[0, 1] == 0.0
 
     cfg.simulation.radio_map.temperature = 290.0
-    noise = capacity.thermal_noise_dbm(290.0, _BANDWIDTH_HZ)
-    rate = capacity.prb_rate_bps(-90.0 - noise, _B_PRB)
+    noise = capacity._thermal_noise_dbm(290.0, _BANDWIDTH_HZ)
+    rate = capacity._prb_rate_bps(-90.0 - noise, _B_PRB)
     peak = capacity.demand_prb(rsrp, ["hi", "lo"], mdt, cfg)
     assert peak[0, 0] == pytest.approx(3 * _B_PRB / rate)

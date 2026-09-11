@@ -18,8 +18,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import serve_intervals
-from src.kpi.serving import max_rsrp
+from src.kpi.capacity import max_rsrp, serve_intervals
 
 
 def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarray:

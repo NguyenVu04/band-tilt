@@ -16,8 +16,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec, demand_prb, sinr_db
-from src.kpi.serving import max_rsrp
+from src.kpi.capacity import CapacitySpec, demand_prb, max_rsrp, sinr_db
 
 # Display range for RSRP images. The lower bound is the hole threshold, so the
 # darkest colour and "uncovered" mean the same thing to the eye; the upper bound

@@ -134,10 +134,10 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     mdt = pd.DataFrame({"t_index": [0, 0, 0], "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
     counts = maps.demand(rsrp, ["b"], mdt, cfg)
 
-    noise = capacity.thermal_noise_dbm(290.0, 20e6)
-    per_ue = capacity.prb_per_ue(1e6, capacity.prb_rate_bps(-90.0 - noise, 180_000.0))
+    noise = capacity._thermal_noise_dbm(290.0, 20e6)
+    per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(-90.0 - noise, 180_000.0))
     assert counts.shape == (3, 4)
-    assert counts[0, 1] == pytest.approx(capacity.prb_required(2, per_ue))
+    assert counts[0, 1] == pytest.approx(capacity._prb_required(2, per_ue))
     assert counts[2, 3] == pytest.approx(per_ue)
     assert counts.sum() == pytest.approx(3 * per_ue)
 

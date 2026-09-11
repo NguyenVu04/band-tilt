@@ -7,7 +7,7 @@ scene:
   # Use a mono-polarized CUDA variant required by Sionna-RT.
   mitsuba_variant: cuda_ad_mono_polarized
   # Keep buildings as separate shapes rather than one merged mesh.
-  merge_shapes: false
+  merge_shapes: true
 
 # Measurement grid shared by UE density and radio maps.
 grid:
@@ -208,9 +208,9 @@ radio_map:
   # Scene temperature used for thermal-noise power.
   temperature: 298.15
   # Rays launched per transmitter.
-  samples_per_tx: 1000000
+  samples_per_tx: 16000000
   # Longest path the solver traces, in interactions.
-  max_depth: 5
+  max_depth: 16
   # Propagation mechanisms recorded with each output map.
   los: true
   specular_reflection: true

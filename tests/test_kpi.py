@@ -8,8 +8,8 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.kpi import band_priority_score, capacity, hole_rate, weak_rate
-from src.kpi.serving import overlap_neighbors
-from src.kpi.tiles import tile_index
+from src.kpi.capacity import _tile_index
+from src.kpi.overlap import _overlap_neighbors
 
 
 @pytest.fixture
@@ -105,13 +105,13 @@ def test_overlap_counts_within_each_band_and_sums_across_them(cfg) -> None:
             [[-90.0, -100.0], [-94.0, -130.0]],
         ]
     )
-    assert overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
+    assert _overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
 
 
 def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
     """Subtracting the serving cell must not take an uncovered band below zero."""
     rsrp = _map([[[-130.0], [-130.0]], [[-80.0], [-140.0]]])
-    assert overlap_neighbors(rsrp, cfg).tolist() == [[0]]
+    assert _overlap_neighbors(rsrp, cfg).tolist() == [[0]]
 
 
 # --- tiles -----------------------------------------------------------------
@@ -120,7 +120,7 @@ def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
 def test_tile_index_rejects_a_ue_off_the_map() -> None:
     """A UE outside the grid means the MDT and the map are different scenarios."""
     with pytest.raises(ValueError, match="different grids"):
-        tile_index(_mdt([{"tile_row": 0, "tile_col": 5}]), (1, 4))
+        _tile_index(_mdt([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
 # --- band priority score ---------------------------------------------------
@@ -143,9 +143,9 @@ def test_band_priority_score_counts_the_serving_band_not_the_strongest(cfg) -> N
 def test_a_blocked_ue_counts_at_weight_zero(cfg) -> None:
     """Each band holds one UE's PRBs: the second UE takes 'lo', the third is blocked."""
     # Alone on its band, SINR is RSRP over noise; each UE then needs 0.6 PRB.
-    noise = capacity.thermal_noise_dbm(290.0, 20e6)
+    noise = capacity._thermal_noise_dbm(290.0, 20e6)
     cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * float(
-        capacity.prb_rate_bps(-80.0 - noise, 180_000.0)
+        capacity._prb_rate_bps(-80.0 - noise, 180_000.0)
     )
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
