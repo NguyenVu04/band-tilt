@@ -39,6 +39,7 @@ from src.surrogate.dataset import (
     load_features,
 )
 from src.surrogate.model import OperatorSpec, TiltOperator
+from src.tracking import log_stage
 
 
 @dataclass(frozen=True)
@@ -313,7 +314,15 @@ def load_checkpoint(
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Entry point for ``task surrogate:train``."""
-    train(cfg)
+    path = train(cfg)
+    epochs = torch.load(path, map_location="cpu", weights_only=False)["history"]
+    log_stage(
+        cfg,
+        "surrogate_train",
+        groups=["surrogate"],
+        step_metrics=[{k: v for k, v in e.items() if k != "epoch"} for e in epochs],
+        artifacts=[path],
+    )
 
 
 if __name__ == "__main__":

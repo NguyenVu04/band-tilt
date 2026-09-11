@@ -23,6 +23,7 @@ from omegaconf import DictConfig
 
 from src.optim.history import History, LocalRunWriter, write_run
 from src.optim.methods import run_search
+from src.tracking import log_stage
 
 
 def output_directory(cfg: DictConfig, method: str) -> Path:
@@ -113,7 +114,16 @@ def main(cfg: DictConfig) -> None:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0
     """
     _quiet_ax_logging()
-    run(cfg)
+    history, directory = run(cfg)
+    frame = history.frame()
+    log_stage(
+        cfg,
+        "optim_search",
+        groups=["optim", "kpi"],
+        metrics={"n_candidates": len(frame), "n_pareto_predicted": int(frame["on_pareto"].sum())},
+        artifacts=sorted(directory.glob("*.parquet")) + [directory / "run.json"],
+        tags={"method": cfg.optim.method.name, "run_dir": directory},
+    )
 
 
 if __name__ == "__main__":

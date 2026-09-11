@@ -19,6 +19,7 @@ from src.simulation.grid import GridSpec
 from src.simulation.sample import UeSpec
 from src.simulation.scene import SceneSpec
 from src.simulation.traffic import TrafficSpec
+from src.tracking import log_stage
 
 # Output paths do not affect scenario identity.
 _IDENTITY_KEYS = (
@@ -163,7 +164,7 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ task simulation:scenario -- simulation.time.horizon_s=3600 seed=7
     """
-    generate(cfg)
+    log_stage(cfg, "simulation_scenario", groups=["simulation"], outputs=generate(cfg))
 
 
 if __name__ == "__main__":

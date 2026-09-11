@@ -19,6 +19,7 @@ from src.data.load import Artifacts, load_artifacts, save
 from src.simulation import transmitter
 from src.simulation.mdt import POSITION_COLUMNS
 from src.simulation.radio import Band
+from src.tracking import log_stage
 
 # int16 covers a 74 x 61 grid with room to spare; float32 holds the 3-decimal
 # dBm the MDT was written with. t_s stays float64: at a 604800 s horizon,
@@ -149,7 +150,7 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ uv run python -m src.data.build data.output.mdt_file=/tmp/mdt.parquet
     """
-    run(cfg)
+    log_stage(cfg, "preprocessing", groups=["data"], outputs=run(cfg))
 
 
 if __name__ == "__main__":

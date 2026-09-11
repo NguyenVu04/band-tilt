@@ -39,6 +39,7 @@ reports/outputs/*
 # --- Experiment tracking / Hydra -------------------------------------------
 mlruns/
 mlartifacts/
+mlflow.db
 # Anchored: an unanchored `outputs/` also swallows reports/outputs/.
 /outputs/
 

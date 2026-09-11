@@ -18,6 +18,7 @@ from omegaconf import DictConfig
 
 from src.kpi import capacity
 from src.simulation import seeds
+from src.tracking import log_stage
 
 # Each interval is independent, so MDT rows have no UE identifier.
 POSITION_COLUMNS = ("t_index", "t_s", "x", "y", "z", "tile_col", "tile_row")
@@ -182,7 +183,9 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ task simulation:mdt -- simulation.mdt.rsrp_noise_sigma_db=3.0
     """
-    build(cfg)
+    mdt = build(cfg)
+    outputs = [mdt, cfg.simulation.output.demand_map_file]
+    log_stage(cfg, "simulation_mdt", groups=["simulation", "kpi"], outputs=outputs)
 
 
 if __name__ == "__main__":

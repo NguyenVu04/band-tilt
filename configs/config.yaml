@@ -12,8 +12,12 @@ seed: 42
 
 project_name: band-tilt
 
+# One MLflow run per stage entry point, see src/tracking.py. MLFLOW_TRACKING_URI
+# in .env wins. SQLite, not ./mlruns: MLflow 3.x refuses the file store unless
+# MLFLOW_ALLOW_FILE_STORE is set. Artifacts still land in ./mlruns.
 mlflow:
-  tracking_uri: ./mlruns
+  enabled: true
+  tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,sqlite:///mlflow.db}
   experiment_name: band-tilt
 
 # Hydra's own output directories. Runs are reproducible from the config Hydra

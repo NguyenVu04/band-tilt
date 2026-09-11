@@ -2,17 +2,24 @@
 #
 #   task            list every available task
 #   task <name>     run one
-#   task train -- models=model_a optim.lr=1e-3
+#   task bo -- optim.method.budget.n_iter=50
 #                   everything after `--` is forwarded to the command
+#   task pipeline   every stage, simulation through evaluation
 #
 # Task runs commands through its own POSIX shell interpreter, so these work
 # identically on Windows, macOS and Linux. Avoid platform binaries (rm, find)
 # in new tasks — shell out to `uv run python -c ...` instead.
 version: "3"
 
+# MLFLOW_TRACKING_URI and friends; a missing .env is ignored.
+dotenv: [".env"]
+
 vars:
   PKG: src
-  ARTIFACT_DIR: models
+  # The search methods `search:all` and `report:all` loop over. Adding one is a
+  # folder under src/optim/methods/, its SEARCHES entry, a
+  # configs/optim/method/<name>.yaml, and its name here.
+  METHODS: mobo random rule
 
 tasks:
   default:
@@ -119,10 +126,10 @@ tasks:
       - task: simulation:radio
       - task: simulation:mdt
 
-  clean:data:
-    desc: 'LEGACY - clean the retired operator MDT export (no notebook; see CLAUDE.md)'
+  preprocess:
+    desc: 'Verify the simulation output and write the processed tables (notebook 02)'
     cmds:
-      - uv run python -m {{.PKG}}.data.clean {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.data.build {{.CLI_ARGS}}
 
   surrogate:dataset:
     desc: 'Sweep the tilt range and cast the scene channels (notebook 03a) - needs a GPU'
@@ -133,6 +140,12 @@ tasks:
     desc: 'Train the tilt-delta surrogate on the sweep (notebook 03b)'
     cmds:
       - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
+
+  surrogate:
+    desc: 'Sweep the tilt range, then train the surrogate on it'
+    cmds:
+      - task: surrogate:dataset
+      - task: surrogate:train
 
   bo:
     desc: 'PHASE 1 - search with the surrogate, e.g. task bo -- optim.method.budget.n_iter=50'
@@ -149,21 +162,37 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.optim.report {{.CLI_ARGS}}
 
+  search:all:
+    desc: 'PHASE 1 for every method in METHODS'
+    cmds:
+      - for: { var: METHODS }
+        cmd: uv run python -m {{.PKG}}.optim.run optim/method={{.ITEM}} {{.CLI_ARGS}}
+
+  report:all:
+    desc: 'PHASE 2 for every method in METHODS - needs a GPU'
+    cmds:
+      - for: { var: METHODS }
+        cmd: uv run python -m {{.PKG}}.optim.report optim/method={{.ITEM}} {{.CLI_ARGS}}
+
   optim:
-    desc: 'Both phases: search with the surrogate, then report on it with Sionna-RT'
+    desc: 'Both phases for every method: search with the surrogate, then re-solve with Sionna-RT'
     cmds:
-      - task: bo
-      - task: optim:report
+      - task: search:all
+      - task: report:all
 
-  marl:
-    desc: 'Train the MARL policy, e.g. task marl -- optim.agents.granularity=node'
+  evaluate:
+    desc: 'Compare the newest verified run of each method, write reports/ (notebook 05)'
     cmds:
-      - uv run python -m {{.PKG}}.optim.marl.train optim=marl {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.evaluation.run {{.CLI_ARGS}}
 
-  validate:
-    desc: 'DEAD - re-evaluate optimized tilts on a held-out scenario (no module yet)'
+  pipeline:
+    desc: 'Every stage in order: simulation, preprocess, surrogate, optim, evaluate'
     cmds:
-      - uv run python -m {{.PKG}}.evaluation.validate {{.CLI_ARGS}}
+      - task: simulation
+      - task: preprocess
+      - task: surrogate
+      - task: optim
+      - task: evaluate
 
   sweep:
     desc: 'Hydra multirun, e.g. task sweep -- seed=1,2,3'
@@ -198,31 +227,9 @@ tasks:
       - uv run dvc pull
 
   mlflow:
-    desc: Serve the MLflow UI on the local ./mlruns store
+    desc: Serve the MLflow UI on MLFLOW_TRACKING_URI (default sqlite:///mlflow.db)
     cmds:
-      - uv run mlflow ui --backend-store-uri ./mlruns
-
-  # --- serving -------------------------------------------------------------
-
-  api:
-    desc: Run the FastAPI service with reload
-    cmds:
-      - uv run uvicorn app.api.main:app --reload --port 8000
-
-  demo:
-    desc: Run the Streamlit demo
-    cmds:
-      - uv run streamlit run app/demo/streamlit_app.py
-
-  docker:build:
-    desc: Build the serving image
-    cmds:
-      - docker build -f app/Dockerfile -t ml-project-api .
-
-  docker:run:
-    desc: Run the serving image on port 8000
-    cmds:
-      - docker run --rm -p 8000:8000 ml-project-api
+      - uv run mlflow ui --backend-store-uri ${MLFLOW_TRACKING_URI:-sqlite:///mlflow.db}
 
   # --- housekeeping --------------------------------------------------------
 

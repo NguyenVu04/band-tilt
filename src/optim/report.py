@@ -17,6 +17,7 @@ comparison run on a machine with no GPU.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from src.optim.objective import (
     pareto_mask,
 )
 from src.optim.space import TiltSpace
+from src.tracking import log_stage
 
 
 def latest_run(cfg: DictConfig, method: str) -> Path:
@@ -331,7 +333,29 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ task optim:report -- optim/method=random optim.report.n_solutions=4
     """
-    report(cfg)
+    directory = report(cfg)
+    meta = json.loads((directory / "run.json").read_text(encoding="utf-8"))
+    solutions = pd.read_parquet(directory / "pareto_verified.parquet")
+    errors = solutions[[f"error_{name}" for name in KPI_NAMES]].abs()
+    log_stage(
+        cfg,
+        "optim_report",
+        groups=["optim", "kpi"],
+        metrics={
+            **{f"best_{name}": value for name, value in meta["best_kpi"].items()},
+            "n_pareto_verified": meta["n_pareto_verified"],
+            "max_surrogate_kpi_error": float(errors.to_numpy().max()),
+        },
+        artifacts=[
+            *sorted(directory.glob("*.parquet")),
+            directory / "run.json",
+            meta["tilt_change"],
+            meta["pareto_scores"],
+            meta["tilt_options"],
+        ],
+        outputs=[meta["best_radio_map"]] if meta["best_radio_map"] else [],
+        tags={"method": meta["method"], "run_dir": directory, "scenario_id": meta["scenario_id"]},
+    )
 
 
 if __name__ == "__main__":

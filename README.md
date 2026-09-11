@@ -12,7 +12,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 | | |
 |---|---|
-| **Maturity** | **Alpha** — simulation, preprocessing, the tilt-delta surrogate, the Bayesian-optimization arm and run reporting run end to end for one scenario; MARL and held-out validation have no code yet. |
+| **Maturity** | **Alpha** — simulation, preprocessing, the tilt-delta surrogate, the Bayesian-optimization arm, run reporting and the method comparison run end to end for one scenario, as one `task pipeline`, with every stage logged to MLflow; MARL and held-out validation have no code yet. |
 | **Owner** | Nguyễn Duy Vũ |
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
@@ -102,6 +102,7 @@ flowchart TB
     opt["src/optim/run<br/>phase 1 — search<br/>multi-objective BO · baselines"]
     ver["src/optim/report<br/>phase 2 — re-solve the front<br/>Sionna-RT"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
+    mlf["src/tracking<br/>MLflow · one run per stage"]
     sur["src/surrogate<br/>tilt sweep · fitted pattern<br/>FNO+wavelet operator"]
 
     subgraph future["Not implemented yet — no code in src/"]
@@ -119,6 +120,7 @@ flowchart TB
     ver -->|verified front| rep
     sim -->|tilt sweep| sur
     sur -->|predicted map| kpi
+    sim & prep & sur & opt & ver & rep --> mlf
     kpi -.-> marl
     opt -.-> val
     marl -.-> val
@@ -130,7 +132,8 @@ design, not yet built. `src/kpi/` sits downstream of the simulator and of the
 surrogate alike, so a predicted score and a measured one are computed by the
 same functions and stay comparable. `src/evaluation/` reads run
 directories off disk and re-solves nothing, which is what lets a comparison run
-on a machine with no GPU.
+on a machine with no GPU. Every stage's entry point, and only the entry point,
+logs its params, metrics and small artifacts to MLflow through `src/tracking.py`.
 
 ### Components
 
@@ -140,16 +143,13 @@ on a machine with no GPU.
 | Simulation | UE population, radio-map ray tracing, synthetic MDT | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
-| Utils | Config loading, seeding, plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
+| Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
+| Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
 | Surrogate | Predicts the radio map after a tilt change, so the search needs no ray tracing | [`src/surrogate/`](src/surrogate/) |
 | Optimization | The shared search space, the KPI vector and its priority rule, both evaluators, three searches, and the two-phase run and report | [`src/optim/`](src/optim/) |
-| Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
+| Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 05 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
-
-`app/` (FastAPI + Streamlit serving) is unrelated template scaffolding left over
-from the project's starting point — see
-[Implementation status](#implementation-status).
 
 ### External dependencies
 
@@ -160,7 +160,7 @@ from the project's starting point — see
 | [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and hypervolume acquisition the BO arm runs on | In use | `--extra bo`; read by [`src/optim/methods/mobo/search.py`](src/optim/methods/mobo/search.py) and by `objective.hypervolume` |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
-| [MLflow](https://mlflow.org/) | Experiment tracking | Optional | `--extra tracking`; imported lazily; not yet called from the active pipeline |
+| [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
 
 ## Getting started
 
@@ -209,7 +209,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-183 passed
+179 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region and traffic logic, the four
@@ -220,7 +220,7 @@ by hand-computed fixtures. It does not yet cover `src/data/` or `src/core/`; see
 To confirm the active package tree is intact:
 
 ```bash
-uv run python -c "import src.simulation, src.data, src.kpi, src.optim, src.evaluation, src.core, src.utils"
+uv run python -c "import src.simulation, src.data, src.kpi, src.optim, src.evaluation, src.core, src.utils, src.tracking"
 ```
 
 This must succeed silently.
@@ -244,18 +244,25 @@ optimization run shares — the output directories and the seed — and the
 file per method with that method's own budget or sweep settings. Select one with
 `optim/method=rule`; note the slash, it is a config group and not a key.
 
+[`configs/config.yaml`](configs/config.yaml)'s `mlflow` block holds `enabled`,
+`tracking_uri` and `experiment_name`. The tracking URI defaults to
+`sqlite:///mlflow.db`: MLflow 3.x refuses the old `./mlruns` file store unless
+`MLFLOW_ALLOW_FILE_STORE` is set. Artifacts still land in `./mlruns/`. Both are
+gitignored.
+
 Override from the command line, e.g. `task simulation:radio -- seed=7`.
 
 Environment variables, from `.env.example`:
 
 | Name | Type | Default | Required | Secret | Description |
 |---|---|---|---|---|---|
-| `MLFLOW_TRACKING_URI` | string | `./mlruns` | no | no | Where experiment runs are recorded |
+| `MLFLOW_TRACKING_URI` | string | `sqlite:///mlflow.db` | no | no | Where experiment runs are recorded; read by `configs/config.yaml` through `oc.env` |
 | `DVC_REMOTE_URL` | string | — | no | **yes** | Remote for `dvc push` / `dvc pull`; may embed credentials |
 | `DATA_ROOT` | string | `./data` | no | no | Override when the dataset lives outside the repository |
 
 Precedence: command-line Hydra overrides > environment variables > `configs/`
-defaults.
+defaults. `Taskfile.yml` loads `.env` for every task; a plain `python -m` run
+sees only what the shell exports.
 
 `.env` is gitignored and there is no secret manager — this is a research
 repository, and `DVC_REMOTE_URL` is the only value that may carry a credential.
@@ -270,22 +277,60 @@ through the task runner and `dvc repro`. Both call the same functions in
 |---|---|---|
 | 1 — Generate the scenario, radio maps and synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
-| 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `python -m src.data.build` |
+| 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Sweep the tilt range and fit the antenna pattern | [`03a_surrogate_data`](notebooks/03a_surrogate_data.ipynb) | `task surrogate:dataset` |
 | 5 — Train and score the tilt-delta surrogate | [`03b_surrogate_model`](notebooks/03b_surrogate_model.ipynb) | `task surrogate:train` |
 | 6 — Search with the baselines (phase 1) | [`04a_baseline`](notebooks/04a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
 | 7 — Search with multi-objective Bayesian Optimization (phase 1) | [`04b_mobo`](notebooks/04b_mobo.ipynb) | `task bo` |
-| 8 — Re-solve the searched front with Sionna-RT (phase 2) | — (both notebooks call it at the end) | `task optim:report` |
-| 9 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | — (reads run directories; writes to `reports/`) |
+| 6–7 for every method | — | `task search:all` |
+| 8 — Re-solve the searched front with Sionna-RT (phase 2) | — (both notebooks call it at the end) | `task optim:report` for one method, `task report:all` for every method |
+| 9 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
 
 ```bash
-task lab                # start JupyterLab
+task pipeline           # every stage below, in order
 task simulation         # the three simulation stages, in order
-task surrogate:dataset  # sweep the tilt range (GPU), then
-task surrogate:train    # fit the operator the search scores with
-task optim              # both phases: task bo, then task optim:report
-task dvc:repro          # the pipeline through DVC, skipping what's unchanged
+task preprocess         # verify and type the processed tables
+task surrogate          # sweep the tilt range (GPU), then fit the operator
+task optim              # both phases for every method: search:all, then report:all
+task evaluate           # compare the newest verified run of each method
+task mlflow             # browse the tracked runs
+task lab                # start JupyterLab
+task dvc:repro          # simulation through phase 1 through DVC, skipping what's unchanged
 ```
+
+Arguments after `--` go to every stage a task runs, e.g.
+`task pipeline -- seed=7`. `task dvc:repro` stops at phase 1 for one method:
+the report and the comparison edit and read timestamped run directories, which
+have no fixed output for DVC to track — see the header of
+[`dvc.yaml`](dvc.yaml).
+
+### Changing the pipeline later
+
+| To change | Edit |
+|---|---|
+| A tunable | the matching file in [`configs/`](configs/), or a `--` override |
+| Which methods `search:all` / `report:all` run | `METHODS` in [`Taskfile.yml`](Taskfile.yml) |
+| Add a search method | a folder under [`src/optim/methods/`](src/optim/methods/), its entry in `SEARCHES` in [`src/optim/methods/__init__.py`](src/optim/methods/__init__.py), a `configs/optim/method/<name>.yaml`, and its name in `METHODS` |
+| Add a stage | a module with a `@hydra.main` `main` that ends in `log_stage(...)`, a Taskfile task, and a line in `pipeline` |
+| What a stage logs to MLflow | the `log_stage(...)` call in that stage's `main` |
+
+### Experiment tracking
+
+Every stage entry point opens one MLflow run named after the stage, in the
+`band-tilt` experiment. Each run carries the scalar params of the stage's
+config groups, the whole resolved config as `config.yaml`, the Git commit
+(MLflow's own `mlflow.source.git.*` tags), and:
+
+| Stage | Metrics | Artifacts |
+|---|---|---|
+| `simulation_*`, `preprocessing`, `surrogate_dataset` | — | output paths as `output.*` tags, not copied |
+| `surrogate_train` | per-epoch loss, MAE, coverage F1 | `operator.pt` |
+| `optim_search` | candidates scored, predicted front size | the run's parquet tables and `run.json` |
+| `optim_report` | best verified KPIs, verified front size, largest surrogate KPI error | the run's tables, `run.json`, the `reports/outputs/` deliverables |
+| `evaluation` | the four KPIs of each method's best | `reports/{figures,tables}/05_evaluation/` |
+
+Radio maps, the sweep and the UE tables stay out of the store — data belongs to
+DVC. Set `mlflow.enabled=false` to run a stage untracked.
 
 ### The two optimization phases
 
@@ -319,11 +364,6 @@ tilt table each of those becomes. ADR 0001's priority order marks one row
 measured trade-offs is left to a person. The MARL arm is not built, so a
 comparison currently has BO and the two baselines in it and nothing else.
 
-Three Taskfile entries are dead, calling modules that do not exist:
-`task clean:data` (`src.data.clean`), `task marl` (`src.optim.marl.train`),
-`task validate` (`src.evaluation.validate`). See
-[Implementation status](#implementation-status).
-
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
 cell clones the repository and installs what Colab does not ship.
 
@@ -337,11 +377,11 @@ band-tilt/
 ├── data/          gitignored; scenario, radio map and MDT artifacts (DVC not yet initialised — see External dependencies)
 ├── docs/adr/      architecture decision records
 ├── notebooks/     one per pipeline phase, 00 through 05
-├── outputs/       gitignored; one directory per optimization run
+├── outputs/       gitignored; one directory per optimization run, the surrogate checkpoint
+├── mlruns/        gitignored; MLflow artifacts (runs are in mlflow.db)
 ├── reports/       tables, figures and the republished tilt deliverable
 ├── src/           importable project logic
-├── tests/         unit tests for simulation, the KPIs, optim and evaluation
-├── app/           template serving scaffolding — see Implementation status
+├── tests/         unit tests for simulation, the KPIs, optim, evaluation and tracking
 └── Taskfile.yml   every command
 ```
 
@@ -351,15 +391,16 @@ band-tilt/
 |---|---|
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
 | `src/simulation/` — scenario, scene, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
-| `src/data/` — load, schema verification, processed-table build | Implemented (`python -m src.data.build`) |
+| `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
 | `src/kpi/` — the four KPIs (`hole`, `overlap`, `bps`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
 | `notebooks/` — `00_simulation` through `05_evaluation` | All eight written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, random-search and rule-based baselines, and the two phases — `run.py` searches with the surrogate, `report.py` re-solves the front |
-| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`. Reads artifacts only — it never re-solves |
+| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
+| `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
+| `task pipeline` | Chains every stage. Not yet run end to end in one go; `task evaluate` has run only against synthetic run directories |
 | `src/surrogate/` | Implemented and unit-tested: scene channels, the tilt sweep, the fitted antenna pattern, the FNO + wavelet operator, training, and a `SurrogateEvaluator` that satisfies the same `ObjectiveEvaluator` protocol the ray tracer does |
 | `src/optim/marl/` | Does not exist |
-| `app/` (FastAPI + Streamlit) | Untouched template scaffolding. Out of scope; `app/api/dependencies.py` still refers to `cfg.models.artifact_path`, which does not compose against `configs/config.yaml` |
 | CI | None. `task lint` and `task test` run locally only. |
 
 #### Known gaps in the active pipeline
@@ -369,8 +410,6 @@ band-tilt/
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
 | `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The Band Priority Score counts the serving band, so an objective depends on them |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
-| `task clean:data` calls `src.data.clean`, which does not exist | Dead task; the legacy operator-export cleaning it used to run is retired, see [Compliance and data handling](#compliance-and-data-handling) |
-| `task marl`, `task validate` | Dead tasks — they call `src.optim.marl.train` and `src.evaluation.validate`, neither of which exists |
 | A fully ray-traced search is no longer reachable | `task bo` always searches with the surrogate. Reproducing a pre-2026-09-09 run means reverting the code; see the revision note in [ADR 0002](docs/adr/0002-bayesian-optimization-without-a-trust-region.md) |
 
 ### Standards
@@ -393,13 +432,14 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region and traffic logic; the four KPIs and the capacity model; `src/optim/`'s space, objective, searches and report phase; `src/surrogate/`'s operator and dataset; `src/evaluation/` — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region and traffic logic; the four KPIs and the capacity model; `src/optim/`'s space, objective, searches and report phase; `src/surrogate/`'s operator and dataset; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
-`src/kpi/`, `src/optim/`, `src/surrogate/` and `src/evaluation/` — 183 tests,
-all passing, none skipped. `src/data/` and `src/core/` have no tests yet.
+`src/kpi/`, `src/optim/`, `src/surrogate/`, `src/evaluation/` and
+`src/tracking.py` — 179 tests, all passing, none skipped. `src/data/`,
+`src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in

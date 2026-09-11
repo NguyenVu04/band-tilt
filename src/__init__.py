@@ -2,44 +2,44 @@
 
 Layout
 ------
-- ``src.core``       the shared domain types: node, cell, tilt
-- ``src.data``       load, validate and split synthetic MDT and cell configuration
-- ``src.radio``      scene construction, radio-map generation, tilt geometry
-- ``src.kpi``        the four KPIs — the only definition of the objective
-- ``src.surrogate``  the fast radio-map predictor that stands in for Sionna-RT
-- ``src.optim``      TuRBO and MARL over the same search space
-- ``src.evaluation`` Sionna-RT validation, method comparison, reporting
-- ``src.utils``      seeding, artifact IO, experiment tracking, plotting
+- ``src.core``        the shared domain types: cell and per-band tilt
+- ``src.simulation``  scene, UE population, ray-traced radio maps, synthetic MDT
+- ``src.data``        verify the simulation output and write the typed tables
+- ``src.kpi``         the four KPIs — the only definition of the objective
+- ``src.surrogate``   the radio-map predictor that stands in for Sionna-RT
+- ``src.optim``       multi-objective BO and the baselines, search and report
+- ``src.evaluation``  compare finished runs, write tables and figures
+- ``src.utils``       seeding and plotting
+- ``src.config``      compose the Hydra config outside an entry point
+- ``src.tracking``    log one stage as one MLflow run
 
 Dependency direction
 --------------------
-These are one-way. An import in the reverse direction is a bug, not a
-shortcut::
+::
 
-    core         ->  nothing
-    data, radio  ->  core, utils, config
-    kpi          ->  core, utils
-    surrogate    ->  kpi, radio, data
-    optim        ->  surrogate, kpi, radio
-    evaluation   ->  everything above
+    core        ->  nothing
+    kpi         ->  core
+    simulation  ->  core, kpi
+    data        ->  simulation
+    optim       ->  core, kpi, simulation, surrogate
+    surrogate   ->  core, optim, simulation
+    evaluation  ->  kpi, optim, utils
 
-``src.kpi`` deliberately does not import ``src.radio``: it consumes an RSRP
+``optim`` and ``surrogate`` import each other: the surrogate evaluator satisfies
+the optimizer's evaluator protocol, and ``src.optim.run`` imports it lazily.
+Add no new cycle.
+
+``src.kpi`` deliberately does not import ``src.simulation``: it consumes an RSRP
 array, not a simulator. That is what lets the same KPI code score a Sionna-RT
 radio map, a surrogate prediction and a hand-built test fixture.
+
+``src.tracking`` is called only from ``@hydra.main`` entry points, never from
+library code.
 
 Rules
 -----
 - Notebooks import from ``src``; ``src`` never imports from notebooks.
-- ``app`` imports from ``src``; ``src`` never imports from ``app``.
 - Anything reused by more than one notebook belongs here, not in a cell.
-
-Implementation status
----------------------
-Almost every function in this package raises :class:`NotImplementedError` with
-its own dotted path. That is the intended state, not a defect: the contracts,
-docstrings and configs are written first so that the structure of the problem
-is settled before any method body is. Fill them in deliberately, one module at
-a time — do not treat a raise as a bug to be silenced.
 
 See README.md for the problem framing and docs/adr/ for the decisions.
 """

@@ -29,6 +29,7 @@ from src.optim.evaluator import Evaluator
 from src.simulation.grid import GridSpec, Raster
 from src.surrogate import features
 from src.surrogate.features import SceneFeatures
+from src.tracking import log_stage
 
 # The encoding contract, shared with src.surrogate.train and read back by
 # src.surrogate.evaluator: these are what the weights are fitted against, so a
@@ -846,7 +847,7 @@ def build(cfg: DictConfig) -> tuple[Path, Path]:
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Entry point for ``task surrogate:dataset``."""
-    build(cfg)
+    log_stage(cfg, "surrogate_dataset", groups=["surrogate"], outputs=build(cfg))
 
 
 if __name__ == "__main__":

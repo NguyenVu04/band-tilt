@@ -21,6 +21,7 @@ from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
 from src.simulation.grid import GridSpec
 from src.simulation.scene import SceneSpec
+from src.tracking import log_stage
 
 # Use NaN for tiles no ray reached; weak paths retain finite values.
 _NO_PATH = np.nan
@@ -393,7 +394,7 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ task simulation:radio -- simulation.radio_map.samples_per_tx=100000
     """
-    solve(cfg)
+    log_stage(cfg, "simulation_radio", groups=["simulation"], outputs=[solve(cfg)])
 
 
 if __name__ == "__main__":
