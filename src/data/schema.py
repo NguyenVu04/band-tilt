@@ -55,9 +55,8 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     n_rows, n_cols = artifacts.shape
     max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
     max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
-    position = [column for column in mdt.columns if not column.startswith(("rsrp_", "sinr_"))]
+    position = [column for column in mdt.columns if not column.startswith("rsrp_")]
     measurement = [column for column in mdt.columns if column.startswith("rsrp_")]
-    sinr = [column for column in mdt.columns if column.startswith("sinr_")]
 
     # --- structure: do the three files describe the same run? ---------------
     cells = transmitter.load(cfg)
@@ -94,11 +93,6 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         "mdt measurement columns are cell x band, in order",
         _MAP,
         measurement == artifacts.measurement_columns,
-    )
-    record(
-        "mdt sinr columns are cell x band, in order",
-        _MAP,
-        sinr == artifacts.sinr_columns,
     )
 
     # --- rows: bounds whose source is the config or the manifest ------------
@@ -162,12 +156,6 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         *_count(mdt.duplicated(subset=["t_index", "x", "y"]).to_numpy()),
     )
     record("every row reports at least one measurement", _MAP, *_count(~finite.any(axis=1)))
-    if sinr == artifacts.sinr_columns:
-        record(
-            "sinr is reported exactly where rsrp is",
-            _MAP,
-            *_count(np.isfinite(mdt[sinr].to_numpy()) != finite),
-        )
 
     # --- the cell table the map was solved at -------------------------------
     tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)

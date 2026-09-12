@@ -1,4 +1,4 @@
-"""KPI 5 - Weak Rate. Lowest priority in the lexicographic order."""
+"""KPI 4 - Weak Rate. Lowest priority in the lexicographic order."""
 
 from __future__ import annotations
 

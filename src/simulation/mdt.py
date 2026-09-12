@@ -1,9 +1,13 @@
 """Create synthetic UE reports and the PRB demand map from radio-map samples.
 
-Adds independent RSRP and SINR measurement error. Every cell-band with a path
-is reported; NaN means only that the ray tracer found no path. Each UE is then
-served from what it reported, by :mod:`src.kpi.capacity`, and the PRBs it needs
-there - at its first choice when blocked - make up the demand map.
+Adds RSRP measurement error. Every cell-band with a path is reported; NaN means
+only that the ray tracer found no path. Each UE is then served from what it
+reported, by :mod:`src.kpi.capacity`, and the PRBs it needs there - at its first
+choice when blocked - make up the demand map.
+
+SINR is not reported. The serving rule recomputes it from the reported RSRP with
+:func:`src.kpi.capacity.sinr_db`, the one definition in the project, so the
+measurement error reaches PRB demand once - through RSRP - rather than twice.
 """
 
 from __future__ import annotations
@@ -30,30 +34,23 @@ class MdtSpec:
 
     Attributes:
         rsrp_noise_sigma_db: Standard deviation of the RSRP measurement error.
-        sinr_noise_sigma_db: Standard deviation of the SINR measurement error.
     """
 
     rsrp_noise_sigma_db: float
-    sinr_noise_sigma_db: float
 
     def __post_init__(self) -> None:
         """Reject a negative noise level.
 
         Raises:
-            ValueError: When either sigma is negative.
+            ValueError: When the sigma is negative.
         """
         if self.rsrp_noise_sigma_db < 0:
             raise ValueError("simulation.mdt.rsrp_noise_sigma_db must not be negative")
-        if self.sinr_noise_sigma_db < 0:
-            raise ValueError("simulation.mdt.sinr_noise_sigma_db must not be negative")
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> MdtSpec:
         """Read ``simulation.mdt``."""
-        return cls(
-            rsrp_noise_sigma_db=float(cfg.simulation.mdt.rsrp_noise_sigma_db),
-            sinr_noise_sigma_db=float(cfg.simulation.mdt.sinr_noise_sigma_db),
-        )
+        return cls(rsrp_noise_sigma_db=float(cfg.simulation.mdt.rsrp_noise_sigma_db))
 
 
 def measure(clean: np.ndarray, sigma_db: float, seed: int) -> np.ndarray:
@@ -87,7 +84,6 @@ def build(cfg: DictConfig) -> Path:
     ues = pd.read_csv(ue_path)
     with np.load(map_path, allow_pickle=False) as data:
         rsrp = data["rsrp_dbm"]
-        sinr = data["sinr_db"]
         scenario = str(data["scenario_id"])
         tx_names = [str(name) for name in data["tx_name"]]
         band_labels = [str(label) for label in data["band_label"]]
@@ -107,12 +103,10 @@ def build(cfg: DictConfig) -> Path:
     # flattened so a cell's bands sit next to each other.
     n_band, n_tx = rsrp.shape[:2]
     clean = rsrp[:, :, row, col].transpose(2, 1, 0).reshape(len(ues), -1).astype(np.float64)
-    clean_sinr = sinr[:, :, row, col].transpose(2, 1, 0).reshape(len(ues), -1).astype(np.float64)
     pairs = [f"{tx}_{band}" for tx in tx_names for band in band_labels]
 
     spec = MdtSpec.from_config(cfg)
     reported = measure(clean, spec.rsrp_noise_sigma_db, seeds.stream(cfg, "mdt"))
-    reported_sinr = measure(clean_sinr, spec.sinr_noise_sigma_db, seeds.stream(cfg, "mdt_sinr"))
 
     heard = np.isfinite(clean)
     covered = heard.any(axis=1)
@@ -120,13 +114,11 @@ def build(cfg: DictConfig) -> Path:
     ues = ues.loc[covered].reset_index(drop=True)
     heard = heard[covered]
     reported = reported[covered]
-    reported_sinr = reported_sinr[covered]
 
     frame = pd.concat(
         [
             ues[list(POSITION_COLUMNS)],
             pd.DataFrame(reported, columns=[f"rsrp_{p}" for p in pairs], index=ues.index),
-            pd.DataFrame(reported_sinr, columns=[f"sinr_{p}" for p in pairs], index=ues.index),
         ],
         axis=1,
     )
@@ -136,11 +128,12 @@ def build(cfg: DictConfig) -> Path:
 
     # Serve from the reports, back in [ue, band, tx] for the capacity rule.
     t_index = ues["t_index"].to_numpy()
+    spec_capacity = capacity.CapacitySpec.from_config(cfg, band_labels, n_tx)
+    rsrp_ue = reported.reshape(-1, n_tx, n_band).transpose(0, 2, 1)
+    # sinr_db sums interference over the tx axis, so it takes [band, tx, ue].
+    sinr_map = capacity.sinr_db(rsrp_ue.transpose(1, 2, 0), spec_capacity.noise_dbm)
     band, _tx, prb_per_ue = capacity.serve_rows(
-        reported.reshape(-1, n_tx, n_band).transpose(0, 2, 1),
-        reported_sinr.reshape(-1, n_tx, n_band).transpose(0, 2, 1),
-        t_index,
-        capacity.CapacitySpec.from_config(cfg, band_labels, n_tx),
+        rsrp_ue, sinr_map.transpose(2, 0, 1), t_index, spec_capacity
     )
     t_values, prb = capacity.prb_by_interval(
         t_index,
@@ -160,7 +153,7 @@ def build(cfg: DictConfig) -> Path:
 
     n_intervals = int(ues["t_index"].nunique())
     print(
-        f"ue:        {len(ues)} rows x {len(pairs)} cell-bands of RSRP and SINR "
+        f"ue:        {len(ues)} rows x {len(pairs)} cell-bands of RSRP "
         f"({n_no_signal} no-signal UEs dropped)"
     )
     print(

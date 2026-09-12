@@ -57,11 +57,6 @@ class Artifacts:
         return [f"rsrp_{tx}_{band}" for tx in self.tx_names for band in self.band_labels]
 
     @property
-    def sinr_columns(self) -> list[str]:
-        """The ``sinr_*`` column names, in :attr:`measurement_columns` order."""
-        return [column.replace("rsrp_", "sinr_", 1) for column in self.measurement_columns]
-
-    @property
     def shape(self) -> tuple[int, int]:
         """The grid's ``(n_rows, n_cols)``."""
         return int(self.radio["n_rows"]), int(self.radio["n_cols"])

@@ -57,7 +57,7 @@ evaluation to cost minutes, this decision would deserve revisiting.
 ## Decision
 
 The Bayesian arm is **plain multi-objective Bayesian optimization on Ax**, over
-all five KPIs of [ADR 0001](0001-five-kpis-under-lexicographic-priority.md), with
+all four KPIs of [ADR 0001](0001-five-kpis-under-lexicographic-priority.md), with
 **no trust region**.
 
 > **Revised 2026-09-09.** As written, this also said "and **no surrogate**. It
@@ -68,7 +68,7 @@ all five KPIs of [ADR 0001](0001-five-kpis-under-lexicographic-priority.md), wit
 
 Consequences of that, each a decision in its own right:
 
-**All five KPIs are optimized jointly.** Ax receives them as a multi-objective
+**All four KPIs are optimized jointly.** Ax receives them as a multi-objective
 goal, so the run produces a Pareto front rather than one point. No scalarization
 is introduced, and ADR 0001's scalarized fallback with its `lambda` weights
 remains unbuilt and unneeded.
@@ -151,7 +151,7 @@ because the measurement shows what the surrogate was meant to buy is already
 affordable, and building it first would have deferred the BO arm behind a model
 whose acceptance criteria are not written.
 
-**Scalarize the five KPIs and run single-objective BO.** Rejected because ADR
+**Scalarize the four KPIs and run single-objective BO.** Rejected because ADR
 0001 rejects a weighted sum as the definition of the objective and admits it only
 as a fallback where an optimizer cannot express a multi-objective goal. Ax can,
 so the fallback is not needed, and its `lambda` weights would have been chosen

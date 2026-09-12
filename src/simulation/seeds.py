@@ -12,7 +12,6 @@ _OFFSET = {
     "mdt": 4,  # measurement error
     "traffic": 5,  # per-interval counts and mixture masses
     "solver": 6,  # the ray tracer's own Monte-Carlo stream
-    "mdt_sinr": 7,  # SINR measurement error
 }
 
 

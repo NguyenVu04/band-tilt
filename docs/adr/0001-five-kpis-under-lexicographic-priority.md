@@ -22,6 +22,10 @@
   Band Priority Score counts each UE's serving band under the capacity model's
   serving rule rather than the strongest band on its tile; see *Revision note —
   2026-09-11* below.
+- **Revised:** 2026-09-12 — revised in place at the maintainer's direction. The
+  synthetic MDT no longer reports SINR and the radio map no longer stores it;
+  PRBs per UE derive from SINR recomputed from the reported RSRP. No KPI
+  definition changed; see *Revision note — 2026-09-12* below.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -127,9 +131,10 @@ evaluator and it sits downstream of both the simulator and the model.
   has to catch that.
 - Throughput is not in the objective, so an overlap reduction that costs
   capacity looks like a pure win. SINR and PRB limits enter only indirectly,
-  through the serving rule Band Priority Score counts by, and every
-  `kpi.capacity` value is a placeholder — slot 3 is only as good as those values;
-  see the 2026-09-11 note.
+  through the serving rule Band Priority Score counts by; SINR is derived from
+  RSRP, never measured or stored (see the 2026-09-12 note). Every `kpi.capacity`
+  value is a placeholder — slot 3 is only as good as those values; see the
+  2026-09-11 note.
 - Changing any threshold makes every previously produced result incomparable.
 
 **Neutral**
@@ -290,7 +295,8 @@ RSRP threshold, else the strongest, under per-cell-band PRB limits) and turns
 full-load co-band SINR into PRBs per UE. The evaluation's demand map is now PRBs
 required per tile. The *Include throughput or SINR* alternative above still
 holds for the objective: the model's load and scheduler assumptions are
-placeholders, and no optimizer sees the result.
+placeholders, and no optimizer sees the result. (The SINR here was the ray
+tracer's at the time; since the 2026-09-12 note it is recomputed from RSRP.)
 
 ## Revision note — 2026-09-11
 
@@ -323,3 +329,47 @@ It was set at the ray tracer's run-to-run spread of the old score. The value is
 carried unchanged and must be re-derived the same way before any result is
 reported against it — the gap the 2026-09-08 note recorded for Expected RSRP
 Improvement, now in slot 3.
+
+## Revision note — 2026-09-12
+
+Revised in place at the maintainer's direction. **No KPI definition, slot,
+direction, threshold or tolerance changes.** What changes is where slot 3's SINR
+comes from.
+
+SINR existed twice. `src/simulation/radio.py` stored sionna-rt's
+`RadioMap.sinr` in `radio_map.npz`, and `src/simulation/mdt.py` sampled it,
+added an independent Gaussian error, and wrote 36 `sinr_*` columns into the MDT.
+Separately, `src/kpi/capacity.py` derives SINR from RSRP alone — full-load
+co-band interference plus `k·T·B`. Every KPI reader already used the derived
+one, because it has to: an optimizer's map and the surrogate's prediction carry
+RSRP and nothing else.
+
+| | Previously recorded | Now |
+|---|---|---|
+| `radio_map.npz` | `rsrp_dbm` and `sinr_db` | `rsrp_dbm` only |
+| MDT columns | `rsrp_*` and `sinr_*` per cell-band | `rsrp_*` only |
+| Noise knobs | `rsrp_noise_sigma_db`, `sinr_noise_sigma_db` | `rsrp_noise_sigma_db` |
+| PRBs per UE at the MDT stage | from the reported SINR | from SINR recomputed off the reported RSRP |
+| KPI readers | already recomputed from RSRP | unchanged |
+
+The two agreed to **MAE 7e-06 dB, max 0.0086 dB** over the stored map, recorded
+in `reports/surrogate_architecture_2026-09-11/baseline_results.json`. That
+measurement is what showed the stored copy to be redundant, and it is also the
+last time it can be taken: the comparison is retired with the array it compared
+against, and `check_baselines.py` no longer carries it.
+
+**What this costs.** `demand_map.npz` shifts. The measurement error now reaches
+PRB demand once, through RSRP, instead of twice through two independent draws,
+so PRB demand and any Band Priority Score that PRB blocking decided are not
+comparable with earlier runs. Runs on disk are not migrated. The reported
+`rsrp_*` values themselves are unchanged for a given seed — the RSRP noise draw
+was left exactly as it was.
+
+**What this buys.** One definition of SINR, in `src/kpi/capacity.py`, exercised
+by every scorer. The previous arrangement could drift: nothing compared the
+reported SINR against the clean SINR, and `sinr_noise_sigma_db` was applied and
+then read by only the demand map, so a wrong value there was invisible.
+
+**The *Include throughput or SINR* alternative and the 2026-09-11 walk-back both
+still stand.** SINR still shapes the objective through the serving rule, on
+placeholder `kpi.capacity` values. Only its source narrowed.

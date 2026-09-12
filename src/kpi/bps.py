@@ -1,4 +1,4 @@
-"""KPI 4 - the UE-weighted Band Priority Score.
+"""KPI 3 - the UE-weighted Band Priority Score.
 
 The three coverage rates say nothing about WHICH layer serves a location; this
 one asks whether the layers the project would rather use are the ones serving

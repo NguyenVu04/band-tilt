@@ -41,8 +41,8 @@ capacity:
   throughput_per_ue_bps: 40000000 # 40 Mbps
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).
   # Only the PRB bandwidth uses it. SINR noise is kTB over the band bandwidth
-  # (simulation.radio_map), as sionna-rt's RadioMap.sinr computes it. The PRB
-  # limit per cell-band is simulation.transmitters.cells[].max_prb.
+  # (simulation.radio_map). The PRB limit per cell-band is
+  # simulation.transmitters.cells[].max_prb.
   bands:
     b2600: {scs_hz: 15000}
     b1800: {scs_hz: 15000}

@@ -1,6 +1,6 @@
 """Ray-trace one clean radio map per band.
 
-Rebuilds the scenario and writes RSRP and SINR on its UE grid.
+Rebuilds the scenario and writes RSRP on its UE grid.
 """
 
 from __future__ import annotations
@@ -141,10 +141,9 @@ def solve(cfg: DictConfig) -> Path:
 
     configure_arrays(scene, cfg)
     maps = []
-    sinr_maps = []
     centres = None
     for band in bands:
-        rsrp, elapsed, centres, radio_map = solve_band(
+        rsrp, elapsed, centres, _radio_map = solve_band(
             scene,
             cells,
             band,
@@ -155,7 +154,6 @@ def solve(cfg: DictConfig) -> Path:
             power_dbm,
         )
         maps.append(rsrp)
-        sinr_maps.append(sinr_db(radio_map, rsrp))
         # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
         served = np.isfinite(rsrp).any(axis=0)
@@ -172,8 +170,6 @@ def solve(cfg: DictConfig) -> Path:
     np.savez_compressed(
         path,
         rsrp_dbm=np.stack(maps).astype(np.float32),
-        # Same axes as rsrp_dbm; see sinr_db for the noise basis.
-        sinr_db=np.stack(sinr_maps).astype(np.float32),
         band_hz=np.array([band.frequency_hz for band in bands]),
         band_label=np.array([band.name for band in bands]),
         # One tilt per cell-band pair, [band, tx], matching rsrp_dbm's leading
@@ -299,21 +295,6 @@ def solve_band(
     # Materialising the lazy arrays must be inside the solver timer.
     elapsed = time.perf_counter() - started
     return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
-
-
-def sinr_db(radio_map: Any, rsrp: np.ndarray) -> np.ndarray:
-    """SINR of each transmitter in dB, ``[n_tx, n_rows, n_cols]``, from sionna-rt.
-
-    ``RadioMap.sinr`` counts every other transmitter in the scene - the band's
-    co-band cells, at full load - as interference, plus thermal noise
-    ``k * T * scene.bandwidth``. The noise spans the whole carrier while RSRP is
-    per resource element, so noise-limited tiles read pessimistic; that is
-    sionna-rt's own definition, kept as-is. NaN wherever ``rsrp`` has no path.
-    """
-    sinr = np.asarray(radio_map.sinr, dtype=np.float64)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        value = 10.0 * np.log10(sinr)
-    return np.where(np.isfinite(rsrp), value, _NO_PATH)
 
 
 def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:

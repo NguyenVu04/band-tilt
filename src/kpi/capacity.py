@@ -6,9 +6,10 @@ band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take the
 strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
 the UE to the next candidate in that same ranking.
 
-SINR is sionna-rt's ``RadioMap.sinr`` recomputed from RSRP: every co-band
-transmitter fully loaded, plus ``k * T * B`` over the band bandwidth, so a
-predicted map without SINR scores the same as a ray-traced one. PRBs are kept
+:func:`sinr_db` is the project's only definition of SINR, derived from RSRP
+alone: every co-band transmitter fully loaded, plus ``k * T * B`` over the band
+bandwidth. No map or report stores SINR, so a ray-traced map, a surrogate
+prediction and a synthetic report all score by the same rule. PRBs are kept
 fractional: an average over an interval, and smooth in tilt.
 
 :func:`max_rsrp`, the strongest layer at each location, also lives here: the
@@ -271,7 +272,7 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
     tx = np.full(n_ue, -1)
     per_ue = np.full(n_ue, np.nan)
     load = np.zeros(n_band * n_tx)
-    # ponytail: Python loop over UEs; vectorise if this enters the search loop.
+    # Python loop over UEs; vectorise if this enters the search loop.
     for ue in range(n_ue):
         ue_need = need[ue].ravel()
         order = _candidate_order(rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm)
@@ -319,8 +320,9 @@ def serve_intervals(
     """Serve every MDT row from the radio map, via :func:`serve_rows`.
 
     Args:
-        rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``. RSRP and
-            SINR are read at each UE's tile, so the result follows the tilts.
+        rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``. RSRP is
+            read at each UE's tile and SINR recomputed from it, so the result
+            follows the tilts.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         mdt: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
         cfg: Composed config; see :meth:`CapacitySpec.from_config`.

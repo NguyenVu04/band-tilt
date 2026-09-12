@@ -48,8 +48,8 @@ def best_server(rsrp: np.ndarray) -> np.ndarray:
 def best_sinr(rsrp: np.ndarray, band_labels: Sequence[str], cfg: DictConfig) -> np.ndarray:
     """Highest SINR at each tile over every cell-band layer, in dB.
 
-    Recomputed from RSRP by :func:`src.kpi.capacity.sinr_db`, so a map that
-    stores no SINR - an optimizer's or the surrogate's - draws the same way.
+    Recomputed from RSRP by :func:`src.kpi.capacity.sinr_db`, the project's only
+    definition. No map stores SINR, so every map draws the same way.
 
     Returns:
         ``[n_rows, n_cols]`` in dB, ``-inf`` where nothing is received.

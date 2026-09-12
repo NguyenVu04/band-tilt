@@ -118,7 +118,7 @@ def as_maximised(kpis: Sequence[KpiVector]) -> np.ndarray:
     """The KPI matrix reoriented so larger is better in every column.
 
     Returns:
-        Shape ``[len(kpis), 5]`` in :data:`KPI_NAMES` order, with the three
+        Shape ``[len(kpis), 4]`` in :data:`KPI_NAMES` order, with the three
         minimised KPIs negated. Units are untouched: this is an orientation,
         not a normalisation, because nothing downstream compares one column
         against another.

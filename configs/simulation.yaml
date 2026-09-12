@@ -263,8 +263,6 @@ antenna:
 mdt:
   # Independent receiver measurement error.
   rsrp_noise_sigma_db: 4.0
-  # Independent SINR measurement error, in dB.
-  sinr_noise_sigma_db: 4.0
 
 # Output artifacts for scenario inputs, clean maps, and synthetic reports.
 output:
