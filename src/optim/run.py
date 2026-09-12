@@ -1,14 +1,16 @@
-"""Phase one: search the tilt space with the surrogate.
+"""Search the tilt space with Sionna-RT and publish what it found.
 
-Entry point for ``task bo`` and ``task baseline``. Every candidate is scored by
-:class:`~src.surrogate.evaluator.SurrogateEvaluator`, so a few hundred of them
-cost minutes and need no GPU, and **nothing here is ground truth**. The run this
-writes is deliberately incomplete: it has a predicted Pareto front and no
-winner, and ``run.json`` says ``verified: false`` so nothing downstream can
-mistake a prediction for a measurement.
+Entry point for ``task bo`` and ``task baseline``. Every candidate is ray
+traced at the configured fidelity, so every KPI this writes is a measurement
+and the run it produces is complete: a front, a named winner, the winner's
+radio map, and the two tables an operator chooses from.
 
-:mod:`src.optim.report` is phase two. It re-solves the front with Sionna-RT,
-picks from what it measured, and completes the run directory.
+One phase. An earlier design searched with an approximation and re-solved its
+front to check it; ray tracing turned out to cost 8.3 s a candidate rather than
+the 30-40 s that split was built on, so measuring everything is affordable. See
+``outputs/fidelity_bench/``.
+
+Needs a CUDA GPU and the ``rt`` extra.
 """
 
 from __future__ import annotations
@@ -21,8 +23,10 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig
 
-from src.optim.history import History, LocalRunWriter, write_run
+from src.optim.evaluator import Evaluator
+from src.optim.history import History
 from src.optim.methods import run_search
+from src.optim.report import publish
 from src.tracking import log_stage
 
 
@@ -37,55 +41,48 @@ def output_directory(cfg: DictConfig, method: str) -> Path:
 
 
 def run(cfg: DictConfig) -> tuple[History, Path]:
-    """Search the tilt space with the selected method and write the search log.
+    """Search the tilt space with the selected method, then publish the result.
 
-    Returns the history and the directory written to. No deliverable is
-    published here: which point on a four-objective front to deploy is a
-    judgement made against measured KPIs, and this phase has none.
+    Returns the history and the directory written to.
     """
     method = str(cfg.optim.method.name)
     directory = output_directory(cfg, method)
     started = time.time()
 
-    # Imported here rather than at module scope so the report phase, and any
-    # environment without torch, can import this module for output_directory.
-    from src.surrogate.evaluator import from_config
-
-    with from_config(cfg) as evaluator:
+    with Evaluator(cfg) as evaluator:
         scenario_id = evaluator.scenario_id
         history = run_search(evaluator, cfg)
+        best_index = history.best_index(cfg)
+        best = history.results[best_index]
 
-    writer = LocalRunWriter(directory)
-    written = write_run(
+        radio_map = None
+        if bool(cfg.optim.output.save_radio_map):
+            # One extra solve, on the evaluator already holding the scene: the
+            # search runs keep_rsrp=False because every map of a long run does
+            # not fit in memory, and building a second Evaluator to archive one
+            # map would pay the scene load again for nothing. The solver seed is
+            # fixed for this evaluator's life, so this is the map that produced
+            # the KPIs above. It is deliberately not appended to the history,
+            # which would duplicate a measured point and move the front.
+            evaluator.keep_rsrp = True
+            radio_map = str(
+                evaluator.write_radio_map(
+                    directory / "best_radio_map.npz", evaluator.evaluate(best.tilt_deg)
+                )
+            )
+
+    publish(
         history,
-        writer,
         cfg,
-        method=method,
+        directory,
+        method,
         extra={
             "scenario_id": scenario_id,
             "wall_clock_seconds": time.time() - started,
-            "surrogate_model": str(cfg.optim.search.model_file),
+            "best_radio_map": radio_map,
         },
     )
-
-    _report(history, method, directory, written)
     return history, directory
-
-
-def _report(history: History, method: str, directory: Path, written: dict[str, str]) -> None:
-    """Print what the search proposed and what has to happen next."""
-    frame = history.frame()
-    front = int(frame["on_pareto"].sum())
-
-    print(f"\n{method}: {len(history)} candidates scored, {front} on the predicted front")
-    print(f"surrogate time {frame['seconds'].sum():.1f}s\n")
-    print(f"wrote {directory}")
-    for name, locator in written.items():
-        print(f"  {name}: {locator}")
-    print(
-        "\nThese KPIs are predictions, not measurements, and this run is not reportable yet.\n"
-        "Run `task optim:report` to re-solve the front with Sionna-RT and choose from it."
-    )
 
 
 def _quiet_ax_logging() -> None:
@@ -108,7 +105,7 @@ def _quiet_ax_logging() -> None:
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Search with one method. Entry point for ``task bo``.
+    """Optimize with one method. Entry point for ``task bo``.
 
     Example:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0
@@ -116,11 +113,16 @@ def main(cfg: DictConfig) -> None:
     _quiet_ax_logging()
     history, directory = run(cfg)
     frame = history.frame()
+    best = history.results[history.best_index(cfg)].kpi
     log_stage(
         cfg,
-        "optim_search",
+        "optimization",
         groups=["optim", "kpi"],
-        metrics={"n_candidates": len(frame), "n_pareto_predicted": int(frame["on_pareto"].sum())},
+        metrics={
+            **{f"best_{name}": value for name, value in best.as_dict().items()},
+            "n_candidates": len(frame),
+            "n_pareto": int(frame["on_pareto"].sum()),
+        },
         artifacts=sorted(directory.glob("*.parquet")) + [directory / "run.json"],
         tags={"method": cfg.optim.method.name, "run_dir": directory},
     )

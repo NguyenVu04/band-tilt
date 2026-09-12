@@ -7,7 +7,7 @@ Three stages, run in order, each a ``python -m`` entry point:
     interval across the horizon. Writes the UE table and a manifest.
 ``radio``
     Rebuilds that scenario, places the transmitters, and ray-traces one clean
-    radio map per band. This artifact is the surrogate's label.
+    radio map per band.
 ``mdt``
     Samples the radio map at the UE positions and adds measurement error,
     producing what a UE would report.

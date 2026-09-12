@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Revised:** 2026-09-09 — the search now uses a surrogate; see the revision
-  note at the end
+- **Revised:** 2026-09-12 — the 2026-09-09 revision is withdrawn; see the
+  revision note at the end
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -11,7 +11,8 @@
 ## Context
 
 [README.md](../../README.md) names the project's comparison as **TuRBO versus
-MARL**, and lists a radio-map surrogate as a prerequisite for the BO arm:
+MARL**, and lists a fast stand-in for the ray tracer as a prerequisite for the
+BO arm:
 evaluating a tilt configuration means ray-tracing it, and a trust-region method
 was chosen on the assumption that evaluations would be too expensive to spend
 freely.
@@ -60,12 +61,6 @@ The Bayesian arm is **plain multi-objective Bayesian optimization on Ax**, over
 all four KPIs of [ADR 0001](0001-five-kpis-under-lexicographic-priority.md), with
 **no trust region**.
 
-> **Revised 2026-09-09.** As written, this also said "and **no surrogate**. It
-> optimizes the ray tracer directly." That is no longer how the arm runs. The
-> search scores candidates with a learned surrogate and Sionna-RT re-solves the
-> front it proposes; see the revision note. The no-trust-region decision, and
-> everything below it, stands.
-
 Consequences of that, each a decision in its own right:
 
 **All four KPIs are optimized jointly.** Ax receives them as a multi-objective
@@ -99,11 +94,10 @@ it a control on the model rather than a separate experiment.
 
 **Positive**
 
-- The BO arm exists and runs today, instead of waiting on a surrogate that has
-  no code and would need its own acceptance criteria.
-- Every reported KPI is ray-traced ground truth, so there is no surrogate error
-  between the reported objective and the deliverable. This survives the
-  revision: the surrogate moved into the search, not into the report.
+- The BO arm exists and runs today, instead of waiting on a learned stand-in
+  that has no code and would need its own acceptance criteria.
+- Every reported KPI is ray-traced ground truth, so no approximation error sits
+  between the reported objective and the deliverable.
 - Dropping the trust region removes the tuning surface that TuRBO's behaviour is
   most sensitive to — region length, success and failure tolerances, restart
   policy — none of which this project could have justified from evidence.
@@ -130,12 +124,12 @@ it a control on the model rather than a separate experiment.
 
 **Neutral**
 
-- The surrogate remains worth building, for MARL and for scaling past this
-  scenario. This record does not cancel it; it removes it from the BO arm's
-  critical path.
-- `src/optim/search.py` depends on an `ObjectiveEvaluator` protocol rather than
-  on the ray tracer, so a surrogate becomes a second implementation of that
-  protocol and no search code changes when it arrives.
+- A learned stand-in may still be worth building for MARL or for scaling past
+  this scenario. This record does not cancel that; it removes it from the BO
+  arm's critical path.
+- `src/optim/run.py` depends on an `ObjectiveEvaluator` protocol rather than on
+  the ray tracer, so any faster evaluator becomes a second implementation of
+  that protocol and no search code changes when it arrives.
 
 ## Alternatives considered
 
@@ -146,10 +140,10 @@ the measurements above contradict. It remains the natural thing to build if the
 evaluation cost rises — a larger scene, more cells, or diffraction enabled would
 each do it, and at minutes per evaluation the argument above reverses.
 
-**Keep the surrogate as a prerequisite, as the roadmap has it.** Rejected
-because the measurement shows what the surrogate was meant to buy is already
-affordable, and building it first would have deferred the BO arm behind a model
-whose acceptance criteria are not written.
+**Keep a learned stand-in as a prerequisite, as the roadmap has it.** Rejected
+because the measurement shows what it was meant to buy is already affordable,
+and building it first would have deferred the BO arm behind a model whose
+acceptance criteria are not written.
 
 **Scalarize the four KPIs and run single-objective BO.** Rejected because ADR
 0001 rejects a weighted sum as the definition of the objective and admits it only
@@ -164,50 +158,31 @@ solver's noise. The search would optimize a different objective than the one
 reported, and would barely finish sooner for it.
 
 
-## Revision note — 2026-09-09
+## Revision note — 2026-09-12
 
 Revised in place at the maintainer's direction, under the exception
-[docs/adr/README.md](README.md) records. The Context above is a measurement
-record and is unchanged; what changed is the Decision's "no surrogate" clause
-and the standing of one rejected alternative.
+[docs/adr/README.md](README.md) records.
 
-**What changed.** Optimization is now two phases. `src/optim/run.py` searches
-with `src/surrogate/`, scoring a few hundred candidates in minutes and needing
-no GPU. `src/optim/report.py` then re-solves that run's Pareto front with
-Sionna-RT, re-derives the front from what it measured, and publishes it. A run
-that has only been searched carries `verified: false`, and `src/evaluation`
-refuses to load one — surrogate predictions cannot reach a comparison as though
-they were measurements.
+**The 2026-09-09 revision is withdrawn.** That revision split optimization into
+two phases: a search driven by a learned radio-map predictor, and a second
+command that re-solved its front with Sionna-RT. The Decision above reads as
+originally written again — plain multi-objective BO, no trust region, scoring
+the ray tracer directly.
 
-**Why this is not the alternative rejected below.** The last alternative in this
-record — reduce `samples_per_tx` during the search and re-solve the winner —
-was rejected because "the search would optimize a different objective than the
-one reported". That objection was about *fidelity*: the reported number would
-itself have been low-fidelity, and a decade of fidelity bought under a tenth of
-the wall clock. Neither half applies here.
+**Why.** The split rested on ray tracing costing 30-40 s per candidate. Measured
+again on 2026-09-12 against a warm OptiX kernel cache, one evaluation at the
+configured fidelity (16M rays/Tx, depth 16, three bands) costs **8.3 s**; the
+earlier figure was cold-compilation time. A 160-evaluation run is therefore
+about 22 minutes, and the Context's central claim — that evaluations here are
+cheap enough to spend freely — holds at the current fidelity too.
 
-- Every published KPI comes from `Evaluator` at the configured fidelity. The
-  surrogate decides only **which** candidates get measured.
-- What it therefore risks is **ranking**, not measurement — the same class of
-  risk as a weak acquisition function, and bounded the same way: a solution the
-  surrogate ranks out of the shortlist is a solution not found, not a number
-  reported wrongly.
-- The saving is not a tenth. A 161-candidate search falls from roughly an hour
-  and a half of ray tracing to nine solves.
+Two further measurements, in `outputs/fidelity_bench/`, made the split not worth
+keeping at any speed: scoring a map into four KPIs costs 655 ms and is
+independent of where the map came from, capping *any* predictor at a 12.6x
+speedup over ray tracing; and the predictor's inputs went stale silently, having
+been solved at a fidelity `scenario_id` does not cover.
 
-**What is reported changed with it.** This record's Decision says the
-lexicographic rule "applies once, at the end", selecting *the* configuration to
-report. It still runs, but on measured KPIs and to mark one row `recommended`.
-The deliverable is now the **verified front** — `pareto_<method>.csv` and
-`tilt_options_<method>.csv` — because five objectives do not have a best, and
-with a model proposing the front, collapsing it to one point would trust that
-model both to find the front and to rank within it. Choosing among measured
-trade-offs is a judgement this project should put to a person.
-
-**What this costs.** A fully ray-traced search is no longer reachable through
-`task bo`, so the arm this record originally described cannot be reproduced
-without reverting the code. The number of solutions measured per run
-(`optim.report.n_solutions`, default 8) is a budget chosen by judgement, not
-from evidence about how often the surrogate's ranking is wrong — the run
-records its own KPI error on the solutions it offered, and that is the evidence
-to revisit this with.
+**What this costs.** Nothing is now scored by anything but Sionna-RT, so
+`task bo` needs a GPU where the search phase did not. The two-phase run
+directory is gone: one command searches, selects and publishes, and `run.json`
+no longer carries a `verified` flag because there is nothing left to verify.

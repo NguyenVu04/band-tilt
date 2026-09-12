@@ -94,11 +94,11 @@ satisfy `lambda_H > lambda_O > lambda_BPS > lambda_W` rather than trusted.
 **Accessibility is excluded** — not as a KPI, not as an objective term, not as a
 serving-cell or dominant-band criterion.
 
-The definitions live in `src/kpi/` and nowhere else. TuRBO, MARL, the
-surrogate-predicted radio maps and the final Sionna-RT validation all score
-through the same functions, and no call site re-derives a threshold. The
-surrogate predicts a radio map rather than these KPIs, so there is one
-evaluator and it sits downstream of both the simulator and the model.
+The definitions live in `src/kpi/` and nowhere else. TuRBO, MARL and the final
+Sionna-RT validation all score through the same functions, and no call site
+re-derives a threshold. What a producer hands over is a radio map rather than
+these KPIs, so there is one evaluator and it sits downstream of every
+producer.
 
 ## Consequences
 
@@ -227,7 +227,7 @@ measured rather than scoring the candidate map on its own terms.
 
 The sigmoid is not decoration. `mean(1[ΔR > 0])` — the fraction of reports
 improved — is the quantity of interest and needs no `τ`, but it is a step
-function and gives a GP surrogate nothing to follow. `σ(ΔR/τ)` is its smooth
+function and gives a Gaussian-process model nothing to follow. `σ(ΔR/τ)` is its smooth
 relaxation, which is what makes the KPI usable as a Bayesian-optimization
 objective.
 
@@ -341,8 +341,7 @@ SINR existed twice. `src/simulation/radio.py` stored sionna-rt's
 added an independent Gaussian error, and wrote 36 `sinr_*` columns into the MDT.
 Separately, `src/kpi/capacity.py` derives SINR from RSRP alone — full-load
 co-band interference plus `k·T·B`. Every KPI reader already used the derived
-one, because it has to: an optimizer's map and the surrogate's prediction carry
-RSRP and nothing else.
+one, because it has to: an optimizer's map carries RSRP and nothing else.
 
 | | Previously recorded | Now |
 |---|---|---|
@@ -353,10 +352,9 @@ RSRP and nothing else.
 | KPI readers | already recomputed from RSRP | unchanged |
 
 The two agreed to **MAE 7e-06 dB, max 0.0086 dB** over the stored map, recorded
-in `reports/surrogate_architecture_2026-09-11/baseline_results.json`. That
-measurement is what showed the stored copy to be redundant, and it is also the
-last time it can be taken: the comparison is retired with the array it compared
-against, and `check_baselines.py` no longer carries it.
+by a one-off check on 2026-09-11. That measurement is what showed the stored
+copy to be redundant, and it is also the last time it can be taken: the
+comparison is retired with the array it compared against.
 
 **What this costs.** `demand_map.npz` shifts. The measurement error now reaches
 PRB demand once, through RSRP, instead of twice through two independent draws,

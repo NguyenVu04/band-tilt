@@ -3,9 +3,8 @@
 # The stages mirror the Taskfile targets and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Seven stages are active: the three `simulation_*` stages (notebook 00),
-# `preprocessing` (notebook 02), `surrogate_dataset` and `surrogate_train`
-# (notebooks 03a and 03b) and `optimization` (notebooks 04a and 04b).
+# Five stages are active: the three `simulation_*` stages (notebook 00),
+# `preprocessing` (notebook 02) and `optimization` (notebooks 04a and 04b).
 # MARL and held-out validation still have no code in src/, so there is nothing
 # to define a stage against. Add those when the modules land instead of
 # guessing at their shape now.
@@ -15,12 +14,6 @@
 # and a rerun must not overwrite the one it is compared against — so it has no
 # fixed `outs` for DVC to track. `dvc repro optimization` runs whichever method
 # the `optim/method` default in `configs/config.yaml` currently selects.
-#
-# It is also only the first of the two optimization phases. The search scores
-# candidates with the surrogate and writes an unverified run; `task optim:report`
-# then re-solves that run's front with Sionna-RT and completes it. The report is
-# not a stage here for the same reason: it edits one timestamped directory in
-# place and has no fixed output either.
 #
 # Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
 # so the entries are chosen to be the settings that actually invalidate a stage's
@@ -140,6 +133,8 @@ stages:
       - data/interim/mdt.csv
     params:
       - configs/simulation.yaml:
+          - scene
+          - grid
           - transmitters
           - radio_map
           - antenna
@@ -148,64 +143,10 @@ stages:
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
 
-  # --- Surrogate: the tilt sweep and the scene channels (notebook 03a) ------
-  # Solves every band over its whole tilt range. Cheap only because tilts
-  # decompose per transmitter -- one solve at a given tilt yields all twelve
-  # cells at that tilt -- which the stage verifies before it spends anything.
-  # Needs a CUDA GPU and the Sionna-RT extra, like `simulation_radio`.
-  surrogate_dataset:
-    cmd: python -m src.surrogate.dataset
-    deps:
-      - src/surrogate/dataset.py
-      - src/surrogate/features.py
-      - src/optim/evaluator.py
-      - src/simulation/radio.py
-      - src/simulation/materials.py
-      - src/simulation/transmitter.py
-      - src/simulation/scene.py
-      - src/simulation/grid.py
-      - src/core/cell.py
-      - data/external/scenario.json
-    params:
-      - configs/simulation.yaml:
-          - scene
-          - grid
-          - transmitters
-          - radio_map
-          - antenna
-          - ue
-          - seed
-      - configs/surrogate.yaml:
-          - sweep
-    outs:
-      - data/interim/tilt_sweep.npz
-      - data/interim/scene_features.npz
-
-  # --- Surrogate: train the tilt-delta operator (notebook 03b) --------------
-  # No ray tracing and no Mitsuba: the sweep and the scene channels are the
-  # only inputs, which is what the previous stage caches them for.
-  surrogate_train:
-    cmd: python -m src.surrogate.train
-    deps:
-      - src/surrogate/train.py
-      - src/surrogate/model.py
-      - src/surrogate/dataset.py
-      - data/interim/tilt_sweep.npz
-      - data/interim/scene_features.npz
-    params:
-      - configs/surrogate.yaml:
-          - model
-          - train
-      - configs/simulation.yaml:
-          - transmitters
-          - radio_map
-    outs:
-      - outputs/surrogate/operator.pt
-
-  # --- Optimization, phase 1: search the tilt space (notebooks 04a and 04b) --
-  # Scores every candidate with the surrogate, so this stage needs no GPU and
-  # depends on the trained operator rather than on Sionna-RT. The run it writes
-  # is not reportable until `task optim:report` measures its front.
+  # --- Optimization: search the tilt space (notebooks 04a and 04b) ----------
+  # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
+  # like `simulation_radio`. The run it writes is complete: a measured front, a
+  # named winner and the deliverable.
   #
   # Depends on the cell table via configs/simulation.yaml rather than on
   # data/processed/cell.parquet: the search reads the committed tilt bounds from
@@ -222,11 +163,15 @@ stages:
       - src/optim/history.py
       - src/optim/methods
       - src/optim/run.py
+      - src/optim/report.py
       - src/kpi
-      - src/surrogate/evaluator.py
-      - src/surrogate/model.py
-      - src/surrogate/dataset.py
-      - outputs/surrogate/operator.pt
+      - src/simulation/radio.py
+      - src/simulation/materials.py
+      - src/simulation/transmitter.py
+      - src/simulation/scene.py
+      - src/simulation/grid.py
+      - src/simulation/seeds.py
+      - src/core/cell.py
       - data/external/scenario.json
       - data/processed/mdt.parquet
     params:
@@ -251,6 +196,8 @@ stages:
           - band_priority
           - tolerance
       - configs/simulation.yaml:
+          - scene
+          - grid
           - transmitters
           - radio_map
           - antenna

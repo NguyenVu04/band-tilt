@@ -1,10 +1,16 @@
 """Score a tilt vector with the learned operator instead of the ray tracer.
 
-Satisfies :class:`src.optim.evaluator.ObjectiveEvaluator`, so every search in
-``src/optim/methods/`` takes one of these in place of the ray-traced
-:class:`~src.optim.evaluator.Evaluator` without changing a line: same ``space``,
-same ``evaluate``, same :class:`~src.optim.evaluator.EvaluationResult`, and the
-KPIs come from the same :func:`src.optim.objective.evaluate_kpis`.
+Parked. The optimizer ray-traces every candidate, so nothing in ``src/optim/``
+constructs this any more and it is not wired into the pipeline. It is kept
+runnable for the day the surrogate is picked back up.
+
+Because of that it no longer returns the optimizer's
+:class:`~src.optim.evaluator.EvaluationResult`: the optimizer dropped the
+provenance field that told a prediction from a measurement, which it no longer
+needs now that there is only one producer. :class:`Prediction` below carries the
+same four values instead. Wiring this back into a search therefore means
+reconciling the two types again -- deliberately, rather than by an import that
+silently still lines up.
 
 The 36 dimensions are predicted in one batch rather than one at a time. Each is
 its own slice of the map, which is what makes the batch legitimate and the
@@ -22,11 +28,29 @@ import pandas as pd
 import torch
 from omegaconf import DictConfig
 
-from src.optim.evaluator import EvaluationResult
-from src.optim.objective import SURROGATE, evaluate_kpis
+from src.optim.objective import KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.surrogate.dataset import Encoder, Sweep
 from src.surrogate.model import TiltOperator
+
+
+@dataclass(frozen=True)
+class Prediction:
+    """One tilt vector, scored by the operator.
+
+    Attributes:
+        tilt_deg: The vector evaluated, in :class:`~src.optim.space.TiltSpace`
+            dimension order.
+        kpi: Its predicted score on all four KPIs.
+        seconds: Wall clock for the forward pass, excluding the KPI scoring.
+        rsrp: The predicted map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or
+            None when the evaluator was asked not to retain it.
+    """
+
+    tilt_deg: np.ndarray
+    kpi: KpiVector
+    seconds: float
+    rsrp: np.ndarray | None = None
 
 
 @dataclass
@@ -144,7 +168,7 @@ class SurrogateEvaluator:
 
         return out.reshape(n_band, n_tx, *self.sweep.shape).astype(np.float32)
 
-    def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
+    def evaluate(self, tilt_deg: np.ndarray) -> Prediction:
         """Predict this tilt vector's map and score it on all four KPIs."""
         started = time.perf_counter()
         rsrp = self.predict(tilt_deg)
@@ -153,12 +177,11 @@ class SurrogateEvaluator:
         kpi = evaluate_kpis(rsrp, self.band_labels, self._mdt, self.cfg)
         self.n_calls += 1
         self.total_seconds += seconds
-        return EvaluationResult(
+        return Prediction(
             tilt_deg=np.asarray(tilt_deg, dtype=float).reshape(-1),
             kpi=kpi,
             seconds=seconds,
             rsrp=rsrp if self.keep_rsrp else None,
-            source=SURROGATE,
         )
 
     @classmethod
@@ -181,38 +204,46 @@ class SurrogateEvaluator:
         return cls(cfg=cfg, encoder=encoder, model=model, device=device, **kwargs)
 
 
-def from_config(cfg: DictConfig, **kwargs: object) -> SurrogateEvaluator:
-    """Build the evaluator ``optim.search`` names, or say exactly what is missing.
+def from_config(cfg: DictConfig, device: str = "cuda", **kwargs: object) -> SurrogateEvaluator:
+    """Build the evaluator ``surrogate.output`` names, or say exactly what is missing.
 
-    The entry point :mod:`src.optim.run` uses. Both checks below fail loudly
-    rather than degrading: a search is cheap enough to repeat and expensive
-    enough to waste.
+    Both checks below fail loudly rather than degrading: predicting against the
+    wrong world costs more than rebuilding.
 
     Raises:
         FileNotFoundError: When no operator has been trained, naming the two
-            tasks that produce one.
-        ValueError: When the sweep the operator was fitted to belongs to a
-            different scenario than this config describes. The search would
-            then explore one world and :mod:`src.optim.report` measure another,
-            and every artifact would still look entirely plausible.
+            modules that produce one.
+        ValueError: When this package is parked out of the config, or when the
+            sweep the operator was fitted to belongs to a different scenario
+            than this config describes. Every artifact would still look
+            entirely plausible.
     """
+    from omegaconf import OmegaConf
+
     from src.simulation import scenario as scenario_module
 
-    path = Path(cfg.optim.search.model_file)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"No trained surrogate at {path}. The search scores candidates with it, so run "
-            "`task surrogate:dataset` then `task surrogate:train` first."
+    # Parked: `surrogate` is not in configs/config.yaml's defaults list, because
+    # the pipeline ray-traces instead. Reviving this means putting it back.
+    model_file = OmegaConf.select(cfg, "surrogate.output.model_file")
+    if model_file is None:
+        raise ValueError(
+            "no `surrogate` block in this config. It is left out of the defaults list in "
+            "configs/config.yaml while the surrogate is parked; add `- surrogate` back to "
+            "compose configs/surrogate.yaml."
         )
 
-    evaluator = SurrogateEvaluator.from_checkpoint(
-        cfg, path, str(cfg.optim.search.device), **kwargs
-    )
+    path = Path(model_file)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No trained surrogate at {path}. Run `python -m src.surrogate.dataset` then "
+            "`python -m src.surrogate.train` first."
+        )
+
+    evaluator = SurrogateEvaluator.from_checkpoint(cfg, path, device, **kwargs)
     expected = scenario_module.scenario_id(cfg)
     if evaluator.scenario_id != expected:
         raise ValueError(
             f"{path} was fitted on scenario {evaluator.scenario_id}, but this config is "
-            f"{expected}. Re-run `task surrogate:dataset` and `task surrogate:train` against "
-            "the current scenario before searching."
+            f"{expected}. Rebuild the sweep and retrain against the current scenario."
         )
     return evaluator

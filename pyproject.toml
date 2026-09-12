@@ -1,7 +1,7 @@
 [project]
 name = "band-tilt"
 version = "1.0.0"
-description = "Multi-band tilt coordination for coverage-efficient 5G/6G RAN: Sionna-RT radio maps, a KPI surrogate, and Bayesian Optimization vs. Multi-Agent RL over absolute tilt."
+description = "Multi-band tilt coordination for coverage-efficient 5G/6G RAN: Sionna-RT radio maps, four KPIs, and Bayesian Optimization vs. Multi-Agent RL over absolute tilt."
 readme = "README.md"
 # Upper bound is deliberate and temporary: hydra-core 1.3.x cannot build its
 # argparse parser on Python 3.14, which breaks every @hydra.main entry point

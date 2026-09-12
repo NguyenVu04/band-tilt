@@ -168,7 +168,7 @@ def test_the_ax_methods_record_which_generator_made_each_point(make_cfg, evaluat
 
 
 def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
-    """What makes it the control: same loop, same budget, no surrogate."""
+    """What makes it the control: same loop, same budget, no model."""
     frame = run_search(evaluator, make_cfg("random")).frame()
     assert set(frame["generation_node"]) <= {"attached", "Sobol"}
 

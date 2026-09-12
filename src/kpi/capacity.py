@@ -8,8 +8,8 @@ the UE to the next candidate in that same ranking.
 
 :func:`sinr_db` is the project's only definition of SINR, derived from RSRP
 alone: every co-band transmitter fully loaded, plus ``k * T * B`` over the band
-bandwidth. No map or report stores SINR, so a ray-traced map, a surrogate
-prediction and a synthetic report all score by the same rule. PRBs are kept
+bandwidth. No map or report stores SINR, so a ray-traced map and a synthetic
+report score by the same rule. PRBs are kept
 fractional: an average over an interval, and smooth in tilt.
 
 :func:`max_rsrp`, the strongest layer at each location, also lives here: the

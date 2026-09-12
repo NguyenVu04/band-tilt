@@ -25,12 +25,6 @@ INIT = "init"
 SEARCH = "search"
 SWEEP = "sweep"
 
-# Not produced by any search: :mod:`src.optim.report` appends one of these per
-# solution it re-solves with Sionna-RT. It belongs here anyway, because the
-# column it lands in is this vocabulary and a fifth value invented at the call
-# site would not be part of it.
-VERIFY = "verify"
-
 # How Ax's own generation nodes map onto those phases. Anything not listed is
 # model-driven: Sobol is the only generator that is not.
 PHASE_OF_NODE = {"attached": INCUMBENT, "Sobol": INIT}
@@ -41,8 +35,7 @@ class SearchMethod(Protocol):
 
     Implementations take the :class:`~src.optim.evaluator.ObjectiveEvaluator`
     protocol rather than the concrete evaluator, which is what lets a method be
-    tested without a GPU and lets a future surrogate stand in for the ray tracer
-    without the method noticing.
+    tested against a stub without a GPU.
     """
 
     def __call__(self, evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:

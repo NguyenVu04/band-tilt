@@ -29,6 +29,5 @@ Modules, each with one reason to change:
 
 A method depends on the :class:`~src.optim.evaluator.ObjectiveEvaluator`
 protocol rather than on the concrete evaluator, which is what lets a search be
-tested without a GPU and lets a future surrogate stand in for the ray tracer
-without the search noticing.
+tested against a stub without a GPU.
 """

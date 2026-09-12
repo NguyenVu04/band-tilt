@@ -1,16 +1,15 @@
 """The four KPIs - the only definition of the objective in this project.
 
-TuRBO, MARL, the surrogate's labels and the final Sionna-RT validation all score
+TuRBO, MARL and the final Sionna-RT validation all score
 through these functions, so none of them can be measuring a slightly different
 thing. Thresholds come from ``configs/kpi.yaml``; a literal ``-120`` at a call
 site is a bug even when it happens to match.
 
 Every function takes an RSRP array of shape ``[n_band, n_tx, n_rows, n_cols]``
 in dBm, NaN where the ray tracer found no path - the array
-:func:`src.simulation.radio.solve` writes and the surrogate will predict. The
-package imports neither ``src.simulation`` nor Sionna-RT, which is what lets one
-implementation score a ray-traced map, a surrogate prediction and a hand-built
-fixture.
+:func:`src.simulation.radio.solve` writes. The package imports neither
+``src.simulation`` nor Sionna-RT, which is what lets one implementation score a
+ray-traced map and a hand-built fixture alike.
 
 All four land in ``[0, 1]``. Three are minimised;
 :func:`~src.kpi.bps.band_priority_score` is maximised and is the only one

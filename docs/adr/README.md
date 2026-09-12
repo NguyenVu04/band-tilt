@@ -68,8 +68,9 @@ stay as they were written, because they are the historical account.
 ### Revision in place — the exception, not the practice
 
 0002 was **revised in place** on 2026-09-09, at the maintainer's direction, when
-the search moved onto a surrogate and the deliverable became the verified Pareto
-front rather than a single configuration.
+the search moved onto a learned stand-in for the ray tracer, and again on
+2026-09-12 when that revision was withdrawn and the search returned to scoring
+Sionna-RT directly.
 
 0001 was **revised in place** on 2026-08-28, at the maintainer's direction,
 rather than superseded by a new record. The surviving records were revised
@@ -88,4 +89,4 @@ which is the thing these records exist to preserve.
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | 2026-08-29 |
 | [0001](0001-five-kpis-under-lexicographic-priority.md) | Four KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-09-12 |
-| [0002](0002-bayesian-optimization-without-a-trust-region.md) | Bayesian optimization without a trust region | Accepted | 2026-09-07 | 2026-09-09 |
+| [0002](0002-bayesian-optimization-without-a-trust-region.md) | Bayesian optimization without a trust region | Accepted | 2026-09-07 | 2026-09-12 |

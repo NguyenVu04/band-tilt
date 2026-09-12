@@ -16,9 +16,9 @@ dotenv: [".env"]
 
 vars:
   PKG: src
-  # The search methods `search:all` and `report:all` loop over. Adding one is a
-  # folder under src/optim/methods/, its SEARCHES entry, a
-  # configs/optim/method/<name>.yaml, and its name here.
+  # The search methods `optim` loops over. Adding one is a folder under
+  # src/optim/methods/, its SEARCHES entry, a configs/optim/method/<name>.yaml,
+  # and its name here.
   METHODS: mobo random rule
 
 tasks:
@@ -131,66 +131,32 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.data.build {{.CLI_ARGS}}
 
-  surrogate:dataset:
-    desc: 'Sweep the tilt range and cast the scene channels (notebook 03a) - needs a GPU'
-    cmds:
-      - uv run python -m {{.PKG}}.surrogate.dataset {{.CLI_ARGS}}
-
-  surrogate:train:
-    desc: 'Train the tilt-delta surrogate on the sweep (notebook 03b)'
-    cmds:
-      - uv run python -m {{.PKG}}.surrogate.train {{.CLI_ARGS}}
-
-  surrogate:
-    desc: 'Sweep the tilt range, then train the surrogate on it'
-    cmds:
-      - task: surrogate:dataset
-      - task: surrogate:train
-
   bo:
-    desc: 'PHASE 1 - search with the surrogate, e.g. task bo -- optim.method.budget.n_iter=50'
+    desc: 'Optimize with MOBO, e.g. task bo -- optim.method.budget.n_iter=50 - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.optim.run optim/method=mobo {{.CLI_ARGS}}
 
   baseline:
-    desc: 'PHASE 1 - search with a baseline method, e.g. task baseline -- optim/method=rule'
+    desc: 'Optimize with a baseline method, e.g. task baseline -- optim/method=rule - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.optim.run optim/method=random {{.CLI_ARGS}}
 
-  optim:report:
-    desc: 'PHASE 2 - re-solve the searched front with Sionna-RT and publish it - needs a GPU'
-    cmds:
-      - uv run python -m {{.PKG}}.optim.report {{.CLI_ARGS}}
-
-  search:all:
-    desc: 'PHASE 1 for every method in METHODS'
+  optim:
+    desc: 'Optimize with every method in METHODS - needs a GPU'
     cmds:
       - for: { var: METHODS }
         cmd: uv run python -m {{.PKG}}.optim.run optim/method={{.ITEM}} {{.CLI_ARGS}}
 
-  report:all:
-    desc: 'PHASE 2 for every method in METHODS - needs a GPU'
-    cmds:
-      - for: { var: METHODS }
-        cmd: uv run python -m {{.PKG}}.optim.report optim/method={{.ITEM}} {{.CLI_ARGS}}
-
-  optim:
-    desc: 'Both phases for every method: search with the surrogate, then re-solve with Sionna-RT'
-    cmds:
-      - task: search:all
-      - task: report:all
-
   evaluate:
-    desc: 'Compare the newest verified run of each method, write reports/ (notebook 05)'
+    desc: 'Compare the newest run of each method, write reports/ (notebook 05)'
     cmds:
       - uv run python -m {{.PKG}}.evaluation.run {{.CLI_ARGS}}
 
   pipeline:
-    desc: 'Every stage in order: simulation, preprocess, surrogate, optim, evaluate'
+    desc: 'Every stage in order: simulation, preprocess, optim, evaluate'
     cmds:
       - task: simulation
       - task: preprocess
-      - task: surrogate
       - task: optim
       - task: evaluate
 

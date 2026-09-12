@@ -1,9 +1,19 @@
 """Predict the radio map after a tilt change, instead of ray tracing it.
 
-Ray tracing is too slow to sit inside a search loop -- roughly 30-40 s per
-candidate on this scenario -- so this package learns the map a tilt change
-produces from the map before it, and ``src/kpi/`` scores that prediction with
-the same functions that score a ray-traced map.
+**Parked, and not part of the pipeline.** It was built when ray tracing was
+believed to cost 30-40 s per candidate. Measured against a warm kernel cache it
+costs 8.3 s, and ``src/kpi/`` needs 0.66 s of that to score whatever map it is
+given -- a floor no predictor can go under, which caps any surrogate at a 12.6x
+speedup over simply ray tracing. The optimizer therefore ray-traces every
+candidate. See ``outputs/fidelity_bench/surrogate_need_results.md``.
+
+Kept because the measurement holds for one scene and one tilt-only search. A
+second scene, a geometry that moves, or a search wide enough that 8.3 s a point
+stops being affordable would all reopen the question.
+
+What it does: learns the map a tilt change produces from the map before it, so
+``src/kpi/`` can score that prediction with the same functions that score a
+ray-traced map.
 
 The design rests on one structural fact, verified rather than assumed by
 :func:`src.surrogate.dataset.check_decomposition`: one transmitter's
@@ -29,9 +39,9 @@ solves rather than *tilts x cells*.
 ``train``
     Level, coverage and cycle-consistency losses; writes the checkpoint.
 ``evaluator``
-    ``SurrogateEvaluator``, which satisfies the same
-    :class:`src.optim.evaluator.ObjectiveEvaluator` protocol the ray tracer
-    does. A search cannot tell which one it holds.
+    ``SurrogateEvaluator``, scoring a tilt vector into its own
+    ``Prediction``. It no longer shares the optimizer's result type; reviving
+    it in a search means reconciling the two deliberately.
 
 **None of the scene channels depend on tilt.** They are a function of the
 scene and the mast positions alone, so a scenario builds them once and

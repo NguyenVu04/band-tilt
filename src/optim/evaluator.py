@@ -7,9 +7,8 @@ Only the transmitters are rebuilt per evaluation, which is what
 :func:`src.simulation.radio.solve_band` already does.
 
 :class:`ObjectiveEvaluator` is the seam the search depends on. Anything mapping
-a tilt vector to an :class:`EvaluationResult` satisfies it — the ray tracer
-here, a stub in a test, or the surrogate the roadmap plans — so the search code
-never learns which one it holds.
+a tilt vector to an :class:`EvaluationResult` satisfies it — the ray tracer here
+or a stub in a test — so a search can be exercised without a GPU.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.core.cell import Cell
-from src.optim.objective import RAY_TRACED, KpiVector, evaluate_kpis
+from src.optim.objective import KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.simulation import radio, seeds, transmitter
 from src.simulation import scenario as scenario_module
@@ -49,19 +48,12 @@ class EvaluationResult:
         rsrp: The radio map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or None
             when the evaluator was asked not to retain it. Every map of a long
             run does not fit in memory and the run does not need them.
-        source: Which evaluator measured this. A run holds both — the surrogate
-            searches and the ray tracer verifies — and a KPI is only ground
-            truth if it came from the latter, so the distinction has to survive
-            into the artifacts rather than being inferred from a phase name.
-            Defaults to the ray tracer, which is the only producer that does
-            not say so itself.
     """
 
     tilt_deg: np.ndarray
     kpi: KpiVector
     seconds: float
     rsrp: np.ndarray | None = None
-    source: str = RAY_TRACED
 
 
 class ObjectiveEvaluator(Protocol):
@@ -153,9 +145,9 @@ class Evaluator:
     def scene(self) -> Any:
         """The scene, with the arrays already attached.
 
-        Exposed so the surrogate's scene channels are built against the very
-        geometry its maps were solved on. Rebuilding the scene to read it would
-        be the expensive half of a run again.
+        Exposed so anything deriving scene channels reads the very geometry
+        these maps were solved on. Rebuilding the scene to read it would be the
+        expensive half of a run again.
 
         Raises:
             RuntimeError: When the evaluator has been closed.
@@ -182,10 +174,10 @@ class Evaluator:
     def solve(self, cells: tuple[Cell, ...], band_index: int) -> np.ndarray:
         """Ray-trace one band against the scene this evaluator holds.
 
-        Public because the surrogate's tilt sweep needs single-band solves
-        against exactly this scene, material install and solver
-        seed. Building a second scene for it would be both the expensive half
-        of a run again and a second chance to configure it differently.
+        Public because a caller sweeping one band at a time needs solves
+        against exactly this scene, material install and solver seed. Building a
+        second scene for that would be both the expensive half of a run again
+        and a second chance to configure it differently.
 
         Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, ``nan`` where no path
         reached the tile.

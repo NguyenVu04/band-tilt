@@ -70,7 +70,7 @@ class Cell:
     z: float
     azimuth_deg: float
     tilt: dict[str, Tilt]
-    # Defaulted so tilt-only callers (the surrogate) need not invent limits;
+    # Defaulted so tilt-only callers need not invent limits;
     # max_prb_for raises for a band that was never given one.
     max_prb: dict[str, int] = field(default_factory=dict)
 

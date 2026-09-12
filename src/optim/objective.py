@@ -31,16 +31,6 @@ KPI_NAMES = (
 # sign; the other three are minimised.
 MAXIMISED = frozenset({"band_priority_score"})
 
-# What measured a KPI vector. A run holds both -- the surrogate searches and the
-# ray tracer verifies -- and only one of them is ground truth, so the two are
-# named here rather than spelled out wherever a frame is filtered.
-#
-# They live in this module, and not beside the evaluators that produce them,
-# because src/evaluation reads them too and that package states it imports
-# neither Sionna-RT nor src.optim.evaluator.
-RAY_TRACED = "sionna-rt"
-SURROGATE = "surrogate"
-
 
 @dataclass(frozen=True)
 class KpiVector:
