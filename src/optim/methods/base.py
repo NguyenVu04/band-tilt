@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+import numpy as np
 from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
@@ -25,9 +26,23 @@ INIT = "init"
 SEARCH = "search"
 SWEEP = "sweep"
 
-# How Ax's own generation nodes map onto those phases. Anything not listed is
-# model-driven: Sobol is the only generator that is not.
-PHASE_OF_NODE = {"attached": INCUMBENT, "Sobol": INIT}
+# Generator names recorded per evaluation.
+ATTACHED = "attached"
+SOBOL = "Sobol"
+
+
+def sobol(dim: int, n: int, seed: int) -> np.ndarray:
+    """``n`` scrambled Sobol points in the unit cube, ``[n, dim]``.
+
+    Deterministic in ``seed``, and a shorter draw is a prefix of a longer one,
+    so random search and TuRBO's initial design share their first points.
+    """
+    import torch
+    from torch.quasirandom import SobolEngine
+
+    if n <= 0:
+        return np.empty((0, dim))
+    return SobolEngine(dim, scramble=True, seed=seed).draw(n, dtype=torch.float64).numpy()
 
 
 class SearchMethod(Protocol):

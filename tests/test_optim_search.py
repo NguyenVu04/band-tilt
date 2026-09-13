@@ -78,7 +78,7 @@ _METHODS = {
             "success_tolerance": 3,
         },
     },
-    "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2, "batch_size": 2}},
+    "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2}},
     "rule": {"name": "rule", "n_steps": 3, "n_rounds": 1},
 }
 
@@ -225,6 +225,17 @@ def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
     assert set(frame["generation_node"]) <= {"attached", "Sobol"}
 
 
+def test_random_search_opens_with_turbos_initial_design(make_cfg) -> None:
+    """Same seed, same Sobol prefix: the two methods diverge only after ``n_init``."""
+    cfg = make_cfg("turbo")
+    turbo_eval = StubEvaluator(TiltSpace.from_config(cfg))
+    run_search(turbo_eval, cfg)
+    random_eval = StubEvaluator(TiltSpace.from_config(cfg))
+    run_search(random_eval, make_cfg("random"))
+    n_init = cfg.optim.method.budget.n_init
+    assert np.allclose(turbo_eval.seen[: 1 + n_init], random_eval.seen[: 1 + n_init])
+
+
 def test_the_rule_sweep_moves_a_whole_band_together(make_cfg, evaluator) -> None:
     """The operator heuristic: every cell on a band points alike."""
     run_search(evaluator, make_cfg("rule"))
@@ -315,14 +326,6 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
     assert run["config"]["kpi"]["tolerance"]["hole_rate"] == 0.001
-
-
-def test_set_generation_nodes_rejects_a_length_mismatch(evaluator) -> None:
-    """A short list would misattribute every row after the gap."""
-    history = History(evaluator.space)
-    history.append(evaluator.evaluate(evaluator.space.baseline), phase="incumbent")
-    with pytest.raises(ValueError, match="1 evaluations"):
-        history.set_generation_nodes(["Sobol", "MBM"])
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

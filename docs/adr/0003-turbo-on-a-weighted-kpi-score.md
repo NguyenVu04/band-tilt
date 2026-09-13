@@ -45,6 +45,10 @@ order.
 **Budgets stay matched.** TuRBO and random search both spend `n_init + n_iter`
 evaluations plus the incumbent. Random search keeps its Ax Sobol loop.
 
+*Amended 2026-09-13:* random search no longer uses Ax. It draws from the same
+seeded torch Sobol sequence as TuRBO's initial design, so the first `n_init`
+points of both runs are identical; Ax is no longer a dependency.
+
 ## Consequences
 
 **Positive**

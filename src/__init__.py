@@ -6,7 +6,7 @@ Layout
 - ``src.simulation``  scene, UE population, ray-traced radio maps, synthetic MDT
 - ``src.data``        verify the simulation output and write the typed tables
 - ``src.kpi``         the four KPIs — the only definition of the objective
-- ``src.optim``       multi-objective BO and the baselines, and the run it publishes
+- ``src.optim``       TuRBO and the baselines, and the run it publishes
 - ``src.evaluation``  compare finished runs, write tables and figures
 - ``src.utils``       seeding and plotting
 - ``src.config``      compose the Hydra config outside an entry point

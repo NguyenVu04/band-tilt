@@ -73,7 +73,7 @@ class Run:
 
     @property
     def best_index(self) -> int:
-        """Row of ``history`` the priority order selected."""
+        """Row of ``history`` with the highest weighted score."""
         return int(self.meta["best_iteration"])
 
     @property

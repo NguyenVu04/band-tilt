@@ -42,8 +42,8 @@ def delta_table(before: KpiVector, after: KpiVector, cfg: DictConfig) -> pd.Data
 
     Returns:
         Columns ``kpi``, ``direction``, ``before``, ``after``, ``delta``,
-        ``tolerance``, ``verdict``. Row order is ADR 0001's priority order, so
-        reading top to bottom is reading the order the winner was decided in.
+        ``tolerance``, ``verdict``. Row order is :data:`KPI_NAMES`, ADR 0001's
+        priority order.
     """
     tolerance = tolerances(cfg)
     rows = []

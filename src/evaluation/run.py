@@ -1,7 +1,8 @@
-"""Compare the newest verified run of every method. The script form of notebook 05.
+"""Compare the newest run of every method and write the core tables and figures.
 
-Entry point for ``task evaluate``. Reads run directories and the baseline radio
-map only, so like the rest of :mod:`src.evaluation` it needs no GPU.
+Entry point for ``task evaluate``: a subset of notebook 05, which adds the SINR,
+overlap and capacity views. Reads run directories and the baseline radio map
+only, so like the rest of :mod:`src.evaluation` it needs no GPU.
 """
 
 from __future__ import annotations

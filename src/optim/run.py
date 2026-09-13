@@ -5,17 +5,15 @@ traced at the configured fidelity, so every KPI this writes is a measurement
 and the run it produces is complete: a front, a named winner, the winner's
 radio map, and the two tables an operator chooses from.
 
-One phase. An earlier design searched with an approximation and re-solved its
-front to check it; ray tracing turned out to cost 8.3 s a candidate rather than
-the 30-40 s that split was built on, so measuring everything is affordable. See
-``outputs/fidelity_bench/``.
+One phase: every candidate is ray-traced, with no surrogate and no re-solve of
+the front; ``outputs/fidelity_bench/`` holds the timing that made that
+affordable.
 
 Needs a CUDA GPU and the ``rt`` extra.
 """
 
 from __future__ import annotations
 
-import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,24 +83,6 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
     return history, directory
 
 
-def _quiet_ax_logging() -> None:
-    """Stop Ax logging every generated trial, which here is 36 tilts a line.
-
-    Done in the entry point rather than in the library, so importing
-    :mod:`src.optim` never reconfigures a caller's logging.
-
-    Ax sets an explicit level on each of its child loggers, so lowering the
-    parent alone does not reach them — they have to be walked. Ax is imported
-    first to make sure they exist by the time we do. Warnings are left alone: a
-    short batch from the generation strategy is worth seeing.
-    """
-    import ax  # noqa: F401
-
-    for name, logger in logging.root.manager.loggerDict.items():
-        if (name == "ax" or name.startswith("ax.")) and isinstance(logger, logging.Logger):
-            logger.setLevel(logging.WARNING)
-
-
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Optimize with one method. Entry point for ``task bo``.
@@ -110,7 +90,6 @@ def main(cfg: DictConfig) -> None:
     Example:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0
     """
-    _quiet_ax_logging()
     history, directory = run(cfg)
     frame = history.frame()
     best = history.results[history.best_index(cfg)].kpi

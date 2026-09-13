@@ -11,7 +11,6 @@ from src.optim.objective import (
     MAXIMISED,
     KpiVector,
     as_maximised,
-    ax_objective,
     best_by_score,
     pareto_mask,
     scores,
@@ -64,11 +63,6 @@ def test_only_the_ue_weighted_kpi_is_maximised() -> None:
     assert MAXIMISED == {"band_priority_score"}
 
 
-def test_ax_objective_signs_every_kpi() -> None:
-    """Minus on the three minimised, bare on the one maximised."""
-    assert ax_objective() == "-hole_rate, -overlap_rate, band_priority_score, -weak_rate"
-
-
 def test_as_maximised_flips_only_the_minimised_kpis() -> None:
     """An orientation, not a normalisation: magnitudes are untouched."""
     values = as_maximised([_kpi()])
@@ -76,7 +70,7 @@ def test_as_maximised_flips_only_the_minimised_kpis() -> None:
 
 
 def test_as_dict_round_trips_through_from_mapping() -> None:
-    """The shape handed to Ax and read back out of it."""
+    """The shape run.json records and the evaluation stage reads back."""
     kpi = _kpi(hole_rate=0.123)
     assert KpiVector.from_mapping(kpi.as_dict()) == kpi
 

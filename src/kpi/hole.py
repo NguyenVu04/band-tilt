@@ -1,4 +1,4 @@
-"""KPI 1 - Hole Rate. Highest priority in the lexicographic order."""
+"""KPI 1 - Hole Rate. Highest in ADR 0001's priority order."""
 
 from __future__ import annotations
 

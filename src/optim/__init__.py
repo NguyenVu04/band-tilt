@@ -11,8 +11,8 @@ Modules, each with one reason to change:
     The box an optimizer may move in, and the only place a vector becomes
     :class:`src.core.cell.Cell` objects.
 ``objective``
-    The KPI vector, the sign convention, and the rule that picks one
-    configuration out of a Pareto front.
+    The KPI vector, the sign convention, and the weighted score that picks
+    one configuration.
 ``evaluator``
     The expensive path: a tilt vector ray-traced into a radio map. The only
     module here that touches Sionna-RT.
@@ -20,7 +20,7 @@ Modules, each with one reason to change:
     The evaluation log, the artifacts a run leaves behind, and the deliverable
     the tilt change is republished as.
 ``methods``
-    One folder per method — Ax multi-objective BO, Ax random search, and a
+    One folder per method — TuRBO-1 on BoTorch, Sobol random search, and a
     rule-based per-band sweep — behind the ``SearchMethod`` interface in
     ``methods/base.py``, with the registry that dispatches on the selected
     ``optim/method`` config group.

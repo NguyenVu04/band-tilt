@@ -133,13 +133,13 @@ def test_coverage_comparison_puts_labels_side_by_side() -> None:
             "demand_share": [0.1, 0.2, 0.7],
         }
     )
-    merged = compare.coverage_comparison({"incumbent": table, "mobo": table})
+    merged = compare.coverage_comparison({"incumbent": table, "turbo": table})
     assert list(merged.columns) == [
         "coverage",
         "incumbent_tile",
         "incumbent_demand",
-        "mobo_tile",
-        "mobo_demand",
+        "turbo_tile",
+        "turbo_demand",
     ]
     assert len(merged) == 3
 

@@ -81,11 +81,7 @@ class TiltSpace:
 
     @property
     def parameter_names(self) -> tuple[str, ...]:
-        """Column and Ax-parameter name for each dimension.
-
-        Deliberately the same string in both roles, so an Ax parameterisation
-        and a history row need no renaming between them.
-        """
+        """History column name for each dimension, in dimension order."""
         return tuple(f"tilt_{cell}_{band}" for cell, band in self.pairs)
 
     def to_cells(self, tilt_deg: np.ndarray) -> tuple[Cell, ...]:

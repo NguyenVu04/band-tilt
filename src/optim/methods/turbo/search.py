@@ -21,12 +21,10 @@ from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
-from src.optim.methods.base import INCUMBENT, INIT, SEARCH
+from src.optim.methods.base import ATTACHED, INCUMBENT, INIT, SEARCH, SOBOL, sobol
 from src.optim.objective import scores
 
-# Generation-node names recorded per evaluation.
-ATTACHED = "attached"
-SOBOL = "Sobol"
+# Generation-node name of a trust-region proposal.
 TURBO = "TuRBO"
 
 # A round is a success only when it beats the best score by this share of its
@@ -165,7 +163,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
         return new
 
     restarts = 0
-    evaluate(_sobol(space.n_dim, min(n_init, n_total), seed), INIT, SOBOL)
+    evaluate(sobol(space.n_dim, min(n_init, n_total), seed), INIT, SOBOL)
     region.best = max(score_y)
     while (remaining := n_total - (len(history) - 1)) > 0:
         if region.collapsed:
@@ -175,7 +173,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             region.restart()
             unit_x.clear()
             score_y.clear()
-            design = _sobol(space.n_dim, min(max(n_init, 2), remaining), seed + restarts)
+            design = sobol(space.n_dim, min(max(n_init, 2), remaining), seed + restarts)
             evaluate(design, INIT, SOBOL)
             region.best = max(score_y)
             continue
@@ -188,16 +186,6 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
         )
         region.update(max(evaluate(batch, SEARCH, TURBO)))
     return history
-
-
-def _sobol(dim: int, n: int, seed: int) -> np.ndarray:
-    """``n`` scrambled Sobol points in the unit cube, ``[n, dim]``."""
-    import torch
-    from torch.quasirandom import SobolEngine
-
-    if n <= 0:
-        return np.empty((0, dim))
-    return SobolEngine(dim, scramble=True, seed=seed).draw(n, dtype=torch.float64).numpy()
 
 
 def _propose(

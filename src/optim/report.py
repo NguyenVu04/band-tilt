@@ -6,7 +6,7 @@ measurements, so this selects from them, shapes the two tables an operator
 reads, and prints the result.
 
 The front, not a winner. Four objectives do not have a best, so the run
-recommends the priority-order pick but publishes the whole non-dominated set
+recommends the weighted-score pick (ADR 0003) but publishes the whole non-dominated set
 beside it and lets the trade-off be chosen rather than assumed.
 
 This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:

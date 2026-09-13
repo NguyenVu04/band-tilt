@@ -78,7 +78,7 @@ demand map built from it is a diagnostic outside the objective.
 
 Sionna-RT scores every candidate the search proposes, at roughly 8 s each, and
 `src/optim/report.py` selects from what was measured and publishes the front.
-The multi-objective Bayesian Optimization path and two baselines are
+TuRBO-1 Bayesian Optimization on a weighted KPI score and two baselines are
 implemented; Multi-Agent Reinforcement Learning and held-out scenario
 validation remain planned.
 
@@ -98,7 +98,7 @@ flowchart TB
     sim["src/simulation<br/>scenario · radio map · synthetic MDT"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>the four KPIs · PRB demand"]
-    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>multi-objective BO · baselines"]
+    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
     ver["src/optim/report<br/>select · publish the front"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
     mlf["src/tracking<br/>MLflow · one run per stage"]
@@ -151,7 +151,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model TuRBO runs on, and the Sobol loop of random search | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py), [`src/optim/methods/random/search.py`](src/optim/methods/random/search.py) and by `objective.hypervolume` |
+| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) and by `objective.hypervolume`. Random search needs only torch's Sobol engine |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
@@ -177,7 +177,7 @@ task setup
 ```
 
 `task setup` installs every extra and the pre-commit hooks. For data work alone,
-`task sync` installs the base and dev environment without Sionna-RT, Ax/BoTorch
+`task sync` installs the base and dev environment without Sionna-RT, BoTorch
 or TorchRL — a much smaller download.
 
 ### Configure
@@ -203,7 +203,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-179 passed
+155 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region and traffic logic, the four
@@ -335,7 +335,7 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 the Pareto subset, `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and
 `pareto_verified.parquet`, the last being the solutions offered for choice.
 
-Which solutions get offered is not the priority order: that would return eight
+Which solutions get offered is not the score order: that would return eight
 neighbours from one corner of the front. They are ranked by NSGA-II crowding
 distance, which keeps the extremes and spreads the rest. `optim.n_solutions`
 sets how many, 8 by default, always including the incumbent and the winner.
@@ -343,10 +343,11 @@ sets how many, 8 by default, always including the incumbent and the winner.
 **The deliverable is the front.** `reports/outputs/` gets
 `pareto_<method>.csv` — one row per measured Pareto solution, its four KPIs and
 each one's delta against the incumbent — and `tilt_options_<method>.csv`, the
-tilt table each of those becomes. ADR 0001's priority order marks one row
-`recommended` and `tilt_change_<method>.csv` carries it, but choosing among
-measured trade-offs is left to a person. The MARL arm is not built, so a
-comparison currently has BO and the two baselines in it and nothing else.
+tilt table each of those becomes. The highest weighted score (`kpi.weights`,
+ADR 0003) marks one row `recommended` and `tilt_change_<method>.csv` carries it,
+but choosing among measured trade-offs is left to a person. The MARL arm is not
+built, so a comparison currently has TuRBO and the two baselines in it and
+nothing else.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
 cell clones the repository and installs what Colab does not ship.
@@ -379,10 +380,10 @@ band-tilt/
 | `src/kpi/` — the four KPIs (`hole`, `overlap`, `bps`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
 | `notebooks/` — `00_simulation` through `05_evaluation` | All eight written and adapted to this project |
-| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, Ax multi-objective BO, random-search and rule-based baselines, and the run that searches, selects and publishes |
+| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
-| `task pipeline` | Chains every stage. Not yet run end to end in one go; `task evaluate` has run only against synthetic run directories |
+| `task pipeline` | Chains every stage. Its stages have been run in order end to end against one scenario, including `task evaluate` on real runs |
 | `src/optim/marl/` | Does not exist |
 | CI | None. `task lint` and `task test` run locally only. |
 
@@ -420,7 +421,7 @@ task check
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
 `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 179 tests, all passing, none skipped. `src/data/`,
+`src/tracking.py` — 155 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

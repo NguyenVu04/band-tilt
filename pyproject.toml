@@ -54,7 +54,7 @@ torch = ["torch>=2.13"]
 rt = ["sionna-rt>=2.0"]
 
 # Bayesian Optimization over the absolute-tilt space.
-bo = ["ax-platform>=0.4", "botorch>=0.12", "gpytorch>=1.13"]
+bo = ["botorch>=0.12", "gpytorch>=1.13"]
 
 # Multi-Agent RL over the same space. Ray/RLlib is deliberately not used.
 marl = ["torchrl>=0.6", "tensordict>=0.6", "gymnasium>=1.0"]

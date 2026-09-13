@@ -49,7 +49,7 @@ class KpiVector:
     weak_rate: float
 
     def as_dict(self) -> dict[str, float]:
-        """The four values keyed by name, shaped for Ax's ``raw_data``."""
+        """The four values keyed by name, as ``run.json`` records them."""
         return {name: float(value) for name, value in asdict(self).items()}
 
     def as_array(self) -> np.ndarray:
@@ -94,16 +94,6 @@ def evaluate_kpis(
         band_priority_score=band_priority_score(rsrp, sinr, band_labels, mdt, cfg),
         weak_rate=weak_rate(rsrp, cfg),
     )
-
-
-def ax_objective() -> str:
-    """Ax's objective expression: comma-separated, minus where minimised.
-
-    Derived from :data:`KPI_NAMES` and :data:`MAXIMISED` rather than written
-    out, so the sign convention exists in one place and a newly added KPI
-    cannot reach Ax pointing the wrong way.
-    """
-    return ", ".join(name if name in MAXIMISED else f"-{name}" for name in KPI_NAMES)
 
 
 def as_maximised(kpis: Sequence[KpiVector]) -> np.ndarray:

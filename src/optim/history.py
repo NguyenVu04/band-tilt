@@ -94,11 +94,9 @@ def write_pareto_options(
 ) -> tuple[Path, Path]:
     """Republish the verified Pareto front as the two tables an operator chooses from.
 
-    Four objectives do not have a best; they have a front, and which point on
-    it to deploy is a judgement about what this network needs, not something
-    the priority order in ADR 0001 can settle. That rule still runs and marks
-    one row ``recommended``, but the rest of the front is published beside it
-    rather than discarded.
+    Four objectives do not have a best; they have a front. The weighted score
+    (``kpi.weights``, ADR 0003) marks one row ``recommended``, and the rest of
+    the front is published beside it rather than discarded.
 
     Two tables because they answer two questions. ``pareto_<method>.csv`` is
     one row per solution and says what each one costs and buys.
@@ -145,9 +143,9 @@ class History:
             phase: Which part of the run produced it — ``incumbent``, ``init``,
                 ``search`` or ``sweep``. What separates the exploration budget
                 from the model-driven one in a plot.
-            generation_node: The generator's own name, when it has one. Ax
-                reports this per trial, and it is the honest record of whether
-                a point came from Sobol or from the model.
+            generation_node: The generator's name, e.g. ``Sobol`` or
+                ``TuRBO``: the record of whether a point came from the
+                design or from the model.
         """
         self.results.append(result)
         self._phases.append(phase)
@@ -156,36 +154,6 @@ class History:
     def __len__(self) -> int:
         """How many evaluations have been recorded."""
         return len(self.results)
-
-    def set_generation_nodes(self, nodes: list[str]) -> None:
-        """Attach the generator name for each recorded evaluation.
-
-        Separate from :meth:`append` because the authority on which generator
-        produced a trial is the optimizer's own record, and that is only
-        readable once the run is over.
-
-        Raises:
-            ValueError: When the count does not match the recorded evaluations,
-                which would silently misattribute every row after the gap.
-        """
-        if len(nodes) != len(self.results):
-            raise ValueError(f"{len(nodes)} generation nodes for {len(self.results)} evaluations")
-        self._nodes = list(nodes)
-
-    def set_phases(self, phases: list[str]) -> None:
-        """Relabel which part of the run produced each evaluation.
-
-        For an optimizer that decides its own phase boundary, the label is
-        only knowable once its record can be read, and its record outranks
-        any count the loop kept.
-
-        Raises:
-            ValueError: When the count does not match the recorded
-                evaluations.
-        """
-        if len(phases) != len(self.results):
-            raise ValueError(f"{len(phases)} phases for {len(self.results)} evaluations")
-        self._phases = list(phases)
 
     @property
     def kpis(self) -> list[KpiVector]:
