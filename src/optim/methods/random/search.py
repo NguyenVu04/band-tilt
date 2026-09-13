@@ -1,9 +1,8 @@
 """Sobol random search over the tilt space: the control the methods are read against.
 
-Matched to :mod:`src.optim.methods.mobo` on evaluations and on everything the
-loop does with them, so a difference between the two runs is a difference in
-where they looked and in nothing else. The generation strategy is the only line
-that differs, and ADR 0002 is the reason it must stay the only one.
+Matched to :mod:`src.optim.methods.turbo` on evaluations and on what is recorded
+per evaluation, so a difference between the two runs is a difference in where
+they looked; ADR 0003.
 """
 
 from __future__ import annotations
@@ -65,9 +64,8 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
         initialize_with_center=False,
     )
 
-    # Thresholds anchored on the incumbent, set for the same reason as in mobo:
-    # the two runs must be scored against one reference to be comparable, even
-    # though nothing here consumes hypervolume.
+    # Thresholds anchored on the incumbent: Ax's multi-objective config requires
+    # them, and without them it infers its own from whatever it has observed.
     signatures = {name: name for name in KPI_NAMES}
     client.set_optimization_config(
         MultiObjectiveOptimizationConfig(
@@ -104,9 +102,8 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             trial_indices.append(trial_index)
             evaluated += 1
 
-    # Relabelled from Ax's own record for the same reason as in mobo: its count
-    # of the initialization budget includes the attached incumbent, and its
-    # record outranks the loop's counter.
+    # Relabelled from Ax's own record: its count of the initialization budget
+    # includes the attached incumbent, and its record outranks the loop's counter.
     nodes = _generation_nodes(client, trial_indices)
     history.set_generation_nodes(nodes)
     history.set_phases([PHASE_OF_NODE.get(node, SEARCH) for node in nodes])

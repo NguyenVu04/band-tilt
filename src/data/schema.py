@@ -55,8 +55,9 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     n_rows, n_cols = artifacts.shape
     max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
     max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
-    position = [column for column in mdt.columns if not column.startswith("rsrp_")]
+    position = [column for column in mdt.columns if not column.startswith(("rsrp_", "sinr_"))]
     measurement = [column for column in mdt.columns if column.startswith("rsrp_")]
+    sinr_columns = [column for column in mdt.columns if column.startswith("sinr_")]
 
     # --- structure: do the three files describe the same run? ---------------
     cells = transmitter.load(cfg)
@@ -94,10 +95,28 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         _MAP,
         measurement == artifacts.measurement_columns,
     )
+    record(
+        "mdt sinr columns are cell x band, in order",
+        _MAP,
+        sinr_columns == artifacts.sinr_columns,
+    )
+    record(
+        "npz sinr_db has the shape of rsrp_dbm",
+        _MAP,
+        "sinr_db" in artifacts.radio
+        and artifacts.radio["sinr_db"].shape == artifacts.radio["rsrp_dbm"].shape,
+    )
 
     # --- rows: bounds whose source is the config or the manifest ------------
     values = mdt[measurement].to_numpy()
     finite = np.isfinite(values)
+    if sinr_columns == artifacts.sinr_columns:
+        # SINR is computed from the reported RSRP, so it exists exactly where RSRP does.
+        record(
+            "reported SINR is present exactly where RSRP is",
+            _MAP,
+            *_count(np.isfinite(mdt[sinr_columns].to_numpy()) != finite),
+        )
 
     record(
         "z equals the configured UE height",

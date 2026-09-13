@@ -1,4 +1,4 @@
-"""Sobol random search at the same budget as mobo: the control."""
+"""Sobol random search at the same budget as turbo: the control."""
 
 from src.optim.methods.random.search import search
 

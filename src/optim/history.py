@@ -22,8 +22,9 @@ from src.optim.evaluator import EvaluationResult
 from src.optim.objective import (
     KPI_NAMES,
     KpiVector,
-    lexicographic_best,
+    best_by_score,
     pareto_mask,
+    scores,
 )
 from src.optim.space import TiltSpace
 
@@ -191,11 +192,12 @@ class History:
         """The KPI vector of every evaluation, in order."""
         return [result.kpi for result in self.results]
 
-    def frame(self) -> pd.DataFrame:
+    def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
         """One row per evaluation: provenance, the four KPIs, all 36 tilts.
 
-        ``on_pareto`` is computed here rather than stored, because it is a
-        property of the set and every append can change it.
+        With ``cfg``, also ``score``, the weighted score that selects the winner
+        (reads ``kpi.weights``). ``on_pareto`` is computed here rather than
+        stored, because it is a property of the set and every append can change it.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -214,6 +216,8 @@ class History:
         )
         for name in KPI_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
+        if cfg is not None:
+            frame["score"] = scores(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
 
@@ -221,13 +225,11 @@ class History:
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
-        """Index of the configuration the priority order selects.
+        """Index of the highest weighted score over every evaluation.
 
-        The single pass runs over every evaluation rather than over the Pareto
-        front alone: the winner is non-dominated either way, and restricting the
-        candidate set first would make the result depend on the front's order.
+        A tie keeps the earlier row, so the incumbent holds unless beaten.
         """
-        return lexicographic_best(self.kpis, cfg)
+        return best_by_score(self.kpis, cfg)
 
     def pareto_frame(self) -> pd.DataFrame:
         """The non-dominated rows of :meth:`frame`."""
@@ -271,7 +273,7 @@ def write_run(
         extra: Merged into the run document, for whatever the caller knows and
             this function does not.
     """
-    frame = history.frame()
+    frame = history.frame(cfg)
     best = history.results[best_index]
     # Row zero is the committed incumbent every delta is measured against; the
     # SearchMethod contract puts it there.

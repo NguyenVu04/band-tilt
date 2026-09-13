@@ -5,9 +5,9 @@ only that the ray tracer found no path. Each UE is then served from what it
 reported, by :mod:`src.kpi.capacity`, and the PRBs it needs there - at its first
 choice when blocked - make up the demand map.
 
-SINR is not reported. The serving rule recomputes it from the reported RSRP with
-:func:`src.kpi.capacity.sinr_db`, the one definition in the project, so the
-measurement error reaches PRB demand once - through RSRP - rather than twice.
+Reported SINR is computed from the reported RSRP by :func:`_sinr_db`, not
+sampled from the solver's SINR, so the measurement error reaches it - and PRB
+demand - once, through RSRP, rather than as a second independent draw.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import hydra
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
+from scipy.constants import Boltzmann
 
 from src.kpi import capacity
 from src.simulation import seeds
@@ -63,6 +64,36 @@ def measure(clean: np.ndarray, sigma_db: float, seed: int) -> np.ndarray:
     return clean + rng.normal(0.0, sigma_db, size=clean.shape)
 
 
+def _thermal_noise_dbm(temperature_k: float, bandwidth_hz: float | np.ndarray) -> np.ndarray:
+    """Thermal noise ``k * T * B`` in dBm, as ``sionna.rt.Scene.thermal_noise_power``."""
+    power_w = Boltzmann * temperature_k * np.asarray(bandwidth_hz, dtype=float)
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(power_w) + 30.0
+
+
+def _sinr_db(rsrp: np.ndarray, noise_dbm: float | np.ndarray) -> np.ndarray:
+    """Co-band SINR of every cell-band layer, with full-load interference.
+
+    The model :attr:`sionna.rt.RadioMap.sinr` uses for the clean map, applied
+    to reported RSRP.
+
+    Args:
+        rsrp: RSRP in dBm, ``[n_band, n_tx, ...]``, NaN where no path.
+        noise_dbm: Noise power, scalar or one per band.
+
+    Returns:
+        Same shape as ``rsrp``: each layer against every other transmitter on
+        its band plus noise. NaN where the layer has no path.
+    """
+    heard = np.isfinite(rsrp)
+    power = np.where(heard, 10.0 ** (rsrp / 10.0), 0.0)
+    noise_shape = (-1,) + (1,) * (rsrp.ndim - 1)
+    noise = 10.0 ** (np.asarray(noise_dbm, dtype=float).reshape(noise_shape) / 10.0)
+    interference = power.sum(axis=1, keepdims=True) - power
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(heard, 10.0 * np.log10(power / (interference + noise)), np.nan)
+
+
 def build(cfg: DictConfig) -> Path:
     """Read the radio map and UE table, write the MDT and the demand map.
 
@@ -89,6 +120,7 @@ def build(cfg: DictConfig) -> Path:
         band_labels = [str(label) for label in data["band_label"]]
         n_cols = int(data["n_cols"])
         n_rows = int(data["n_rows"])
+        noise_dbm = _thermal_noise_dbm(float(data["temperature_k"]), data["bandwidth_hz"])
 
     col = ues["tile_col"].to_numpy()
     row = ues["tile_row"].to_numpy()
@@ -115,10 +147,18 @@ def build(cfg: DictConfig) -> Path:
     heard = heard[covered]
     reported = reported[covered]
 
+    # [ue, tx, band] -> [band, tx, ue] for _sinr_db, which sums over tx; then
+    # back, and flattened exactly as the RSRP columns are.
+    rsrp_ue = reported.reshape(-1, n_tx, n_band)
+    sinr_ue = _sinr_db(rsrp_ue.transpose(2, 1, 0), noise_dbm).transpose(2, 1, 0)
+
     frame = pd.concat(
         [
             ues[list(POSITION_COLUMNS)],
             pd.DataFrame(reported, columns=[f"rsrp_{p}" for p in pairs], index=ues.index),
+            pd.DataFrame(
+                sinr_ue.reshape(len(ues), -1), columns=[f"sinr_{p}" for p in pairs], index=ues.index
+            ),
         ],
         axis=1,
     )
@@ -129,11 +169,8 @@ def build(cfg: DictConfig) -> Path:
     # Serve from the reports, back in [ue, band, tx] for the capacity rule.
     t_index = ues["t_index"].to_numpy()
     spec_capacity = capacity.CapacitySpec.from_config(cfg, band_labels, n_tx)
-    rsrp_ue = reported.reshape(-1, n_tx, n_band).transpose(0, 2, 1)
-    # sinr_db sums interference over the tx axis, so it takes [band, tx, ue].
-    sinr_map = capacity.sinr_db(rsrp_ue.transpose(1, 2, 0), spec_capacity.noise_dbm)
     band, _tx, prb_per_ue = capacity.serve_rows(
-        rsrp_ue, sinr_map.transpose(2, 0, 1), t_index, spec_capacity
+        rsrp_ue.transpose(0, 2, 1), sinr_ue.transpose(0, 2, 1), t_index, spec_capacity
     )
     t_values, prb = capacity.prb_by_interval(
         t_index,
@@ -153,7 +190,7 @@ def build(cfg: DictConfig) -> Path:
 
     n_intervals = int(ues["t_index"].nunique())
     print(
-        f"ue:        {len(ues)} rows x {len(pairs)} cell-bands of RSRP "
+        f"ue:        {len(ues)} rows x {len(pairs)} cell-bands of RSRP and SINR "
         f"({n_no_signal} no-signal UEs dropped)"
     )
     print(

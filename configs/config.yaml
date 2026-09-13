@@ -3,7 +3,7 @@ defaults:
   - kpi
   - data
   - optim/base
-  - optim/method: mobo
+  - optim/method: turbo
   - _self_
 
 # Global seed.

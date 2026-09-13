@@ -1,12 +1,12 @@
 # 2. Bayesian optimization without a trust region
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-09-07
 - **Revised:** 2026-09-12 — the 2026-09-09 revision is withdrawn; see the
   revision note at the end
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** [0003](0003-turbo-on-a-weighted-kpi-score.md)
 
 ## Context
 
@@ -186,3 +186,30 @@ been solved at a fidelity `scenario_id` does not cover.
 `task bo` needs a GPU where the search phase did not. The two-phase run
 directory is gone: one command searches, selects and publishes, and `run.json`
 no longer carries a `verified` flag because there is nothing left to verify.
+
+## Revision note — 2026-09-13
+
+Revised at the maintainer's direction. **Acquisition changes from qLogNEHVI to
+qLogNParEGO; everything else in the Decision stands** — four KPIs optimized
+jointly by Ax, no trust region, Sobol initialization, incumbent-anchored
+objective thresholds, one lexicographic pick at the end.
+
+**Why.** Ax picks hypervolume improvement (qLogNEHVI) for up to four objectives
+and ParEGO only from five. On the committed scenario a 160-trial run with
+qLogNEHVI was stopped after 110 minutes and about 30 model rounds: the gap
+between rounds grew from about 85 s to about 450 s while ray tracing a batch of
+four stayed near 30 s. The Consequences above predicted this growth; the budget
+reached it well before a few hundred evaluations. botorch's fused qLogNEHVI
+kernel also could not compile, since the pipeline shell had no MSVC `cl` on
+`PATH`, which made each round slower still.
+
+**What changes.** qLogNParEGO draws a random Chebyshev scalarization of the four
+objectives each round and maximises noisy expected improvement on it. Its cost
+does not grow with the size of the Pareto front. The scalarization exists only
+inside acquisition: the run still measures all four KPIs, still produces a
+front, and the *Scalarize the four KPIs* alternative, which fixed one weighting
+as the objective, remains rejected.
+
+**What this costs.** Hypervolume is no longer what the model targets, so a front
+may fill less evenly than qLogNEHVI would have filled it at the same budget.
+Runs before this date used qLogNEHVI and are not comparable as method runs.

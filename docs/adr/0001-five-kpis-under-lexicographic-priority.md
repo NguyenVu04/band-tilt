@@ -371,3 +371,43 @@ then read by only the demand map, so a wrong value there was invisible.
 **The *Include throughput or SINR* alternative and the 2026-09-11 walk-back both
 still stand.** SINR still shapes the objective through the serving rule, on
 placeholder `kpi.capacity` values. Only its source narrowed.
+
+## Revision note — 2026-09-13
+
+Revised in place at the maintainer's direction, reversing the source change of
+the 2026-09-12 note. **No KPI definition, slot, direction, threshold or
+tolerance changes.**
+
+| | 2026-09-12 | Now |
+|---|---|---|
+| `radio_map.npz` (baseline and every run's `best_radio_map.npz`) | `rsrp_dbm` only | `rsrp_dbm` and `sinr_db`, the solver's `RadioMap.sinr` |
+| MDT columns | `rsrp_*` only | `rsrp_*` and `sinr_*` per cell-band |
+| MDT SINR | recomputed off reported RSRP inside the serving rule | computed once off reported RSRP by `src/simulation/mdt.py` and written |
+| KPI readers (Band Priority Score, PRB demand, SINR plots) | recomputed SINR from RSRP with `src/kpi/capacity.py::sinr_db` | read the stored SINR; `capacity.sinr_db` is removed |
+
+Only two places produce SINR: sionna-rt's radio map solver, and the MDT stage
+applying the same co-band, full-load `k·T·B` model to the noisy RSRP. Every
+optimizer evaluation now carries the solver's SINR beside its RSRP, so the
+reason the 2026-09-12 note gave for deriving it — an optimizer's map carries
+RSRP and nothing else — no longer holds.
+
+**What this costs.** Runs and `radio_map.npz` files written before this date
+have no `sinr_db` and cannot be evaluated; they are not migrated. The two
+sources used the same model, and the 2026-09-12 note measured their agreement
+as negligible, so KPI values are expected to be comparable, but that is not
+re-measured here. The parked surrogate package, which predicted RSRP only, is
+removed except for `src/surrogate/features.py`.
+
+## Revision note — 2026-09-13 (selection)
+
+Revised at the maintainer's direction; see
+[ADR 0003](0003-turbo-on-a-weighted-kpi-score.md). **No KPI definition,
+direction, threshold or tolerance changes.**
+
+**Selection is no longer lexicographic.** The winner of a run, of the rule
+sweep and of a comparison between methods is the highest weighted score,
+`kpi.weights` times each KPI, signed so larger is better. The defaults 4, 3, 2,
+1 follow the priority order stated above, but a weighted sum is not a strict
+order: a large enough gain on a lower-priority KPI now outweighs a small loss on
+a higher one. `kpi.tolerance` is kept for reporting a delta as better, worse or
+a tie, and no longer decides anything.

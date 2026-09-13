@@ -6,9 +6,8 @@ comparison between methods is a comparison of search strategies and nothing
 else. Adding one is a folder and a registry entry, not an edit to a dispatch
 chain.
 
-``mobo`` and ``random`` each carry their own Ax ask-tell loop. They are kept
-matched on budget, on thresholds and on what they record; ADR 0002 is why the
-generation strategy must remain the only difference between them.
+``turbo`` and ``random`` are kept matched on budget and on what they record, so
+where they looked is the only difference between them; ADR 0003.
 """
 
 from __future__ import annotations
@@ -19,11 +18,11 @@ from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
-from src.optim.methods import mobo, random, rule
+from src.optim.methods import random, rule, turbo
 from src.optim.methods.base import SearchMethod
 
 SEARCHES: Mapping[str, SearchMethod] = {
-    "mobo": mobo.search,
+    "turbo": turbo.search,
     "random": random.search,
     "rule": rule.search,
 }

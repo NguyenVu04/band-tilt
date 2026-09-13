@@ -16,6 +16,8 @@ def hole_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
         cfg: Composed config; reads ``cfg.kpi.hole_dbm``.
 
     Returns:
-        ``|{g : R_max(g) <= hole_dbm}| / |G|``, in ``[0, 1]``. Minimised.
+        ``|{g : R_max(g) <= hole_dbm}| / |G|``, in ``[0, 1]``. Minimised. A
+        tile where every layer is NaN (no path) has ``R_max = -inf`` and is
+        always a hole.
     """
     return float((max_rsrp(rsrp) <= float(cfg.kpi.hole_dbm)).mean())

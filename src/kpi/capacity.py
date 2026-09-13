@@ -6,11 +6,10 @@ band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take the
 strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
 the UE to the next candidate in that same ranking.
 
-:func:`sinr_db` is the project's only definition of SINR, derived from RSRP
-alone: every co-band transmitter fully loaded, plus ``k * T * B`` over the band
-bandwidth. No map or report stores SINR, so a ray-traced map and a synthetic
-report score by the same rule. PRBs are kept
-fractional: an average over an interval, and smooth in tilt.
+SINR is an input, never computed here: a radio map carries the solver's own
+(:func:`src.simulation.radio.solve_band`), and the MDT carries one derived from
+the reported RSRP (:mod:`src.simulation.mdt`). PRBs are kept fractional: an
+average over an interval, and smooth in tilt.
 
 :func:`max_rsrp`, the strongest layer at each location, also lives here: the
 hole and weak rates and the Band Priority Score's hole gate read it. It is not
@@ -25,7 +24,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
-from scipy.constants import Boltzmann
 
 from src.core.cell import Cell
 
@@ -43,7 +41,6 @@ class CapacitySpec:
         throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
         max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
-        noise_dbm: Thermal noise ``k * T * B`` per band, shape ``[n_band]``.
     """
 
     band_rank: np.ndarray
@@ -51,7 +48,6 @@ class CapacitySpec:
     throughput_per_ue_bps: float
     scs_hz: np.ndarray
     max_prb: np.ndarray
-    noise_dbm: np.ndarray
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
@@ -62,24 +58,19 @@ class CapacitySpec:
         preprocessing checks ``tx_name`` against the config.
 
         Raises:
-            ValueError: When a band has no priority weight, capacity entry or
-                bandwidth, or the config holds other than ``n_tx`` cells.
+            ValueError: When a band has no priority weight or capacity entry, or
+                the config holds other than ``n_tx`` cells.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
         capacity = cfg.kpi.capacity
-        radio_map = cfg.simulation.radio_map
-        bandwidth = {str(entry.name): float(entry.bandwidth) for entry in radio_map.bands}
         missing = [
             label
             for label in band_labels
-            if label not in cfg.kpi.band_priority
-            or label not in capacity.bands
-            or label not in bandwidth
+            if label not in cfg.kpi.band_priority or label not in capacity.bands
         ]
         if missing:
             raise ValueError(
-                "No kpi.band_priority, kpi.capacity.bands or simulation.radio_map.bands entry "
-                f"for {', '.join(missing)}."
+                f"No kpi.band_priority or kpi.capacity.bands entry for {', '.join(missing)}."
             )
         cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
         if len(cells) != n_tx:
@@ -95,9 +86,6 @@ class CapacitySpec:
             scs_hz=np.array([float(capacity.bands[label].scs_hz) for label in band_labels]),
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
-            ),
-            noise_dbm=_thermal_noise_dbm(
-                float(radio_map.temperature), np.array([bandwidth[label] for label in band_labels])
             ),
         )
 
@@ -172,32 +160,6 @@ def _tile_index(mdt: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, 
     return row, col
 
 
-def _thermal_noise_dbm(temperature_k: float, bandwidth_hz: float | np.ndarray) -> np.ndarray:
-    """Thermal noise ``k * T * B`` in dBm, as ``sionna.rt.Scene.thermal_noise_power``."""
-    power_w = Boltzmann * temperature_k * np.asarray(bandwidth_hz, dtype=float)
-    with np.errstate(divide="ignore"):
-        return 10.0 * np.log10(power_w) + 30.0
-
-
-def sinr_db(rsrp: np.ndarray, noise_dbm: float | np.ndarray) -> np.ndarray:
-    """Co-band SINR of every cell-band layer, with full-load interference.
-
-    Args:
-        rsrp: RSRP in dBm, ``[n_band, n_tx, ...]``, NaN where no path.
-        noise_dbm: Noise power, scalar or one per band.
-
-    Returns:
-        Same shape as ``rsrp``: each layer against every other transmitter on
-        its band plus noise. ``-inf`` where the layer has no path.
-    """
-    power = np.where(np.isfinite(rsrp), 10.0 ** (rsrp / 10.0), 0.0)
-    noise_shape = (-1,) + (1,) * (rsrp.ndim - 1)
-    noise = 10.0 ** (np.asarray(noise_dbm, dtype=float).reshape(noise_shape) / 10.0)
-    interference = power.sum(axis=1, keepdims=True) - power
-    with np.errstate(divide="ignore"):
-        return 10.0 * np.log10(power / (interference + noise))
-
-
 def _spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
     """Shannon spectral efficiency ``log2(1 + SINR)`` in bit/s/Hz."""
     return np.log2(1.0 + 10.0 ** (np.asarray(sinr, dtype=float) / 10.0))
@@ -213,20 +175,10 @@ def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndar
     return np.asarray(bandwidth_hz, dtype=float) * _spectral_efficiency(sinr)
 
 
-def _required_throughput_bps(n_ue: float | np.ndarray, per_ue_bps: float) -> np.ndarray:
-    """Throughput a tile requires: its UE count times the per-UE requirement."""
-    return np.asarray(n_ue, dtype=float) * per_ue_bps
-
-
 def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
     """PRBs one UE needs at a given per-PRB rate; ``inf`` where the rate is zero."""
-    with np.errstate(divide="ignore"):
+    with np.errstate(divide="ignore", invalid="ignore"):
         return np.divide(per_ue_bps, np.asarray(rate_bps, dtype=float))
-
-
-def _prb_required(n_ue: float | np.ndarray, per_ue_prb: float | np.ndarray) -> np.ndarray:
-    """PRBs a tile requires: its UE count times the PRBs per UE."""
-    return np.asarray(n_ue, dtype=float) * np.asarray(per_ue_prb, dtype=float)
 
 
 def _candidate_order(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
@@ -315,14 +267,18 @@ def serve_rows(
 
 
 def serve_intervals(
-    rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
+    rsrp: np.ndarray,
+    sinr: np.ndarray,
+    band_labels: Sequence[str],
+    mdt: pd.DataFrame,
+    cfg: DictConfig,
 ) -> pd.DataFrame:
     """Serve every MDT row from the radio map, via :func:`serve_rows`.
 
     Args:
-        rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``. RSRP is
-            read at each UE's tile and SINR recomputed from it, so the result
-            follows the tilts.
+        rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``, read at
+            each UE's tile, so the result follows the tilts.
+        sinr: The solver's SINR in dB, same shape and axes as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         mdt: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
         cfg: Composed config; see :meth:`CapacitySpec.from_config`.
@@ -338,7 +294,6 @@ def serve_intervals(
     """
     spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
     row, col = _tile_index(mdt, rsrp.shape[-2:])
-    sinr = sinr_db(rsrp, spec.noise_dbm)
     t_index = mdt["t_index"].to_numpy()
 
     band, tx, per_ue = serve_rows(
@@ -379,7 +334,11 @@ def prb_by_interval(
 
 
 def demand_prb(
-    rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
+    rsrp: np.ndarray,
+    sinr: np.ndarray,
+    band_labels: Sequence[str],
+    mdt: pd.DataFrame,
+    cfg: DictConfig,
 ) -> np.ndarray:
     """PRBs required per tile in its busiest interval, ``[n_rows, n_cols]``.
 
@@ -389,7 +348,7 @@ def demand_prb(
     Raises:
         ValueError: As :func:`serve_intervals`.
     """
-    served = serve_intervals(rsrp, band_labels, mdt, cfg)
+    served = serve_intervals(rsrp, sinr, band_labels, mdt, cfg)
     _, prb = prb_by_interval(
         served["t_index"].to_numpy(),
         served["tile_row"].to_numpy(),

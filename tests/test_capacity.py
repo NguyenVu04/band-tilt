@@ -12,8 +12,6 @@ from src.kpi import capacity
 # 12 subcarriers of 15 kHz: 180 kHz per PRB.
 _B_PRB = 180_000.0
 
-_BANDWIDTH_HZ = 20_000_000.0
-
 
 def _cells(*max_prb: dict[str, int]) -> list[dict]:
     """One co-located cell per ``max_prb`` entry, in tx-axis order."""
@@ -26,11 +24,7 @@ def _cells(*max_prb: dict[str, int]) -> list[dict]:
 
 @pytest.fixture
 def cfg():
-    """Two bands, 'hi' preferred, one cell of 10 PRBs per band.
-
-    Zero kelvin makes the noise exactly zero, so SINR is signal over co-band
-    interference.
-    """
+    """Two bands, 'hi' preferred, one cell of 10 PRBs per band."""
     return OmegaConf.create(
         {
             "kpi": {
@@ -41,24 +35,9 @@ def cfg():
                     "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
-            "simulation": {
-                "radio_map": {
-                    "temperature": 0.0,
-                    "bands": [
-                        {"name": "hi", "bandwidth": _BANDWIDTH_HZ},
-                        {"name": "lo", "bandwidth": _BANDWIDTH_HZ},
-                    ],
-                },
-                "transmitters": {"cells": _cells({"hi": 10, "lo": 10})},
-            },
+            "simulation": {"transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
         }
     )
-
-
-def test_thermal_noise_is_kt_times_bandwidth() -> None:
-    """Noise at 290 K over 1 Hz is -173.975 dBm, and scales as 10 log10(B)."""
-    assert capacity._thermal_noise_dbm(290.0, 1.0) == pytest.approx(-173.975, abs=1e-3)
-    assert capacity._thermal_noise_dbm(290.0, 20e6) == pytest.approx(-173.975 + 73.010, abs=1e-3)
 
 
 def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
@@ -67,24 +46,12 @@ def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
         capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 2)
 
 
-def test_sinr_counts_only_co_band_interference() -> None:
-    """Two transmitters 10 dB apart on one band; the other band is not interference."""
-    rsrp = np.array([[-80.0, -90.0], [-50.0, np.nan]])[:, :, None, None]
-    sinr = capacity.sinr_db(rsrp, -np.inf)[:, :, 0, 0]
-    assert sinr[0].tolist() == pytest.approx([10.0, -10.0])
-    assert sinr[1, 0] == np.inf
-    assert sinr[1, 1] == -np.inf
-
-
 def test_rate_and_prbs_follow_the_shannon_formula() -> None:
     """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
     assert capacity._spectral_efficiency(0.0) == pytest.approx(1.0)
     rate = capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0))
     assert rate == pytest.approx(_B_PRB)
-    per_ue = capacity._prb_per_ue(5 * _B_PRB, rate)
-    assert per_ue == pytest.approx(5.0)
-    assert capacity._prb_required(3, per_ue) == pytest.approx(15.0)
-    assert capacity._required_throughput_bps(3, 1e6) == pytest.approx(3e6)
+    assert capacity._prb_per_ue(5 * _B_PRB, rate) == pytest.approx(5.0)
     assert capacity._prb_per_ue(1.0, 0.0) == np.inf
 
 
@@ -166,14 +133,20 @@ def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     """One UE on the tile in interval 0, three in interval 1: the raster holds three."""
     cfg.simulation.transmitters.cells = _cells({"hi": 1000, "lo": 1000})
     rsrp = np.array([[[[-90.0, np.nan]]], [[[np.nan, np.nan]]]])  # [band, tx, row, col]
+    # 0 dB wherever a path exists: 1 bit/s/Hz, so each UE needs exactly one PRB.
+    sinr = np.where(np.isfinite(rsrp), 0.0, np.nan)
     mdt = pd.DataFrame({"t_index": [0, 1, 1, 1], "tile_row": [0] * 4, "tile_col": [0] * 4})
-    peak = capacity.demand_prb(rsrp, ["hi", "lo"], mdt, cfg)
-    # Alone on its band with no noise, SINR is infinite; use a finite noise instead.
+    peak = capacity.demand_prb(rsrp, sinr, ["hi", "lo"], mdt, cfg)
     assert peak.shape == (1, 2)
+    assert peak[0, 0] == pytest.approx(3.0)
     assert peak[0, 1] == 0.0
 
-    cfg.simulation.radio_map.temperature = 290.0
-    noise = capacity._thermal_noise_dbm(290.0, _BANDWIDTH_HZ)
-    rate = capacity._prb_rate_bps(-90.0 - noise, _B_PRB)
-    peak = capacity.demand_prb(rsrp, ["hi", "lo"], mdt, cfg)
-    assert peak[0, 0] == pytest.approx(3 * _B_PRB / rate)
+
+def test_serve_intervals_reports_the_stored_sinr_at_the_serving_layer(cfg) -> None:
+    """SINR is read from the map passed in, not derived from RSRP."""
+    rsrp = np.array([[[[-90.0]]], [[[-80.0]]]])
+    sinr = np.array([[[[7.0]]], [[[3.0]]]])
+    mdt = pd.DataFrame({"t_index": [0], "tile_row": [0], "tile_col": [0]})
+    served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], mdt, cfg)
+    assert served["band"].tolist() == [0]
+    assert served["sinr_db"].tolist() == [7.0]

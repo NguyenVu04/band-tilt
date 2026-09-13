@@ -110,11 +110,10 @@ def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
     and the row the run recommends. A dominated solution is worse on every count
     than one already in the table, so offering it is offering a mistake.
 
-    The recommended row is kept even when it is dominated. It can be: the
-    priority order compares KPIs within ``kpi.tolerance``, so it will pick a
-    solution that ties on every KPI it reaches while losing by a hair on one it
-    never gets to. Dropping it would publish a front with nothing marked
-    ``recommended``.
+    The recommended row is kept even when it is dominated. It can be: a KPI
+    weighted zero is invisible to the score, so the best score can lose on that
+    KPI to a row that ties it everywhere else. Dropping it would publish a front
+    with nothing marked ``recommended``.
     """
     keep = published["on_pareto"] | published["is_incumbent"] | published["recommended"]
     table = published.loc[keep, ["solution", "is_incumbent", "recommended", *KPI_NAMES]].copy()
@@ -159,7 +158,7 @@ def publish(
     best_index = history.best_index(cfg)
     best = history.results[best_index]
     picks = choose(history.kpis, int(cfg.optim.n_solutions), keep=(0, best_index))
-    published = solutions(history.frame(), picks, best_index)
+    published = solutions(history.frame(cfg), picks, best_index)
 
     writer = LocalRunWriter(directory)
     writer.write_frame("pareto_verified", published)

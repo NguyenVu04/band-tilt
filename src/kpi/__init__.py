@@ -7,7 +7,9 @@ site is a bug even when it happens to match.
 
 Every function takes an RSRP array of shape ``[n_band, n_tx, n_rows, n_cols]``
 in dBm, NaN where the ray tracer found no path - the array
-:func:`src.simulation.radio.solve` writes. The package imports neither
+:func:`src.simulation.radio.solve` writes. The Band Priority Score also takes
+that file's ``sinr_db``, the solver's own SINR; nothing here derives SINR from
+RSRP. The package imports neither
 ``src.simulation`` nor Sionna-RT, which is what lets one implementation score a
 ray-traced map and a hand-built fixture alike.
 

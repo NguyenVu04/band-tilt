@@ -1,5 +1,5 @@
 # @package optim.method
-# Sobol random search: the control. Matched to mobo on evaluations, so the two
+# Sobol random search: the control. Matched to turbo on evaluations, so the two
 # differ in where they look and in nothing else.
 
 name: random

@@ -14,7 +14,7 @@ from omegaconf import DictConfig
 from src.kpi.capacity import finite
 
 
-def _overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
+def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     """Count overlapping neighbours at each location, summed over bands.
 
     Args:
@@ -52,4 +52,4 @@ def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
     Returns:
         ``|{g : N_ov(g) > 0}| / |G|``, in ``[0, 1]``. Minimised.
     """
-    return float((_overlap_neighbors(rsrp, cfg) > 0).mean())
+    return float((overlap_neighbors(rsrp, cfg) > 0).mean())

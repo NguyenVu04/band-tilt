@@ -1,6 +1,7 @@
 """Ray-trace one clean radio map per band.
 
-Rebuilds the scenario and writes RSRP on its UE grid.
+Rebuilds the scenario and writes RSRP and SINR on its UE grid, both as the
+solver's :class:`sionna.rt.RadioMap` reports them.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ class SolverSpec:
 
 def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
-    manifest = _read_manifest(cfg)
+    manifest = read_manifest(cfg)
     grid_meta = manifest["grid"]
     cells = transmitter.load(cfg)
     bands = tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands)
@@ -141,9 +142,10 @@ def solve(cfg: DictConfig) -> Path:
 
     configure_arrays(scene, cfg)
     maps = []
+    sinr_maps = []
     centres = None
     for band in bands:
-        rsrp, elapsed, centres, _radio_map = solve_band(
+        rsrp, sinr, elapsed, centres, _radio_map = solve_band(
             scene,
             cells,
             band,
@@ -154,6 +156,7 @@ def solve(cfg: DictConfig) -> Path:
             power_dbm,
         )
         maps.append(rsrp)
+        sinr_maps.append(sinr)
         # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
         served = np.isfinite(rsrp).any(axis=0)
@@ -165,11 +168,50 @@ def solve(cfg: DictConfig) -> Path:
             f"best server {best.min():6.1f} to {best.max():6.1f} dBm"
         )
 
-    path = Path(cfg.simulation.output.radio_map_file)
+    path = write_radio_map(
+        cfg.simulation.output.radio_map_file,
+        rsrp=np.stack(maps),
+        sinr=np.stack(sinr_maps),
+        bands=bands,
+        cells=cells,
+        grid_meta=grid_meta,
+        solver_spec=solver_spec,
+        solver_seed=seeds.stream(cfg, "solver"),
+        height_m=height_m,
+        power_dbm=power_dbm,
+        scenario_id=str(manifest["scenario_id"]),
+        centres=centres,
+    )
+    print(f"radio map: {path}  shape {np.stack(maps).shape} [band, tx, row, col]")
+    return path
+
+
+def write_radio_map(
+    path: str | Path,
+    *,
+    rsrp: np.ndarray,
+    sinr: np.ndarray,
+    bands: tuple[Band, ...],
+    cells: tuple[Cell, ...],
+    grid_meta: dict[str, Any],
+    solver_spec: SolverSpec,
+    solver_seed: int,
+    height_m: float,
+    power_dbm: float,
+    scenario_id: str,
+    centres: np.ndarray | None,
+) -> Path:
+    """Write one radio map archive; the one schema every map in the project uses.
+
+    ``rsrp`` and ``sinr`` are ``[n_band, n_tx, n_rows, n_cols]`` in dBm and dB.
+    Creates the parent directory. Returns the path.
+    """
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path,
-        rsrp_dbm=np.stack(maps).astype(np.float32),
+        rsrp_dbm=rsrp.astype(np.float32),
+        sinr_db=sinr.astype(np.float32),
         band_hz=np.array([band.frequency_hz for band in bands]),
         band_label=np.array([band.name for band in bands]),
         # One tilt per cell-band pair, [band, tx], matching rsrp_dbm's leading
@@ -185,7 +227,7 @@ def solve(cfg: DictConfig) -> Path:
         n_cols=grid_meta["n_cols"],
         n_rows=grid_meta["n_rows"],
         ue_height_m=height_m,
-        scenario_id=manifest["scenario_id"],
+        scenario_id=scenario_id,
         # The ray-tracing settings define what this ground truth IS, not merely
         # what it cost, so they travel with it. Without them a stray archive
         # cannot be told apart from one solved at a different fidelity, and two
@@ -201,7 +243,9 @@ def solve(cfg: DictConfig) -> Path:
         diffraction_lit_region=solver_spec.diffraction_lit_region,
         rr_depth=solver_spec.rr_depth,
         rr_prob=solver_spec.rr_prob,
-        solver_seed=seeds.stream(cfg, "solver"),
+        solver_seed=solver_seed,
+        # With bandwidth_hz, the kTB noise the stored SINR was solved against;
+        # the MDT stage reads both to compute SINR from reported RSRP.
         temperature_k=solver_spec.temperature_k,
         bandwidth_hz=np.array([band.bandwidth_hz for band in bands]),
         power_dbm=power_dbm,
@@ -210,7 +254,6 @@ def solve(cfg: DictConfig) -> Path:
         # every RSRP lookup while leaving the file entirely plausible.
         tile_centre=centres,
     )
-    print(f"radio map: {path}  shape {np.stack(maps).shape} [band, tx, row, col]")
     return path
 
 
@@ -223,7 +266,7 @@ def solve_band(
     grid_meta: dict[str, Any],
     height_m: float,
     power_dbm: float,
-) -> tuple[np.ndarray, float, np.ndarray, Any]:
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, Any]:
     """Solve one band.
 
     Public so that a renderer can re-solve a band against the same scene and
@@ -231,9 +274,14 @@ def solve_band(
     written by :func:`solve` is a numpy copy that cannot be rendered with
     :meth:`sionna.rt.Scene.render`.
 
-    Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, the elapsed seconds, the
-    solver's own tile centres for the alignment check, and the solver's
-    :class:`sionna.rt.RadioMap`.
+    Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, SINR of the same shape in
+    dB, the elapsed seconds, the solver's own tile centres for the alignment
+    check, and the solver's :class:`sionna.rt.RadioMap`. Both maps are NaN
+    where no path reached the tile.
+
+    SINR is :attr:`sionna.rt.RadioMap.sinr`: every other transmitter in the
+    scene is interference at full power, plus ``k * T * B`` noise. The scene
+    holds only this band's transmitters, so the interference is co-band.
     """
     import mitsuba as mi
     from sionna.rt import RadioMapSolver
@@ -289,12 +337,21 @@ def solve_band(
     # rss is path gain times transmit power, in watts, so with power_dbm set to
     # the per-resource-element reference power this reads directly as RSRP.
     rss = np.asarray(radio_map.rss, dtype=np.float64)
+    sinr_linear = np.asarray(radio_map.sinr, dtype=np.float64)
     with np.errstate(divide="ignore", invalid="ignore"):
         rsrp = 10.0 * np.log10(rss) + 30.0
+        sinr = 10.0 * np.log10(sinr_linear)
     centres = np.asarray(radio_map.cell_centers, dtype=np.float64)
     # Materialising the lazy arrays must be inside the solver timer.
     elapsed = time.perf_counter() - started
-    return np.where(np.isfinite(rsrp), rsrp, _NO_PATH), elapsed, centres, radio_map
+    reached = np.isfinite(rsrp)
+    return (
+        np.where(reached, rsrp, _NO_PATH),
+        np.where(reached, sinr, _NO_PATH),
+        elapsed,
+        centres,
+        radio_map,
+    )
 
 
 def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
@@ -342,7 +399,7 @@ def configure_arrays(scene: Any, cfg: DictConfig) -> None:
         )
 
 
-def _read_manifest(cfg: DictConfig) -> dict[str, Any]:
+def read_manifest(cfg: DictConfig) -> dict[str, Any]:
     """Read the scenario manifest and check it matches this config.
 
     Raises:

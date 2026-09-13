@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import band_priority_score, capacity, hole_rate, weak_rate
+from src.kpi import band_priority_score, hole_rate, weak_rate
 from src.kpi.capacity import _tile_index
-from src.kpi.overlap import _overlap_neighbors
+from src.kpi.overlap import overlap_neighbors
 
 
 @pytest.fixture
@@ -30,13 +30,6 @@ def cfg():
                 },
             },
             "simulation": {
-                "radio_map": {
-                    "temperature": 290.0,
-                    "bands": [
-                        {"name": "hi", "bandwidth": 20e6},
-                        {"name": "lo", "bandwidth": 20e6},
-                    ],
-                },
                 "transmitters": {
                     "cells": [
                         {
@@ -62,6 +55,11 @@ def _map(values: list[list[list[float]]]) -> np.ndarray:
     fixture below reads as a table of cell-band layers against locations.
     """
     return np.array(values, dtype=float)[:, :, None, :]
+
+
+def _sinr(rsrp: np.ndarray) -> np.ndarray:
+    """A SINR map of 0 dB wherever ``rsrp`` has a path: one PRB carries 180 kbit/s."""
+    return np.where(np.isfinite(rsrp), 0.0, np.nan)
 
 
 def _mdt(rows: list[dict[str, float]]) -> pd.DataFrame:
@@ -105,13 +103,13 @@ def test_overlap_counts_within_each_band_and_sums_across_them(cfg) -> None:
             [[-90.0, -100.0], [-94.0, -130.0]],
         ]
     )
-    assert _overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
+    assert overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
 
 
 def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
     """Subtracting the serving cell must not take an uncovered band below zero."""
     rsrp = _map([[[-130.0], [-130.0]], [[-80.0], [-140.0]]])
-    assert _overlap_neighbors(rsrp, cfg).tolist() == [[0]]
+    assert overlap_neighbors(rsrp, cfg).tolist() == [[0]]
 
 
 # --- tiles -----------------------------------------------------------------
@@ -137,20 +135,18 @@ def test_band_priority_score_counts_the_serving_band_not_the_strongest(cfg) -> N
         [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3
         + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
     )
-    assert band_priority_score(rsrp, ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
+    assert band_priority_score(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
 
 
 def test_a_blocked_ue_counts_at_weight_zero(cfg) -> None:
     """Each band holds one UE's PRBs: the second UE takes 'lo', the third is blocked."""
-    # Alone on its band, SINR is RSRP over noise; each UE then needs 0.6 PRB.
-    noise = capacity._thermal_noise_dbm(290.0, 20e6)
-    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * float(
-        capacity._prb_rate_bps(-80.0 - noise, 180_000.0)
-    )
+    # At 0 dB one PRB carries 180 kbit/s, so each UE needs 0.6 PRB.
+    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
     mdt = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
-    assert band_priority_score(rsrp, ["hi", "lo"], mdt, cfg) == pytest.approx(1.0 / 3.0)
+    score = band_priority_score(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg)
+    assert score == pytest.approx(1.0 / 3.0)
 
 
 def test_a_ue_standing_on_a_hole_is_excluded_from_both_sums(cfg) -> None:
@@ -160,6 +156,7 @@ def test_a_ue_standing_on_a_hole_is_excluded_from_both_sums(cfg) -> None:
     with_hole = _mdt(
         [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
     )
-    assert band_priority_score(rsrp, ["hi", "lo"], with_hole, cfg) == pytest.approx(
-        band_priority_score(rsrp, ["hi", "lo"], served_only, cfg)
+    sinr = _sinr(rsrp)
+    assert band_priority_score(rsrp, sinr, ["hi", "lo"], with_hole, cfg) == pytest.approx(
+        band_priority_score(rsrp, sinr, ["hi", "lo"], served_only, cfg)
     )

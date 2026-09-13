@@ -1,0 +1,23 @@
+# @package optim.method
+# TuRBO-1 on the weighted KPI score (configs/kpi.yaml `weights`, ADR 0003).
+# Budget matched to random.yaml, so the two differ only in where they look.
+
+name: turbo
+
+budget:
+  # Sobol trials before the trust region takes over. A restart spends another
+  # design of this size, out of the same budget.
+  n_init: 32
+  # Trust-region evaluations after it does.
+  n_iter: 128
+  # Evaluations per round.
+  batch_size: 4
+
+# Trust-region schedule in the unit cube the tilt box is rescaled to, as in
+# Eriksson et al. (2019). The failure tolerance is derived, ceil(max(4, d) / batch_size).
+trust_region:
+  length_init: 0.8
+  # 0.5 ** 7: below this the region has collapsed and the search restarts.
+  length_min: 0.0078125
+  length_max: 1.6
+  success_tolerance: 3

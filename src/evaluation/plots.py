@@ -13,6 +13,7 @@ either knowing about the other.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -23,16 +24,22 @@ from omegaconf import DictConfig
 
 from src.evaluation import maps
 from src.evaluation.compare import TIE
+from src.kpi.capacity import max_rsrp
 from src.optim.objective import KPI_NAMES, MAXIMISED, tolerances
 
 # One colour per method, kept identical across every figure so a reader learns
 # them once. The incumbent is red everywhere, and is never a method.
 METHOD_COLOURS = {
-    "mobo": "tab:blue",
+    "turbo": "tab:blue",
     "random": "tab:green",
     "rule": "tab:purple",
 }
 INCUMBENT_COLOUR = "tab:red"
+
+
+def _colour(label: str) -> str | None:
+    """A configuration's colour: the method's, or the incumbent's."""
+    return INCUMBENT_COLOUR if label == "incumbent" else METHOD_COLOURS.get(label)
 
 
 def _overlay(axis: plt.Axes, cells: pd.DataFrame | None, hotspots: pd.DataFrame | None) -> None:
@@ -116,6 +123,7 @@ def coverage_maps(
 
 def demand_signal_maps(
     rsrp: np.ndarray,
+    sinr: np.ndarray,
     counts: np.ndarray,
     radio: dict[str, Any],
     cfg: DictConfig,
@@ -135,8 +143,8 @@ def demand_signal_maps(
     are busy and not well covered — as distinct from tiles that are merely dark.
     """
     extent = maps.extent_of(radio)
-    best = maps.best_server(rsrp)
-    sinr = maps.best_sinr(rsrp, [str(label) for label in radio["band_label"]], cfg)
+    best = max_rsrp(rsrp)
+    best_sinr = maps.best_sinr(sinr)
     figure, axes = plt.subplots(1, 4, figsize=(20.0, 4.6), constrained_layout=True)
 
     occupied = np.where(counts > 0, counts.astype(float), np.nan)
@@ -158,7 +166,7 @@ def demand_signal_maps(
     _map_axes(axes[1], extent, "Signal — best-server RSRP")
 
     image = axes[2].imshow(
-        sinr,
+        best_sinr,
         origin="lower",
         extent=extent,
         aspect="equal",
@@ -182,6 +190,158 @@ def demand_signal_maps(
     figure.colorbar(image, ax=axes[3], label="busy and not well covered", ticks=[0, 1])
     _overlay(axes[3], cells, hotspots)
     _map_axes(axes[3], extent, f"Under-served — {int(flagged.sum())} tiles")
+    return figure
+
+
+def map_row(
+    panels: dict[str, np.ndarray],
+    radio: dict[str, Any],
+    *,
+    label: str,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    symmetric: bool = False,
+    cmap: Any = None,
+    cells: pd.DataFrame | None = None,
+    hotspots: pd.DataFrame | None = None,
+    ticks: Sequence[float] | None = None,
+    ticklabels: Sequence[str] | None = None,
+) -> Figure:
+    """One raster per configuration, side by side, on one colour scale.
+
+    The shared scale is the point: panels scaled independently cannot be
+    compared by eye. Non-finite values are left blank.
+
+    Args:
+        panels: Title to ``[n_rows, n_cols]`` raster, drawn in order.
+        radio: Any radio-map archive, for the grid extent.
+        label: Colour bar label.
+        vmin: Lower limit; the data minimum when None.
+        vmax: Upper limit; the data maximum when None.
+        symmetric: Centre the scale on zero at the largest absolute value, with
+            a diverging colormap, for difference maps.
+        cmap: Colormap; viridis, or ``RdBu_r`` when ``symmetric``.
+        cells: Optional cell table with ``x`` and ``y``.
+        hotspots: Optional hotspot table with ``x`` and ``y``.
+        ticks: Colour bar ticks, for a categorical raster.
+        ticklabels: Labels for ``ticks``.
+    """
+    extent = maps.extent_of(radio)
+    values = [np.where(np.isfinite(panel), panel, np.nan) for panel in panels.values()]
+    present = np.concatenate([value[np.isfinite(value)] for value in values] + [np.zeros(1)])
+    if symmetric:
+        limit = float(np.abs(present).max()) or 1.0
+        vmin, vmax, cmap = -limit, limit, cmap or "RdBu_r"
+    vmin = float(present.min()) if vmin is None else vmin
+    vmax = float(present.max()) if vmax is None else vmax
+
+    width = 4.4 * len(panels) + 1.0
+    figure, axes = plt.subplots(
+        1, len(panels), figsize=(width, 4.4), constrained_layout=True, squeeze=False
+    )
+    image = None
+    for axis, title, value in zip(axes[0], panels, values, strict=True):
+        image = axis.imshow(
+            value, origin="lower", extent=extent, aspect="equal", vmin=vmin, vmax=vmax, cmap=cmap
+        )
+        _overlay(axis, cells, hotspots)
+        _map_axes(axis, extent, title)
+    bar = figure.colorbar(image, ax=axes[0].tolist(), label=label, ticks=ticks)
+    if ticklabels is not None:
+        bar.ax.set_yticklabels(ticklabels)
+    return figure
+
+
+def cdf_comparison(
+    samples: dict[str, np.ndarray],
+    *,
+    xlabel: str,
+    title: str,
+    thresholds: dict[str, float] | None = None,
+    weights: np.ndarray | None = None,
+) -> Figure:
+    """Empirical CDFs of one quantity, one line per configuration.
+
+    Non-finite samples are dropped. Vertical dashed lines mark ``thresholds``.
+    ``weights``, the same shape as every sample (e.g. a demand raster), weighs
+    each sample; unweighted when None.
+    """
+    figure, axis = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
+    for name, values in samples.items():
+        values = np.asarray(values, dtype=float).ravel()
+        weight = np.ones_like(values) if weights is None else np.asarray(weights, float).ravel()
+        keep = np.isfinite(values)
+        order = np.argsort(values[keep])
+        cumulative = np.cumsum(weight[keep][order])
+        total = cumulative[-1] if cumulative.size and cumulative[-1] > 0 else 1.0
+        axis.plot(values[keep][order], cumulative / total, lw=1.8, label=name, color=_colour(name))
+    for name, threshold in (thresholds or {}).items():
+        axis.axvline(threshold, color="0.5", ls="--", lw=1)
+        axis.annotate(f" {name}", (threshold, 0.02), fontsize=8, color="0.3", rotation=90)
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel("share at or below")
+    axis.set_title(title)
+    axis.legend(loc="upper left")
+    return figure
+
+
+def utilisation_heatmaps(tables: dict[str, pd.DataFrame]) -> Figure:
+    """Peak PRB utilisation per cell-band, one panel per configuration.
+
+    Args:
+        tables: Label to :func:`src.evaluation.compare.cell_band_load` output.
+
+    At 100% the cell-band was full in its busiest interval, so UEs that
+    preferred it were passed on or blocked.
+    """
+    first = next(iter(tables.values()))
+    cell_order = list(dict.fromkeys(first["cell"]))
+    band_order = list(dict.fromkeys(first["band"]))
+    figure, axes = plt.subplots(
+        1,
+        len(tables),
+        figsize=(1.2 * len(band_order) * len(tables) + 2.5, 0.3 * len(cell_order) + 1.8),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    image = None
+    for index, (axis, (name, table)) in enumerate(zip(axes[0], tables.items(), strict=True)):
+        grid = table.pivot(index="cell", columns="band", values="peak_utilisation")
+        grid = grid.reindex(index=cell_order, columns=band_order).to_numpy()
+        image = axis.imshow(grid, vmin=0.0, vmax=1.0, cmap="YlOrRd", aspect="auto")
+        for (row, col), value in np.ndenumerate(grid):
+            axis.text(col, row, f"{value:.0%}", ha="center", va="center", fontsize=7)
+        axis.set_xticks(range(len(band_order)), band_order)
+        axis.set_yticks(range(len(cell_order)), cell_order if index == 0 else [])
+        axis.set_title(name)
+    figure.colorbar(image, ax=axes[0].tolist(), label="peak PRB utilisation, busiest interval")
+    return figure
+
+
+def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequence[str]) -> Figure:
+    """Share of UE reports per serving band, and not served, per configuration.
+
+    Args:
+        summaries: Label to :func:`src.evaluation.compare.service_summary` output.
+        band_labels: Band names, in the summaries' ``share_<band>`` keys.
+    """
+    labels = list(summaries)
+    figure, axis = plt.subplots(figsize=(1.6 * len(labels) + 3.0, 4.5), constrained_layout=True)
+    bottom = np.zeros(len(labels))
+    parts = [(f"share_{band}", band) for band in band_labels] + [("not_served_share", "not served")]
+    for key, name in parts:
+        heights = np.array([summaries[label][key] for label in labels])
+        colour = "0.35" if key == "not_served_share" else None
+        axis.bar(labels, heights, bottom=bottom, label=name, color=colour)
+        for x, (height, base) in enumerate(zip(heights, bottom, strict=True)):
+            if height >= 0.04:
+                centre = base + height / 2
+                axis.text(x, centre, f"{height:.0%}", ha="center", va="center", fontsize=8)
+        bottom += heights
+    axis.set_ylim(0, 1)
+    axis.set_ylabel("share of UE reports")
+    axis.set_title("Serving band mix")
+    axis.legend(fontsize=8, bbox_to_anchor=(1.01, 1), loc="upper left")
     return figure
 
 

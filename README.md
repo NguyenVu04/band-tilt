@@ -151,7 +151,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model and hypervolume acquisition the BO arm runs on | In use | `--extra bo`; read by [`src/optim/methods/mobo/search.py`](src/optim/methods/mobo/search.py) and by `objective.hypervolume` |
+| [Ax](https://ax.dev/) + [BoTorch](https://botorch.org/) | The GP model TuRBO runs on, and the Sobol loop of random search | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py), [`src/optim/methods/random/search.py`](src/optim/methods/random/search.py) and by `objective.hypervolume` |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
@@ -273,7 +273,7 @@ through the task runner and `dvc repro`. Both call the same functions in
 | 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
 | 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Optimize with the baselines | [`04a_baseline`](notebooks/04a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
-| 5 — Optimize with multi-objective Bayesian Optimization | [`04b_mobo`](notebooks/04b_mobo.ipynb) | `task bo` |
+| 5 — Optimize with TuRBO on the weighted KPI score | [`04b_turbo`](notebooks/04b_turbo.ipynb) | `task bo` |
 | 4–5 for every method | — | `task optim` |
 | 6 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
 

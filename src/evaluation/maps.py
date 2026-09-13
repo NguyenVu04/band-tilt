@@ -9,14 +9,13 @@ why that is a diagnostic and not an objective.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec, demand_prb, max_rsrp, sinr_db
+from src.kpi.capacity import finite, max_rsrp
 
 # Display range for RSRP images. The lower bound is the hole threshold, so the
 # darkest colour and "uncovered" mean the same thing to the eye; the upper bound
@@ -33,29 +32,39 @@ COVERAGE_CLASSES = ("hole", "weak", "good")
 HOLE, WEAK, GOOD = range(3)
 
 
-def best_server(rsrp: np.ndarray) -> np.ndarray:
-    """Strongest RSRP at each tile over every cell-band layer.
-
-    Args:
-        rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm, NaN where no path.
-
-    Returns:
-        ``[n_rows, n_cols]`` in dBm, ``-inf`` where nothing is received.
-    """
-    return max_rsrp(rsrp)
-
-
-def best_sinr(rsrp: np.ndarray, band_labels: Sequence[str], cfg: DictConfig) -> np.ndarray:
+def best_sinr(sinr: np.ndarray) -> np.ndarray:
     """Highest SINR at each tile over every cell-band layer, in dB.
 
-    Recomputed from RSRP by :func:`src.kpi.capacity.sinr_db`, the project's only
-    definition. No map stores SINR, so every map draws the same way.
+    Args:
+        sinr: A radio map's ``sinr_db``, ``[n_band, n_tx, n_rows, n_cols]``,
+            NaN where no path.
 
     Returns:
         ``[n_rows, n_cols]`` in dB, ``-inf`` where nothing is received.
     """
-    spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
-    return sinr_db(rsrp, spec.noise_dbm).max(axis=(0, 1))
+    return finite(sinr).max(axis=(0, 1))
+
+
+def serving_band(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
+    """Band each tile is served on by the serving rule, before PRB limits.
+
+    The rule of :mod:`src.kpi.capacity` per tile: the most preferred band whose
+    strongest cell clears ``threshold_dbm``, else the band of the strongest layer.
+
+    Args:
+        rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm, NaN where no path.
+        band_rank: Preference per band, 0 most preferred; ``CapacitySpec.band_rank``.
+        threshold_dbm: ``CapacitySpec.rsrp_threshold_dbm``.
+
+    Returns:
+        ``[n_rows, n_cols]`` band index, ``-1`` where no layer has a path.
+    """
+    best = finite(rsrp).max(axis=1)
+    above = best >= threshold_dbm
+    rank = np.asarray(band_rank)[:, None, None]
+    preferred = np.where(above, rank, np.iinfo(np.int64).max).argmin(axis=0)
+    band = np.where(above.any(axis=0), preferred, best.argmax(axis=0))
+    return np.where(np.isfinite(best).any(axis=0), band, -1)
 
 
 def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -64,20 +73,10 @@ def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     Returns:
         ``[n_rows, n_cols]`` of :data:`HOLE`, :data:`WEAK` or :data:`GOOD`.
     """
-    best = best_server(rsrp)
+    best = max_rsrp(rsrp)
     hole_dbm = float(cfg.kpi.hole_dbm)
     weak_dbm = float(cfg.kpi.weak_dbm)
     return np.where(best <= hole_dbm, HOLE, np.where(best <= weak_dbm, WEAK, GOOD))
-
-
-def demand(
-    rsrp: np.ndarray, band_labels: Sequence[str], mdt: pd.DataFrame, cfg: DictConfig
-) -> np.ndarray:
-    """PRBs required per tile in its busiest interval; see :func:`src.kpi.capacity.demand_prb`.
-
-    Depends on the map: SINR, and so PRBs per UE, move with the tilts.
-    """
-    return demand_prb(rsrp, band_labels, mdt, cfg)
 
 
 def coverage_table(rsrp: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> pd.DataFrame:
@@ -139,7 +138,7 @@ def underserved(
 
     Args:
         rsrp: The radio map.
-        counts: The demand raster from :func:`demand`.
+        counts: The demand raster from :func:`src.kpi.capacity.demand_prb`.
         cfg: Composed config; reads ``cfg.kpi``.
         quantile: Demand quantile, taken over occupied tiles only, above which
             a tile counts as busy. Over all tiles it would be meaningless here,

@@ -13,7 +13,6 @@ or a stub in a test — so a search can be exercised without a GPU.
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,11 +22,9 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell
 from src.optim.objective import KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.simulation import radio, seeds, transmitter
-from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
 from src.simulation.grid import GridSpec
 from src.simulation.scene import SceneSpec
@@ -48,12 +45,14 @@ class EvaluationResult:
         rsrp: The radio map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or None
             when the evaluator was asked not to retain it. Every map of a long
             run does not fit in memory and the run does not need them.
+        sinr: The solver's SINR in dB, same shape, retained alongside ``rsrp``.
     """
 
     tilt_deg: np.ndarray
     kpi: KpiVector
     seconds: float
     rsrp: np.ndarray | None = None
+    sinr: np.ndarray | None = None
 
 
 class ObjectiveEvaluator(Protocol):
@@ -87,7 +86,7 @@ class Evaluator:
 
     Attributes:
         cfg: The composed config, read for everything below.
-        keep_rsrp: Whether each result carries its radio map. False by default
+        keep_rsrp: Whether each result carries its radio maps. False by default
             because a run keeps every result and the maps do not fit.
     """
 
@@ -102,7 +101,7 @@ class Evaluator:
         """Build the scene and everything else that does not depend on tilt."""
         cfg = self.cfg
         self.space = TiltSpace.from_config(cfg)
-        self._manifest = _read_manifest(cfg)
+        self._manifest = radio.read_manifest(cfg)
         self._grid_meta = self._manifest["grid"]
         self._bands = tuple(
             radio.Band.from_config(entry) for entry in cfg.simulation.radio_map.bands
@@ -121,7 +120,6 @@ class Evaluator:
         ):
             print(f"WARNING transmitter {problem}")
         radio.configure_arrays(scene, cfg)
-        self._bounds = bounds
         self._scene: Any | None = scene
 
     def __enter__(self) -> Evaluator:
@@ -140,71 +138,6 @@ class Evaluator:
     def band_labels(self) -> tuple[str, ...]:
         """Band names in the radio map's band-axis order."""
         return tuple(band.name for band in self._bands)
-
-    @property
-    def scene(self) -> Any:
-        """The scene, with the arrays already attached.
-
-        Exposed so anything deriving scene channels reads the very geometry
-        these maps were solved on. Rebuilding the scene to read it would be the
-        expensive half of a run again.
-
-        Raises:
-            RuntimeError: When the evaluator has been closed.
-        """
-        if self._scene is None:
-            raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
-        return self._scene
-
-    @property
-    def bounds(self) -> scene_module.SceneBounds:
-        """The scene's extent, read for ``launch_z``."""
-        return self._bounds
-
-    @property
-    def bands(self) -> tuple[radio.Band, ...]:
-        """The bands solved, in the radio map's band-axis order."""
-        return self._bands
-
-    @property
-    def grid_meta(self) -> dict[str, Any]:
-        """The manifest's grid block, which every map here is solved on."""
-        return self._grid_meta
-
-    def solve(self, cells: tuple[Cell, ...], band_index: int) -> np.ndarray:
-        """Ray-trace one band against the scene this evaluator holds.
-
-        Public because a caller sweeping one band at a time needs solves
-        against exactly this scene, material install and solver seed. Building a
-        second scene for that would be both the expensive half of a run again
-        and a second chance to configure it differently.
-
-        Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, ``nan`` where no path
-        reached the tile.
-
-        Raises:
-            RuntimeError: When the evaluator has been closed.
-        """
-        if self._scene is None:
-            raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
-
-        rsrp, _elapsed, centres, _radio_map = radio.solve_band(
-            self._scene,
-            cells,
-            self._bands[band_index],
-            self._solver,
-            self._solver_seed,
-            self._grid_meta,
-            self._height_m,
-            self._power_dbm,
-        )
-        self._centres = centres
-        return rsrp
-
-    @property
-    def tile_centres(self) -> np.ndarray | None:
-        """The solver's tile centres from the last evaluation, for the archive."""
-        return self._centres
 
     @property
     def scenario_id(self) -> str:
@@ -228,11 +161,24 @@ class Evaluator:
         # Time here, not from solve_band's elapsed: Dr.Jit is lazy, so work
         # lands on the first `.rss` read — after solve_band's timer has stopped.
         started = time.perf_counter()
-        maps = [self.solve(cells, index) for index in range(len(self._bands))]
+        rsrp_maps, sinr_maps = [], []
+        for band in self._bands:
+            rsrp, sinr, _elapsed, self._centres, _radio_map = radio.solve_band(
+                self._scene,
+                cells,
+                band,
+                self._solver,
+                self._solver_seed,
+                self._grid_meta,
+                self._height_m,
+                self._power_dbm,
+            )
+            rsrp_maps.append(rsrp)
+            sinr_maps.append(sinr)
         seconds = time.perf_counter() - started
 
-        stacked = np.stack(maps)
-        kpi = evaluate_kpis(stacked, self.band_labels, self._mdt, self.cfg)
+        rsrp, sinr = np.stack(rsrp_maps), np.stack(sinr_maps)
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._mdt, self.cfg)
 
         self.n_calls += 1
         self.total_seconds += seconds
@@ -240,86 +186,37 @@ class Evaluator:
             tilt_deg=tilt_deg,
             kpi=kpi,
             seconds=seconds,
-            rsrp=stacked if self.keep_rsrp else None,
+            rsrp=rsrp if self.keep_rsrp else None,
+            sinr=sinr if self.keep_rsrp else None,
         )
 
     def write_radio_map(self, path: str | Path, result: EvaluationResult) -> Path:
-        """Archive one result's radio map in the schema ``radio.solve`` writes.
+        """Archive one result's radio map with :func:`src.simulation.radio.write_radio_map`.
 
-        Same keys, same axis order, same provenance fields, so the KPIs, the
-        EDA plots and :mod:`src.data` read an optimized map exactly as they read
-        the baseline one.
+        Same schema as the baseline map, so the KPIs, the plots and
+        :mod:`src.data` read an optimized map exactly as they read that one.
 
         Raises:
             ValueError: When the result carries no map, which means the
                 evaluator was built with ``keep_rsrp=False``.
         """
-        if result.rsrp is None:
+        if result.rsrp is None or result.sinr is None:
             raise ValueError(
                 "this result carries no radio map. Build the Evaluator with keep_rsrp=True, "
                 "or re-evaluate the winning tilt with one that does."
             )
 
-        cells = self.space.to_cells(result.tilt_deg)
-        solver = self._solver
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
+        return radio.write_radio_map(
             path,
-            rsrp_dbm=result.rsrp.astype(np.float32),
-            band_hz=np.array([band.frequency_hz for band in self._bands]),
-            band_label=np.array(self.band_labels),
-            tilt_deg=np.array(
-                [[cell.tilt_for(band.name).baseline_deg for cell in cells] for band in self._bands]
-            ),
-            tx_name=np.array([cell.name for cell in cells]),
-            origin_x=self._grid_meta["origin_x"],
-            origin_y=self._grid_meta["origin_y"],
-            tile_size_m=self._grid_meta["tile_size_m"],
-            n_cols=self._grid_meta["n_cols"],
-            n_rows=self._grid_meta["n_rows"],
-            ue_height_m=self._height_m,
-            scenario_id=self.scenario_id,
-            samples_per_tx=solver.samples_per_tx,
-            max_depth=solver.max_depth,
-            los=solver.los,
-            specular_reflection=solver.specular_reflection,
-            diffuse_reflection=solver.diffuse_reflection,
-            refraction=solver.refraction,
-            diffraction=solver.diffraction,
-            edge_diffraction=solver.edge_diffraction,
-            diffraction_lit_region=solver.diffraction_lit_region,
-            rr_depth=solver.rr_depth,
-            rr_prob=solver.rr_prob,
+            rsrp=result.rsrp,
+            sinr=result.sinr,
+            bands=self._bands,
+            cells=self.space.to_cells(result.tilt_deg),
+            grid_meta=self._grid_meta,
+            solver_spec=self._solver,
             solver_seed=self._solver_seed,
-            temperature_k=solver.temperature_k,
-            bandwidth_hz=np.array([band.bandwidth_hz for band in self._bands]),
+            height_m=self._height_m,
             power_dbm=self._power_dbm,
-            tile_centre=self._centres,
+            scenario_id=self.scenario_id,
+            centres=self._centres,
         )
-        return path
-
-
-def _read_manifest(cfg: DictConfig) -> dict[str, Any]:
-    """Read the scenario manifest and check it describes this config.
-
-    Raises:
-        FileNotFoundError: When the scenario stage has not been run.
-        ValueError: When the manifest is for a different scenario, which means
-            the config changed after the UEs were drawn. Every KPI would then
-            score a map against a population that does not belong to it.
-    """
-    path = Path(cfg.simulation.output.manifest_file)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"No scenario manifest at {path}. Run `task simulation:scenario` first."
-        )
-
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    expected = scenario_module.scenario_id(cfg)
-    if manifest["scenario_id"] != expected:
-        raise ValueError(
-            f"{path} describes scenario {manifest['scenario_id']}, but this config is "
-            f"{expected}. Re-run `task simulation` before optimizing."
-        )
-    return manifest

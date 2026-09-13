@@ -1,10 +1,10 @@
-"""The KPI vector, its sign convention, and the rule that picks one winner.
+"""The KPI vector, its sign convention, and the score that picks one winner.
 
 The four definitions live in :mod:`src.kpi` and are not restated here. What
 this module adds is what an optimizer needs around them: one value object
 carrying all four, the orientation that turns them into "larger is better", and
-the lexicographic rule that reduces a Pareto front to the single configuration
-a deployment can act on.
+the weighted score (``kpi.weights``, ADR 0003) that TuRBO optimizes and that
+reduces every run to the single configuration a deployment can act on.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from omegaconf import DictConfig
 
 from src.kpi import band_priority_score, hole_rate, overlap_rate, weak_rate
 
-# Priority order, highest first. The ordering is the point: it is what the
-# lexicographic pick walks, and reordering it changes which configuration wins.
+# ADR 0001's priority order, highest first: the column order of every table and
+# the key order ``kpi.weights`` and ``kpi.tolerance`` are read in.
 KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
@@ -72,6 +72,7 @@ class KpiVector:
 
 def evaluate_kpis(
     rsrp: np.ndarray,
+    sinr: np.ndarray,
     band_labels: Sequence[str],
     mdt: pd.DataFrame,
     cfg: DictConfig,
@@ -81,6 +82,7 @@ def evaluate_kpis(
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
             no path was found.
+        sinr: The solver's SINR in dB, same shape as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         mdt: The UE reports; ``tile_row`` and ``tile_col`` weight the band
             priority score.
@@ -89,7 +91,7 @@ def evaluate_kpis(
     return KpiVector(
         hole_rate=hole_rate(rsrp, cfg),
         overlap_rate=overlap_rate(rsrp, cfg),
-        band_priority_score=band_priority_score(rsrp, band_labels, mdt, cfg),
+        band_priority_score=band_priority_score(rsrp, sinr, band_labels, mdt, cfg),
         weak_rate=weak_rate(rsrp, cfg),
     )
 
@@ -176,17 +178,18 @@ def hypervolume_trace(kpis: Sequence[KpiVector], reference: KpiVector) -> np.nda
 def tolerances(cfg: DictConfig) -> np.ndarray:
     """Per-KPI tie thresholds from ``kpi.tolerance``, in :data:`KPI_NAMES` order.
 
+    Used to report a delta as better, worse or a tie; selection does not read it.
+
     Raises:
         ValueError: When ``kpi.tolerance`` is absent or incomplete. There is no
-            safe default: a missing tolerance is an exact comparison, which on
-            a continuous KPI never ties, and the priority order then collapses
-            to optimizing ``hole_rate`` alone.
+            safe default: a missing tolerance is an exact comparison, which
+            reports solver noise as a real change.
     """
     tolerance = cfg.kpi.get("tolerance")
     if tolerance is None:
         raise ValueError(
-            "configs/kpi.yaml has no `tolerance` block. The lexicographic pick needs one "
-            f"entry per KPI ({', '.join(KPI_NAMES)}); without it the priority does not bind."
+            "configs/kpi.yaml has no `tolerance` block. Verdicts need one entry per KPI "
+            f"({', '.join(KPI_NAMES)})."
         )
     missing = [name for name in KPI_NAMES if name not in tolerance]
     if missing:
@@ -194,36 +197,52 @@ def tolerances(cfg: DictConfig) -> np.ndarray:
     return np.array([float(tolerance[name]) for name in KPI_NAMES], dtype=float)
 
 
-def lexicographic_best(kpis: Sequence[KpiVector], cfg: DictConfig) -> int:
-    """Index of the winner under the priority order, with tolerances.
-
-    Walks the KPIs highest priority first. A gap within a KPI's tolerance is a
-    tie and the comparison moves down; the first KPI that separates the two
-    decides, and nothing below it is consulted.
-
-    Returns:
-        The index of the best entry. A tie resolves to the earlier index, which
-        is what makes the incumbent hold when no candidate actually beats it.
+def weights(cfg: DictConfig) -> np.ndarray:
+    """Per-KPI score weights from ``kpi.weights``, in :data:`KPI_NAMES` order.
 
     Raises:
-        ValueError: When ``kpis`` is empty, or ``kpi.tolerance`` is unusable.
+        ValueError: When ``kpi.weights`` is absent or incomplete, a weight is
+            negative or non-finite, or every weight is zero.
+    """
+    block = cfg.kpi.get("weights")
+    if block is None:
+        raise ValueError(
+            "configs/kpi.yaml has no `weights` block. The score needs one weight per KPI "
+            f"({', '.join(KPI_NAMES)})."
+        )
+    missing = [name for name in KPI_NAMES if name not in block]
+    if missing:
+        raise ValueError(f"kpi.weights has no entry for {', '.join(missing)}")
+    values = np.array([float(block[name]) for name in KPI_NAMES], dtype=float)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError("kpi.weights must be finite and non-negative")
+    if not values.any():
+        raise ValueError("kpi.weights are all zero, so every configuration would tie")
+    return values
 
-    Notes:
-        Deliberately a single pass rather than a sort. The relation is not
-        transitive once ties carry slack — ``a`` can tie ``b`` and ``b`` tie
-        ``c`` while ``a`` beats ``c`` — so it is not a valid sort key, and a
-        full ranking would depend on the order candidates arrived in.
+
+def scores(kpis: Sequence[KpiVector], cfg: DictConfig) -> np.ndarray:
+    """The weighted score of each KPI vector; larger is better.
+
+    ``sum_k w_k * s_k * KPI_k`` on raw values, with ``s_k`` the sign
+    :func:`as_maximised` applies. Deliberately not normalised (ADR 0003): a KPI's
+    influence is its weight times its range.
+
+    Raises:
+        ValueError: When ``kpi.weights`` is unusable; see :func:`weights`.
+    """
+    return as_maximised(kpis) @ weights(cfg)
+
+
+def best_by_score(kpis: Sequence[KpiVector], cfg: DictConfig) -> int:
+    """Index of the highest weighted score.
+
+    A tie resolves to the earlier index, so the incumbent holds unless a
+    candidate actually scores higher.
+
+    Raises:
+        ValueError: When ``kpis`` is empty, or ``kpi.weights`` is unusable.
     """
     if not kpis:
         raise ValueError("no candidates to choose from")
-
-    values = as_maximised(kpis)
-    tolerance = tolerances(cfg)
-
-    best = 0
-    for index in range(1, len(values)):
-        gap = values[index] - values[best]
-        decisive = np.flatnonzero(np.abs(gap) > tolerance)
-        if decisive.size and gap[decisive[0]] > 0:
-            best = index
-    return best
+    return int(np.argmax(scores(kpis, cfg)))

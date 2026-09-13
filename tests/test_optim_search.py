@@ -48,7 +48,13 @@ _CONFIG = {
             "overlap_rate": 0.001,
             "band_priority_score": 0.001,
             "weak_rate": 0.001,
-        }
+        },
+        "weights": {
+            "hole_rate": 4.0,
+            "overlap_rate": 3.0,
+            "band_priority_score": 2.0,
+            "weak_rate": 1.0,
+        },
     },
     "optim": {
         "output": {
@@ -62,7 +68,16 @@ _CONFIG = {
 
 # One block per method, as the ``optim/method`` config group supplies them.
 _METHODS = {
-    "mobo": {"name": "mobo", "budget": {"n_init": 4, "n_iter": 2, "batch_size": 2}},
+    "turbo": {
+        "name": "turbo",
+        "budget": {"n_init": 4, "n_iter": 4, "batch_size": 2},
+        "trust_region": {
+            "length_init": 0.8,
+            "length_min": 0.0078125,
+            "length_max": 1.6,
+            "success_tolerance": 3,
+        },
+    },
     "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2, "batch_size": 2}},
     "rule": {"name": "rule", "n_steps": 3, "n_rounds": 1},
 }
@@ -114,8 +129,8 @@ def make_cfg():
 
 @pytest.fixture
 def cfg(make_cfg):
-    """A composed config carrying only what the search reads, defaulting to mobo."""
-    return make_cfg("mobo")
+    """A composed config carrying only what the search reads, defaulting to turbo."""
+    return make_cfg("turbo")
 
 
 @pytest.fixture
@@ -124,7 +139,7 @@ def evaluator(cfg) -> StubEvaluator:
     return StubEvaluator(TiltSpace.from_config(cfg))
 
 
-@pytest.mark.parametrize("method", ["mobo", "random", "rule"])
+@pytest.mark.parametrize("method", ["turbo", "random", "rule"])
 def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, method) -> None:
     """Row zero is always the deployed configuration.
 
@@ -141,7 +156,7 @@ def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, m
     )
 
 
-@pytest.mark.parametrize("method", ["mobo", "random", "rule"])
+@pytest.mark.parametrize("method", ["turbo", "random", "rule"])
 def test_no_method_ever_proposes_a_tilt_outside_the_box(make_cfg, evaluator, method) -> None:
     """Bounds are a hard constraint, never a relaxation the search may soften."""
     run_search(evaluator, make_cfg(method))
@@ -150,8 +165,8 @@ def test_no_method_ever_proposes_a_tilt_outside_the_box(make_cfg, evaluator, met
     assert (proposals <= evaluator.space.upper + 1e-9).all()
 
 
-@pytest.mark.parametrize("method", ["mobo", "random"])
-def test_the_ax_methods_spend_exactly_their_budget(make_cfg, evaluator, method) -> None:
+@pytest.mark.parametrize("method", ["turbo", "random"])
+def test_the_budgeted_methods_spend_exactly_their_budget(make_cfg, evaluator, method) -> None:
     """``n_init + n_iter`` searched evaluations, plus the incumbent."""
     cfg = make_cfg(method)
     history = run_search(evaluator, cfg)
@@ -159,12 +174,49 @@ def test_the_ax_methods_spend_exactly_their_budget(make_cfg, evaluator, method) 
     assert len(history) == 1 + budget.n_init + budget.n_iter
 
 
-def test_the_ax_methods_record_which_generator_made_each_point(make_cfg, evaluator) -> None:
-    """Separating the Sobol phase from the model phase needs this provenance."""
-    frame = run_search(evaluator, make_cfg("mobo")).frame()
+def test_turbo_records_which_generator_made_each_point(make_cfg, evaluator) -> None:
+    """Separating the Sobol design from the trust-region proposals needs this provenance."""
+    frame = run_search(evaluator, make_cfg("turbo")).frame()
     assert frame.loc[0, "generation_node"] == "attached"
     assert set(frame["phase"]) == {"incumbent", "init", "search"}
     assert frame.loc[frame["phase"] == "init", "generation_node"].eq("Sobol").all()
+    assert frame.loc[frame["phase"] == "search", "generation_node"].eq("TuRBO").all()
+
+
+def test_the_trust_region_doubles_on_successes_and_halves_on_failures() -> None:
+    """``success_tolerance`` good rounds double it; ``ceil(max(4, d) / q)`` bad ones halve it."""
+    from src.optim.methods.turbo.search import TrustRegion
+
+    region = TrustRegion(
+        dim=6, batch_size=2, length_init=0.8, length_min=0.1, length_max=1.6, success_tolerance=2
+    )
+    region.best = 1.0
+    region.update(2.0)
+    region.update(3.0)
+    assert region.length == pytest.approx(1.6)
+    assert region.best == pytest.approx(3.0)
+
+    assert region.failure_tolerance == 3
+    for _ in range(3):
+        region.update(0.0)
+    assert region.length == pytest.approx(0.8)
+
+
+def test_a_collapsed_trust_region_restarts_at_its_initial_length() -> None:
+    """Below ``length_min`` TuRBO-1 starts over, forgetting the region's best."""
+    from src.optim.methods.turbo.search import TrustRegion
+
+    region = TrustRegion(
+        dim=6, batch_size=2, length_init=0.8, length_min=0.5, length_max=1.6, success_tolerance=2
+    )
+    region.best = 1.0
+    for _ in range(3):
+        region.update(0.0)
+    assert region.collapsed
+    region.restart()
+    assert region.length == pytest.approx(0.8)
+    assert not region.collapsed
+    assert region.best == -np.inf
 
 
 def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
@@ -195,7 +247,7 @@ def test_the_rule_sweep_stays_within_its_declared_budget(make_cfg, evaluator) ->
 def test_an_unknown_method_names_the_registered_ones(cfg, evaluator) -> None:
     """Adding a method is a registry entry, not an edit to a dispatch chain."""
     cfg.optim.method.name = "annealing"
-    with pytest.raises(KeyError, match="mobo"):
+    with pytest.raises(KeyError, match="turbo"):
         run_search(evaluator, cfg)
 
 

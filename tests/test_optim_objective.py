@@ -1,4 +1,4 @@
-"""The KPI vector, the sign convention, and the lexicographic pick."""
+"""The KPI vector, the sign convention, and the weighted score that picks a winner."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ from src.optim.objective import (
     KpiVector,
     as_maximised,
     ax_objective,
-    lexicographic_best,
+    best_by_score,
     pareto_mask,
+    scores,
     tolerances,
+    weights,
 )
 
 # Deliberately round and unequal, so a test cannot pass by comparing the wrong
@@ -26,11 +28,19 @@ _TOLERANCE = {
     "band_priority_score": 0.04,
 }
 
+# Unequal and out of order for the same reason.
+_WEIGHTS = {
+    "hole_rate": 4.0,
+    "overlap_rate": 3.0,
+    "weak_rate": 1.0,
+    "band_priority_score": 2.0,
+}
+
 
 @pytest.fixture
 def cfg():
     """A config carrying only what the objective reads."""
-    return OmegaConf.create({"kpi": {"tolerance": dict(_TOLERANCE)}})
+    return OmegaConf.create({"kpi": {"tolerance": dict(_TOLERANCE), "weights": dict(_WEIGHTS)}})
 
 
 def _kpi(**overrides: float) -> KpiVector:
@@ -79,58 +89,46 @@ def test_from_mapping_names_a_missing_kpi() -> None:
         KpiVector.from_mapping(values)
 
 
-def test_a_decisive_gain_on_the_top_kpi_wins(cfg) -> None:
-    """Hole rate outranks everything below it."""
-    incumbent = _kpi()
-    candidate = _kpi(hole_rate=0.05, overlap_rate=0.99, band_priority_score=0.0, weak_rate=0.99)
-    assert lexicographic_best([incumbent, candidate], cfg) == 1
+def test_weights_are_read_in_kpi_order(cfg) -> None:
+    """The fixture lists weak before band priority; the score must not."""
+    assert np.array_equal(weights(cfg), [4.0, 3.0, 2.0, 1.0])
 
 
-def test_a_decisive_loss_on_the_top_kpi_loses(cfg) -> None:
-    """No amount of lower-priority gain buys a worse hole rate."""
-    incumbent = _kpi()
-    candidate = _kpi(hole_rate=0.20, overlap_rate=0.0, band_priority_score=1.0, weak_rate=0.0)
-    assert lexicographic_best([incumbent, candidate], cfg) == 0
+def test_the_score_is_the_signed_raw_weighted_sum(cfg) -> None:
+    """Minus on the three minimised KPIs, plus on band priority, no normalisation."""
+    assert scores([_kpi()], cfg)[0] == pytest.approx(-4 * 0.10 - 3 * 0.30 + 2 * 0.20 - 1 * 0.10)
 
 
-def test_a_tie_within_tolerance_falls_through_to_the_next_kpi(cfg) -> None:
-    """The behaviour the tolerances exist to produce.
-
-    Without them, hole rate is continuous, never ties, and the priority order
-    collapses to optimizing it alone.
-    """
-    incumbent = _kpi()
-    candidate = _kpi(hole_rate=0.105, overlap_rate=0.20)
-    assert lexicographic_best([incumbent, candidate], cfg) == 1
+def test_the_highest_score_wins(cfg) -> None:
+    """A band-priority gain with nothing lost elsewhere raises the score."""
+    assert best_by_score([_kpi(), _kpi(band_priority_score=0.30)], cfg) == 1
 
 
-def test_differences_within_every_tolerance_keep_the_incumbent(cfg) -> None:
-    """Solver noise must not be able to unseat a deployed configuration."""
-    incumbent = _kpi()
-    noise = _kpi(hole_rate=0.105, overlap_rate=0.305, band_priority_score=0.21)
-    assert lexicographic_best([incumbent, noise], cfg) == 0
+def test_a_heavier_weight_outvotes_a_lighter_gain(cfg) -> None:
+    """+0.02 band priority (x2) does not pay for +0.02 hole rate (x4)."""
+    candidate = _kpi(hole_rate=0.12, band_priority_score=0.22)
+    assert best_by_score([_kpi(), candidate], cfg) == 0
 
 
-def test_the_pick_is_order_dependent_because_ties_are_not_transitive(cfg) -> None:
-    """Three configurations where the winner depends on the order they arrive.
+def test_an_equal_score_keeps_the_earlier_configuration(cfg) -> None:
+    """The incumbent holds unless a candidate actually scores higher."""
+    assert best_by_score([_kpi(), _kpi()], cfg) == 0
 
-    ``a`` ties ``b`` on hole rate and loses to it on overlap; ``b`` ties ``c``
-    and loses to it on overlap; but ``a`` beats ``c`` on hole rate outright,
-    because the two 0.008 steps that were each a tie sum to 0.016, which is not.
 
-    Walking forwards the chain carries the winner down to ``c``; walking
-    backwards, ``c`` survives ``b`` and then loses to ``a``. Both are correct
-    single passes. This is why the docstring forbids sorting: a sort may
-    compare any pair it likes, and there is no ordering to find.
-    """
-    a = _kpi(hole_rate=0.100, overlap_rate=0.30)
-    b = _kpi(hole_rate=0.108, overlap_rate=0.20)
-    c = _kpi(hole_rate=0.116, overlap_rate=0.10)
-
-    forwards = [a, b, c]
-    backwards = [c, b, a]
-    assert forwards[lexicographic_best(forwards, cfg)] == c
-    assert backwards[lexicographic_best(backwards, cfg)] == a
+@pytest.mark.parametrize(
+    ("block", "match"),
+    [
+        (None, "weights"),
+        ({name: 1.0 for name in KPI_NAMES if name != "weak_rate"}, "weak_rate"),
+        ({**dict.fromkeys(KPI_NAMES, 1.0), "overlap_rate": -1.0}, "non-negative"),
+        (dict.fromkeys(KPI_NAMES, 0.0), "all zero"),
+    ],
+)
+def test_unusable_weights_raise(block, match) -> None:
+    """A missing, partial, negative or all-zero block cannot rank anything."""
+    kpi = {} if block is None else {"weights": block}
+    with pytest.raises(ValueError, match=match):
+        weights(OmegaConf.create({"kpi": kpi}))
 
 
 def test_pareto_mask_drops_only_dominated_points() -> None:
@@ -155,7 +153,7 @@ def test_tolerances_are_read_in_priority_order(cfg) -> None:
 
 
 def test_a_missing_tolerance_block_raises_rather_than_defaulting() -> None:
-    """An exact comparison never ties, which silently voids the priority."""
+    """An exact comparison reports solver noise as a real change."""
     with pytest.raises(ValueError, match="tolerance"):
         tolerances(OmegaConf.create({"kpi": {}}))
 
@@ -170,7 +168,7 @@ def test_an_incomplete_tolerance_block_names_the_gap() -> None:
 def test_choosing_from_nothing_raises(cfg) -> None:
     """An empty run has no winner to report."""
     with pytest.raises(ValueError, match="no candidates"):
-        lexicographic_best([], cfg)
+        best_by_score([], cfg)
 
 
 def test_hypervolume_credits_only_improvement_over_the_reference() -> None:

@@ -57,6 +57,7 @@ def _normalized_weights(band_labels: Sequence[str], cfg: DictConfig) -> np.ndarr
 
 def band_priority_score(
     rsrp: np.ndarray,
+    sinr: np.ndarray,
     band_labels: Sequence[str],
     mdt: pd.DataFrame,
     cfg: DictConfig,
@@ -65,6 +66,7 @@ def band_priority_score(
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
+        sinr: The solver's SINR in dB, same shape; sets PRBs per UE.
         band_labels: The radio map's ``band_label``, aligned to axis 0 of
             ``rsrp``.
         mdt: Synthetic MDT; ``t_index``, ``tile_row`` and ``tile_col`` place
@@ -95,7 +97,7 @@ def band_priority_score(
         )
 
     weights = _normalized_weights(band_labels, cfg)
-    served = serve_intervals(rsrp, band_labels, mdt, cfg)
+    served = serve_intervals(rsrp, sinr, band_labels, mdt, cfg)
     row, col = served["tile_row"].to_numpy(), served["tile_col"].to_numpy()
     covered = max_rsrp(rsrp)[row, col] > float(cfg.kpi.hole_dbm)
     if not covered.any():

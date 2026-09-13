@@ -104,6 +104,27 @@ def test_coverage_cdf_places_unreached_tiles_at_the_floor() -> None:
     assert levels[0] == pytest.approx(-100.0)
 
 
+def test_serving_band_prefers_a_band_above_threshold_else_the_strongest() -> None:
+    """Tile 0: preferred band 0 clears -100 dBm. Tile 1: neither does, band 1 is stronger.
+
+    Tile 2 has no path on any layer.
+    """
+    rsrp = np.array(
+        [
+            [[[-95.0, -110.0, np.nan]], [[-99.0, -120.0, np.nan]]],
+            [[[-60.0, -105.0, np.nan]], [[-70.0, -130.0, np.nan]]],
+        ]
+    )
+    band = maps.serving_band(rsrp, np.array([0, 1]), -100.0)
+    assert band.tolist() == [[0, 1, -1]]
+
+
+def test_best_sinr_ignores_layers_with_no_path() -> None:
+    """NaN is no path; a tile with no layer at all is -inf, not NaN."""
+    sinr = np.array([[[[3.0, np.nan]], [[np.nan, np.nan]]], [[[-2.0, np.nan]], [[9.0, np.nan]]]])
+    assert maps.best_sinr(sinr).tolist() == [[9.0, -np.inf]]
+
+
 def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     """Two UEs on one tile in one interval need twice one UE's PRBs."""
     from src.kpi import capacity
@@ -115,7 +136,6 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
         "bands": {"b": {"scs_hz": 15000}},
     }
     cfg.simulation = {
-        "radio_map": {"temperature": 290.0, "bands": [{"name": "b", "bandwidth": 20e6}]},
         "transmitters": {
             "cells": [
                 {
@@ -131,13 +151,13 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
         },
     }
     rsrp = np.full((1, 1, 3, 4), -90.0)
+    sinr = np.full(rsrp.shape, 20.0)
     mdt = pd.DataFrame({"t_index": [0, 0, 0], "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
-    counts = maps.demand(rsrp, ["b"], mdt, cfg)
+    counts = capacity.demand_prb(rsrp, sinr, ["b"], mdt, cfg)
 
-    noise = capacity._thermal_noise_dbm(290.0, 20e6)
-    per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(-90.0 - noise, 180_000.0))
+    per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(20.0, 180_000.0))
     assert counts.shape == (3, 4)
-    assert counts[0, 1] == pytest.approx(capacity._prb_required(2, per_ue))
+    assert counts[0, 1] == pytest.approx(2 * per_ue)
     assert counts[2, 3] == pytest.approx(per_ue)
     assert counts.sum() == pytest.approx(3 * per_ue)
 

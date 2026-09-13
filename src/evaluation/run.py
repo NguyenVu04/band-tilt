@@ -18,6 +18,7 @@ from omegaconf import DictConfig
 from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import save_table
+from src.kpi.capacity import demand_prb, max_rsrp
 from src.optim.objective import KPI_NAMES
 from src.tracking import log_stage
 from src.utils.plotting import save_fig, setup_plotting
@@ -61,22 +62,25 @@ def evaluate(cfg: DictConfig) -> pd.DataFrame:
     hotspots = pd.DataFrame(manifest["density"]["hotspots"])
 
     baseline_rsrp = baseline["rsrp_dbm"].astype(float)
+    baseline_sinr = baseline["sinr_db"].astype(float)
     # PRB demand is the incumbent's: SINR, and so PRBs per UE, depend on the map.
-    counts = maps.demand(baseline_rsrp, [str(b) for b in baseline["band_label"]], mdt, cfg)
+    counts = demand_prb(
+        baseline_rsrp, baseline_sinr, [str(b) for b in baseline["band_label"]], mdt, cfg
+    )
 
     winner = compare.best_method(runs, cfg)
     deltas = {run.method: compare.delta_table(run.incumbent_kpi, run.best_kpi, cfg) for run in runs}
     table(deltas[winner.method], f"delta_{winner.method}")
 
-    before = maps.best_server(baseline_rsrp)
-    after = maps.best_server(winner.radio_map["rsrp_dbm"].astype(float))
+    before = max_rsrp(baseline_rsrp)
+    after = max_rsrp(winner.radio_map["rsrp_dbm"].astype(float))
     figure(
         plots.coverage_maps(before, after, baseline, cfg, cells=cells, label=winner.method),
         "coverage_before_after",
     )
     figure(
         plots.demand_signal_maps(
-            baseline_rsrp, counts, baseline, cfg, cells=cells, hotspots=hotspots
+            baseline_rsrp, baseline_sinr, counts, baseline, cfg, cells=cells, hotspots=hotspots
         ),
         "demand_vs_signal",
     )
@@ -103,7 +107,7 @@ def evaluate(cfg: DictConfig) -> pd.DataFrame:
     figure(plots.tilt_movement_plot(winner), "tilt_movement")
     table(winner.best_tilt, f"best_tilt_{winner.method}")
 
-    print(f"the priority order prefers {winner.label}; wrote {FIGURES_DIR} and {TABLES_DIR}")
+    print(f"the weighted score prefers {winner.label}; wrote {FIGURES_DIR} and {TABLES_DIR}")
     return methods
 
 

@@ -179,9 +179,10 @@ stages:
           - seed
       # Every method file, not just the selected one: DVC resolves params at
       # plan time and cannot know which method the defaults list will pick.
-      - configs/optim/method/mobo.yaml:
+      - configs/optim/method/turbo.yaml:
           - name
           - budget
+          - trust_region
       - configs/optim/method/random.yaml:
           - name
           - budget
@@ -194,6 +195,7 @@ stages:
           - weak_dbm
           - overlap_margin_db
           - band_priority
+          - weights
           - tolerance
       - configs/simulation.yaml:
           - scene

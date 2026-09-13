@@ -19,7 +19,7 @@ vars:
   # The search methods `optim` loops over. Adding one is a folder under
   # src/optim/methods/, its SEARCHES entry, a configs/optim/method/<name>.yaml,
   # and its name here.
-  METHODS: mobo random rule
+  METHODS: turbo random rule
 
 tasks:
   default:
@@ -132,9 +132,9 @@ tasks:
       - uv run python -m {{.PKG}}.data.build {{.CLI_ARGS}}
 
   bo:
-    desc: 'Optimize with MOBO, e.g. task bo -- optim.method.budget.n_iter=50 - needs a GPU'
+    desc: 'Optimize with TuRBO, e.g. task bo -- optim.method.budget.n_iter=50 - needs a GPU'
     cmds:
-      - uv run python -m {{.PKG}}.optim.run optim/method=mobo {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.optim.run optim/method=turbo {{.CLI_ARGS}}
 
   baseline:
     desc: 'Optimize with a baseline method, e.g. task baseline -- optim/method=rule - needs a GPU'

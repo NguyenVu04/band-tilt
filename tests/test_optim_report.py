@@ -42,10 +42,10 @@ _CONFIG = {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
         "transmitters": {"cells": _CELLS},
     },
-    "kpi": {"tolerance": dict.fromkeys(KPI_NAMES, 0.001)},
+    "kpi": {"tolerance": dict.fromkeys(KPI_NAMES, 0.001), "weights": dict.fromkeys(KPI_NAMES, 1.0)},
     "optim": {
-        # `rule` rather than `mobo`: deterministic, no Ax, and it still exercises
-        # the whole publish path.
+        # `rule` rather than `turbo`: deterministic, no model, and it still
+        # exercises the whole publish path.
         "method": {"name": "rule", "n_steps": 5, "n_rounds": 2},
         "output": {"dir": "", "deliverable_dir": "", "save_radio_map": False},
         "n_solutions": 4,
@@ -240,12 +240,11 @@ def test_the_run_publishes_a_front_to_choose_from(cfg, stub) -> None:
 
 
 def test_a_dominated_winner_still_reaches_the_deliverable() -> None:
-    """The priority order can pick a dominated row, and it must still be offered.
+    """The score can pick a dominated row, and it must still be offered.
 
-    `lexicographic_best` compares within `kpi.tolerance`, so it settles on a
-    solution that ties on every KPI it reaches while losing by less than the
-    tolerance on one it never gets to. Filtering the deliverable on `on_pareto`
-    alone published a front with nothing marked `recommended`.
+    A KPI weighted zero is invisible to `best_by_score`, so the winner can lose
+    on it to a row that ties everywhere else. Filtering the deliverable on
+    `on_pareto` alone would publish a front with nothing marked `recommended`.
     """
     published = pd.DataFrame(
         {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import numpy as np
 import pandas as pd
 import pytest
 from omegaconf import DictConfig, OmegaConf
@@ -17,6 +18,42 @@ TOLERANCE = {
     "band_priority_score": 0.001,
     "weak_rate": 0.004,
 }
+
+
+def _served() -> pd.DataFrame:
+    """Serve_intervals-shaped rows: two intervals, one blocked report."""
+    return pd.DataFrame(
+        {
+            "t_index": [0, 0, 1, 1],
+            "band": [0, 0, 1, -1],
+            "tx": [1, 1, 0, -1],
+            "prb_per_ue": [2.0, 3.0, 4.0, 9.0],
+            "sinr_db": [10.0, 20.0, 5.0, np.nan],
+        }
+    )
+
+
+def test_cell_band_load_sums_admitted_prbs_per_interval() -> None:
+    """Band 0 / tx 1 carries 5 PRBs in interval 0 only; the blocked report loads nothing."""
+    load = compare.cell_band_load(
+        _served(), ["hi", "lo"], ["c0", "c1"], np.array([[10.0, 10.0], [10.0, 10.0]])
+    ).set_index(["cell", "band"])
+    assert load.loc[("c1", "hi"), "served_reports"] == 2
+    assert load.loc[("c1", "hi"), "peak_prb"] == pytest.approx(5.0)
+    assert load.loc[("c1", "hi"), "mean_prb"] == pytest.approx(2.5)
+    assert load.loc[("c1", "hi"), "peak_utilisation"] == pytest.approx(0.5)
+    assert load.loc[("c1", "hi"), "median_sinr_db"] == pytest.approx(15.0)
+    assert load.loc[("c0", "lo"), "peak_prb"] == pytest.approx(4.0)
+    assert load["peak_prb"].sum() == pytest.approx(9.0)
+
+
+def test_service_summary_counts_blocked_reports_as_not_served() -> None:
+    """One report of four is blocked; shares are of all reports."""
+    summary = compare.service_summary(_served(), ["hi", "lo"])
+    assert summary["not_served_share"] == pytest.approx(0.25)
+    assert summary["share_hi"] == pytest.approx(0.5)
+    assert summary["share_lo"] == pytest.approx(0.25)
+    assert summary["sinr_median_db"] == pytest.approx(10.0)
 
 
 @pytest.fixture
