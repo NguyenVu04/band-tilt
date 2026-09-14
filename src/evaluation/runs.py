@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 from src.optim.objective import KpiVector
 
 # Written beside every run by src.optim.history.write_run.
-_TABLES = ("history", "pareto", "best_tilt")
+_TABLES = ("history", "best_tilt")
 _RADIO_MAP = "best_radio_map.npz"
 
 # Settings that define what a radio map IS rather than what it cost. Two maps

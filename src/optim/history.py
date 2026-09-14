@@ -23,7 +23,6 @@ from src.optim.objective import (
     KPI_NAMES,
     KpiVector,
     best_by_score,
-    pareto_mask,
     scores,
 )
 from src.optim.space import TiltSpace
@@ -89,30 +88,30 @@ def write_tilt_change(table: pd.DataFrame, cfg: DictConfig, method: str) -> Path
     return path
 
 
-def write_pareto_options(
-    scores: pd.DataFrame, tilts: pd.DataFrame, cfg: DictConfig, method: str
+def write_solution_options(
+    shortlist: pd.DataFrame, tilts: pd.DataFrame, cfg: DictConfig, method: str
 ) -> tuple[Path, Path]:
-    """Republish the verified Pareto front as the two tables an operator chooses from.
+    """Republish the shortlist as the two tables an operator chooses from.
 
-    Four objectives do not have a best; they have a front. The weighted score
-    (``kpi.weights``, ADR 0003) marks one row ``recommended``, and the rest of
-    the front is published beside it rather than discarded.
+    The weighted score (``kpi.weights``, ADR 0003) marks one row
+    ``recommended``; the runners-up are published beside it rather than
+    discarded.
 
-    Two tables because they answer two questions. ``pareto_<method>.csv`` is
+    Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
     ``tilt_options_<method>.csv`` is one row per solution and cell-band, and is
     what a chosen row turns into on the antennas.
 
     Returns:
-        The two paths written, scores first.
+        The two paths written, shortlist first.
     """
     directory = Path(cfg.optim.output.deliverable_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    score_path = directory / f"pareto_{method}.csv"
+    shortlist_path = directory / f"solutions_{method}.csv"
     tilt_path = directory / f"tilt_options_{method}.csv"
-    scores.to_csv(score_path, index=False)
+    shortlist.to_csv(shortlist_path, index=False)
     tilts.to_csv(tilt_path, index=False)
-    return score_path, tilt_path
+    return shortlist_path, tilt_path
 
 
 @dataclass
@@ -164,8 +163,7 @@ class History:
         """One row per evaluation: provenance, the four KPIs, all 36 tilts.
 
         With ``cfg``, also ``score``, the weighted score that selects the winner
-        (reads ``kpi.weights``). ``on_pareto`` is computed here rather than
-        stored, because it is a property of the set and every append can change it.
+        (reads ``kpi.weights``).
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -188,8 +186,6 @@ class History:
             frame["score"] = scores(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
-
-        frame["on_pareto"] = pareto_mask(self.kpis)
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
@@ -198,11 +194,6 @@ class History:
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """
         return best_by_score(self.kpis, cfg)
-
-    def pareto_frame(self) -> pd.DataFrame:
-        """The non-dominated rows of :meth:`frame`."""
-        frame = self.frame()
-        return frame[frame["on_pareto"]].reset_index(drop=True)
 
     def tilt_table(self, tilt_deg: np.ndarray) -> pd.DataFrame:
         """The deliverable: current, optimized and delta tilt per cell-band.
@@ -249,7 +240,6 @@ def write_run(
 
     written = {
         "history": writer.write_frame("history", frame),
-        "pareto": writer.write_frame("pareto", history.pareto_frame()),
         "best_tilt": writer.write_frame("best_tilt", history.tilt_table(best.tilt_deg)),
     }
 
@@ -262,7 +252,6 @@ def write_run(
             "best_kpi": best.kpi.as_dict(),
             "incumbent_kpi": incumbent.as_dict(),
             "ray_tracing_seconds": float(frame["seconds"].sum()),
-            "n_pareto": int(frame["on_pareto"].sum()),
             "config": OmegaConf.to_container(cfg, resolve=True),
             **(extra or {}),
         },

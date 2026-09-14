@@ -20,8 +20,8 @@ from src.simulation import seeds
 from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds, SceneSpec
 
-# Nodes per side of the square lattice.
-_LATTICE_SIDE = 2
+# Nodes on the equilateral triangle, whose side is node_spacing_m.
+_NODE_COUNT = 3
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class LayoutSpec:
     """Where the nodes go, and how their masts are mounted.
 
     Attributes:
-        node_spacing_m: Distance between neighbouring nodes on the lattice.
+        node_spacing_m: Side of the equilateral triangle the nodes sit on.
         cells_per_node: Cells per node, at evenly spaced azimuths.
         azimuth_offset_deg: Rotation applied to every node's cell fan.
         mast_height_m: Height of the mast above the ground it stands on.
@@ -119,6 +119,35 @@ def load(cfg: DictConfig) -> tuple[Cell, ...]:
     return tuple(Cell.from_config(entry) for entry in entries)
 
 
+def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, float]]:
+    """Return each node's ideal ``(x, y)``: the corners of an equilateral triangle.
+
+    The triangle's centroid is the scene centre, one corner points along ``+y``,
+    and ``spacing_m`` is its side.
+
+    Raises:
+        ValueError: When the triangle does not fit inside the scene.
+    """
+    # Spans spacing_m along x and one circumradius either side of the centre along y.
+    max_spacing = min(bounds.width_m, bounds.depth_m * math.sqrt(3.0) / 2.0)
+    if spacing_m > max_spacing:
+        raise ValueError(
+            f"a {_NODE_COUNT}-node triangle at "
+            f"simulation.transmitters.layout.node_spacing_m={spacing_m} does not fit the "
+            f"{bounds.width_m:.1f} x {bounds.depth_m:.1f} m scene. Lower the spacing to at "
+            f"most {max_spacing:.1f} m."
+        )
+
+    centre_x = 0.5 * (bounds.min_x + bounds.max_x)
+    centre_y = 0.5 * (bounds.min_y + bounds.max_y)
+    radius = spacing_m / math.sqrt(3.0)
+    angles = [math.radians(90.0 + index * 360.0 / _NODE_COUNT) for index in range(_NODE_COUNT)]
+    return [
+        (centre_x + radius * math.cos(angle), centre_y + radius * math.sin(angle))
+        for angle in angles
+    ]
+
+
 def generate(
     mi_scene: Any,
     bounds: SceneBounds,
@@ -128,7 +157,7 @@ def generate(
     default_tilt: dict[str, Tilt],
     max_prb: dict[str, int],
 ) -> tuple[Cell, ...]:
-    """Lay nodes out on a square lattice and stand each on open ground.
+    """Lay nodes out on an equilateral triangle and stand each on open ground.
 
     Returns ``spec.cells_per_node`` cells for every node. Nodes whose ideal
     position is built over are snapped to the nearest open-ground tile within
@@ -143,35 +172,19 @@ def generate(
     to diverge, since one tilt per cell-band pair is what is being optimized.
 
     Raises:
-        ValueError: When the lattice does not fit inside the scene, or when a
+        ValueError: When the triangle does not fit inside the scene, or when a
             node finds no open ground within ``spec.snap_radius_m``. Both are
             config changes rather than something to snap away, and neither may
             be answered by placing a mast on a building.
     """
-    span = (_LATTICE_SIDE - 1) * spec.node_spacing_m
-    if span > min(bounds.width_m, bounds.depth_m):
-        raise ValueError(
-            f"a {_LATTICE_SIDE}x{_LATTICE_SIDE} lattice at "
-            f"simulation.transmitters.layout.node_spacing_m={spec.node_spacing_m} spans "
-            f"{span:.1f} m, which does not fit the {bounds.width_m:.1f} x "
-            f"{bounds.depth_m:.1f} m scene. Lower the spacing to at most "
-            f"{min(bounds.width_m, bounds.depth_m) / (_LATTICE_SIDE - 1):.1f} m."
-        )
-
-    centre_x = 0.5 * (bounds.min_x + bounds.max_x)
-    centre_y = 0.5 * (bounds.min_y + bounds.max_y)
-    offsets = [
-        (index - 0.5 * (_LATTICE_SIDE - 1)) * spec.node_spacing_m for index in range(_LATTICE_SIDE)
-    ]
-
     cells: list[Cell] = []
-    for node_index, (offset_x, offset_y) in enumerate((dx, dy) for dx in offsets for dy in offsets):
+    for node_index, (ideal_x, ideal_y) in enumerate(node_positions(bounds, spec.node_spacing_m)):
         x, y, z = _mount(
             mi_scene,
             bounds,
             raster,
-            centre_x + offset_x,
-            centre_y + offset_y,
+            ideal_x,
+            ideal_y,
             spec,
             grid_spec.free_height_tol_m,
             f"n{node_index}",

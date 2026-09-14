@@ -77,7 +77,7 @@ under per-cell PRB limits; band priority counts that serving band, and the PRB
 demand map built from it is a diagnostic outside the objective.
 
 Sionna-RT scores every candidate the search proposes, at roughly 8 s each, and
-`src/optim/report.py` selects from what was measured and publishes the front.
+`src/optim/report.py` selects from what was measured and publishes the shortlist.
 TuRBO-1 Bayesian Optimization on a weighted KPI score and two baselines are
 implemented; Multi-Agent Reinforcement Learning and held-out scenario
 validation remain planned.
@@ -99,7 +99,7 @@ flowchart TB
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>the four KPIs · PRB demand"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
-    ver["src/optim/report<br/>select · publish the front"]
+    ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
     mlf["src/tracking<br/>MLflow · one run per stage"]
 
@@ -114,8 +114,8 @@ flowchart TB
     sim -->|ray-traced map| kpi
     prep -->|UE weights| kpi
     kpi --> opt
-    opt -->|measured front| ver
-    ver -->|published front| rep
+    opt -->|measured candidates| ver
+    ver -->|published run| rep
     sim & prep & opt & ver & rep --> mlf
     kpi -.-> marl
     opt -.-> val
@@ -140,8 +140,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and its priority rule, the Sionna-RT evaluator, three searches, and the run that publishes the front | [`src/optim/`](src/optim/) |
-| Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 05 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
+| Optimization | The shared search space, the KPI vector and its priority rule, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
 
@@ -151,7 +151,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) and by `objective.hypervolume`. Random search needs only torch's Sobol engine |
+| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py). Random search needs only torch's Sobol engine |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
@@ -275,7 +275,7 @@ through the task runner and `dvc repro`. Both call the same functions in
 | 4 — Optimize with the baselines | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
 | 5 — Optimize with TuRBO on the weighted KPI score | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
 | 4–5 for every method | — | `task optim` |
-| 6 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
+| 6 — Compare the runs, write the tables and figures | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
 
 ```bash
 task pipeline           # every stage below, in order
@@ -314,8 +314,8 @@ config groups, the whole resolved config as `config.yaml`, the Git commit
 | Stage | Metrics | Artifacts |
 |---|---|---|
 | `simulation_*`, `preprocessing` | — | output paths as `output.*` tags, not copied |
-| `optimization` | the winner's four KPIs, candidates measured, front size | the run's parquet tables, `run.json`, the `reports/outputs/` deliverables |
-| `evaluation` | the four KPIs of each method's best | `reports/{figures,tables}/05_evaluation/` |
+| `optimization` | the winner's four KPIs, candidates measured | the run's parquet tables, `run.json`, the `reports/outputs/` deliverables |
+| `evaluation` | the four KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
 
 Radio maps and the UE tables stay out of the store — data belongs to DVC. Set `mlflow.enabled=false` to run a stage untracked.
 
@@ -332,20 +332,18 @@ measurement is in
 [`outputs/fidelity_bench/`](outputs/fidelity_bench/).
 
 A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history,
-the Pareto subset, `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and
-`pareto_verified.parquet`, the last being the solutions offered for choice.
+`best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`,
+the last being the solutions offered for choice.
 
-Which solutions get offered is not the score order: that would return eight
-neighbours from one corner of the front. They are ranked by NSGA-II crowding
-distance, which keeps the extremes and spreads the rest. `optim.n_solutions`
-sets how many, 8 by default, always including the incumbent and the winner.
+The solutions offered are the incumbent plus the highest weighted scores
+(`kpi.weights`, ADR 0003). `optim.n_solutions` sets how many, 8 by default,
+always including the incumbent and the winner.
 
-**The deliverable is the front.** `reports/outputs/` gets
-`pareto_<method>.csv` — one row per measured Pareto solution, its four KPIs and
-each one's delta against the incumbent — and `tilt_options_<method>.csv`, the
-tilt table each of those becomes. The highest weighted score (`kpi.weights`,
-ADR 0003) marks one row `recommended` and `tilt_change_<method>.csv` carries it,
-but choosing among measured trade-offs is left to a person. The MARL arm is not
+**The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
+per offered solution, its score, its four KPIs and each one's delta against the
+incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
+becomes. The highest score marks one row `recommended` and
+`tilt_change_<method>.csv` carries it. The MARL arm is not
 built, so a comparison currently has TuRBO and the two baselines in it and
 nothing else.
 
@@ -361,7 +359,7 @@ band-tilt/
 ├── configs/       Hydra config groups — every tunable
 ├── data/          gitignored; scenario, radio map and MDT artifacts (DVC not yet initialised — see External dependencies)
 ├── docs/adr/      architecture decision records
-├── notebooks/     one per pipeline phase, 00 through 05
+├── notebooks/     one per pipeline phase, 00 through 04
 ├── outputs/       gitignored; one directory per optimization run
 ├── mlruns/        gitignored; MLflow artifacts (runs are in mlflow.db)
 ├── reports/       tables, figures and the republished tilt deliverable
@@ -379,7 +377,7 @@ band-tilt/
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
 | `src/kpi/` — the four KPIs (`hole`, `overlap`, `bps`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
-| `notebooks/` — `00_simulation` through `05_evaluation` | All eight written and adapted to this project |
+| `notebooks/` — `00_simulation` through `04_evaluation` | All eight written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |

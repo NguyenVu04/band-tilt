@@ -26,6 +26,9 @@
   synthetic MDT no longer reports SINR and the radio map no longer stores it;
   PRBs per UE derive from SINR recomputed from the reported RSRP. No KPI
   definition changed; see *Revision note — 2026-09-12* below.
+- **Revised:** 2026-09-14 — revised in place at the maintainer's direction. No
+  Pareto front is computed any more, and the `mobo` method this record names no
+  longer exists; see *Revision note — 2026-09-14* below.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -159,9 +162,9 @@ as a fallback where an optimizer requires it.
 conflicts explicit and imposes no priority. Rejected as the primary formulation
 because the deliverable is one tilt configuration to deploy, and choosing from a
 four-dimensional front requires exactly the priority this record states — so the
-decision reappears, less visibly. A multi-objective acquisition remains available
-in `configs/optim/method/mobo.yaml`, with the priority applied when selecting from the
-front.
+decision reappears, less visibly. A multi-objective acquisition was available
+in `configs/optim/method/mobo.yaml` until ADR 0003 removed it; see the 2026-09-14
+revision note.
 
 **Constrained optimization: maximise Band Priority Score subject to hole rate
 below a cap.** Clean, standard, and directly deployable. Rejected because the caps
@@ -411,3 +414,17 @@ sweep and of a comparison between methods is the highest weighted score,
 order: a large enough gain on a lower-priority KPI now outweighs a small loss on
 a higher one. `kpi.tolerance` is kept for reporting a delta as better, worse or
 a tie, and no longer decides anything.
+
+## Revision note — 2026-09-14
+
+Revised in place at the maintainer's direction. **No KPI definition, direction,
+threshold, tolerance or weight changes.**
+
+No run computes or publishes a Pareto front any more; see the 2026-09-14
+amendment to [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md). The shortlist an
+operator reads is the incumbent plus the highest weighted scores. The Context's
+remark that more objectives widen the Pareto front, and the *Full
+multi-objective optimization* alternative, are kept as the reasoning of their
+time. That alternative's closing sentence claimed
+`configs/optim/method/mobo.yaml` was still available; ADR 0003 removed the
+method, and the sentence now says so.

@@ -2,12 +2,11 @@
 
 Entry point for ``task bo`` and ``task baseline``. Every candidate is ray
 traced at the configured fidelity, so every KPI this writes is a measurement
-and the run it produces is complete: a front, a named winner, the winner's
-radio map, and the two tables an operator chooses from.
+and the run it produces is complete: a named winner and its shortlist, the
+winner's radio map, and the two tables an operator chooses from.
 
-One phase: every candidate is ray-traced, with no surrogate and no re-solve of
-the front; ``outputs/fidelity_bench/`` holds the timing that made that
-affordable.
+One phase: every candidate is ray-traced, with no surrogate and no re-solve;
+``outputs/fidelity_bench/`` holds the timing that made that affordable.
 
 Needs a CUDA GPU and the ``rt`` extra.
 """
@@ -61,7 +60,7 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
             # map would pay the scene load again for nothing. The solver seed is
             # fixed for this evaluator's life, so this is the map that produced
             # the KPIs above. It is deliberately not appended to the history,
-            # which would duplicate a measured point and move the front.
+            # which would duplicate a measured point.
             evaluator.keep_rsrp = True
             radio_map = str(
                 evaluator.write_radio_map(
@@ -100,7 +99,6 @@ def main(cfg: DictConfig) -> None:
         metrics={
             **{f"best_{name}": value for name, value in best.as_dict().items()},
             "n_candidates": len(frame),
-            "n_pareto": int(frame["on_pareto"].sum()),
         },
         artifacts=sorted(directory.glob("*.parquet")) + [directory / "run.json"],
         tags={"method": cfg.optim.method.name, "run_dir": directory},

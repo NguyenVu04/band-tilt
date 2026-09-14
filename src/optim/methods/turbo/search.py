@@ -7,8 +7,8 @@ candidates inside the region. Written against BoTorch because neither Ax nor
 BoTorch ships it; candidate construction follows BoTorch's TuRBO-1 tutorial.
 
 The model sees one number per evaluation, :func:`src.optim.objective.scores`.
-The run still records all four KPIs, so the Pareto front and the published
-shortlist are built exactly as for every other method.
+The run still records all four KPIs, so the published shortlist is built
+exactly as for every other method.
 """
 
 from __future__ import annotations
@@ -235,8 +235,6 @@ def _propose(
         candidates = centre.expand(n_candidates, dim).clone()
         candidates[mask] = pool[mask]
 
-        # ponytail: exact joint posterior over the whole pool, O(N^3); switch to
-        # pathwise Thompson sampling if the pool or the dimension grows.
         with torch.no_grad():
             chosen = MaxPosteriorSampling(model=model, replacement=False)(candidates, num_samples=q)
     return chosen.numpy()

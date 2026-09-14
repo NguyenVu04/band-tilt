@@ -4,6 +4,8 @@
 - **Date:** 2026-09-07
 - **Revised:** 2026-09-12 — the 2026-09-09 revision is withdrawn; see the
   revision note at the end
+- **Revised:** 2026-09-14 — the Pareto front no longer applies; see the
+  revision note at the end
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** [0003](0003-turbo-on-a-weighted-kpi-score.md)
@@ -213,3 +215,12 @@ as the objective, remains rejected.
 **What this costs.** Hypervolume is no longer what the model targets, so a front
 may fill less evenly than qLogNEHVI would have filled it at the same budget.
 Runs before this date used qLogNEHVI and are not comparable as method runs.
+
+## Revision note — 2026-09-14
+
+Revised at the maintainer's direction. The Context, Decision and Consequences
+above are left as written, and **none of it describes the current system.** This
+record is superseded by [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md), and
+since that record's 2026-09-14 amendment no run produces a Pareto front, selects
+from one, or computes hypervolume. Every mention of a front above describes the
+multi-objective BO that ADR 0003 removed.

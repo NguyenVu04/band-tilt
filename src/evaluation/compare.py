@@ -90,7 +90,6 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
                 "run": run.run_id,
                 "evaluations": run.n_evaluations,
                 "best_iteration": run.best_index,
-                "on_pareto": int(run.history["on_pareto"].sum()),
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
                 "wall_clock_min": wall / 60.0 if wall is not None else float("nan"),
                 **{name: getattr(run.best_kpi, name) for name in KPI_NAMES},
@@ -265,7 +264,7 @@ def summarise(runs: list[Run], cfg: DictConfig) -> str:
     """One paragraph a reader can act on, including when not to act.
 
     A run whose winner is its own incumbent, or whose every delta is a tie, has
-    found nothing — and on a budget too small to cover 36 dimensions that is the
+    found nothing — and on a budget too small to cover the tilt space that is the
     expected outcome, not a bug. Saying so is more useful than a table of zeros.
     """
     if not runs:
@@ -290,7 +289,7 @@ def summarise(runs: list[Run], cfg: DictConfig) -> str:
         note = (
             "\nNote: "
             + ", ".join(thin)
-            + " evaluated fewer than 40 configurations over a 36-dimensional space. "
+            + " evaluated fewer than 40 configurations over one tilt per cell-band pair. "
             "Read these as a check that the machinery runs, not as a comparison of methods."
         )
     return "\n".join(lines) + note

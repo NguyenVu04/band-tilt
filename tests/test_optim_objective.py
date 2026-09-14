@@ -12,7 +12,6 @@ from src.optim.objective import (
     KpiVector,
     as_maximised,
     best_by_score,
-    pareto_mask,
     scores,
     tolerances,
     weights,
@@ -125,20 +124,6 @@ def test_unusable_weights_raise(block, match) -> None:
         weights(OmegaConf.create({"kpi": kpi}))
 
 
-def test_pareto_mask_drops_only_dominated_points() -> None:
-    """Better on one KPI and no worse on the rest keeps a point on the front."""
-    best_hole = _kpi(hole_rate=0.01)
-    best_bps = _kpi(band_priority_score=0.90)
-    dominated = _kpi(hole_rate=0.99, overlap_rate=0.99, band_priority_score=0.0)
-    mask = pareto_mask([best_hole, best_bps, dominated])
-    assert mask.tolist() == [True, True, False]
-
-
-def test_duplicate_points_both_stay_on_the_front() -> None:
-    """Equality is not domination; dropping either would be arbitrary."""
-    assert pareto_mask([_kpi(), _kpi()]).tolist() == [True, True]
-
-
 def test_tolerances_are_read_in_priority_order(cfg) -> None:
     """Misalignment here would compare each KPI against another's threshold."""
     # The fixture lists weak before band priority; KPI_NAMES does not. Reading
@@ -163,31 +148,3 @@ def test_choosing_from_nothing_raises(cfg) -> None:
     """An empty run has no winner to report."""
     with pytest.raises(ValueError, match="no candidates"):
         best_by_score([], cfg)
-
-
-def test_hypervolume_credits_only_improvement_over_the_reference() -> None:
-    """Anchored on the incumbent, so a worse configuration is worth nothing."""
-    from src.optim.objective import hypervolume
-
-    incumbent = _kpi()
-    worse = _kpi(hole_rate=0.50, overlap_rate=0.90, band_priority_score=0.0)
-    better = _kpi(hole_rate=0.05, overlap_rate=0.20, band_priority_score=0.40, weak_rate=0.05)
-
-    assert hypervolume([incumbent], incumbent) == 0.0
-    assert hypervolume([worse], incumbent) == 0.0
-    assert hypervolume([better], incumbent) > 0.0
-    # A dominated point adds nothing to a front that already covers it.
-    assert hypervolume([better, worse], incumbent) == hypervolume([better], incumbent)
-
-
-def test_hypervolume_trace_never_decreases() -> None:
-    """Each prefix is a subset of the next, so progress cannot go backwards."""
-    from src.optim.objective import hypervolume_trace
-
-    incumbent = _kpi()
-    trace = hypervolume_trace(
-        [incumbent, _kpi(hole_rate=0.5), _kpi(hole_rate=0.05, band_priority_score=0.4)],
-        incumbent,
-    )
-    assert len(trace) == 3
-    assert np.all(np.diff(trace) >= 0.0)

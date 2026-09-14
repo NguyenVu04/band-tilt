@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
+- **Revised:** 2026-09-14 — revised in place at the maintainer's direction: no
+  Pareto front is published; see the amendment under *Consequences → Neutral*
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** [0002](0002-bayesian-optimization-without-a-trust-region.md)
 - **Superseded by:** —
@@ -53,8 +55,8 @@ points of both runs are identical; Ax is no longer a dependency.
 
 **Positive**
 
-- Model cost per round no longer grows with the Pareto front: one GP on one
-  output, and a trust region that bounds where candidates are drawn.
+- Model cost per round no longer includes a hypervolume computation: one GP on
+  one output, and a trust region that bounds where candidates are drawn.
 - One number decides every comparison, so a method, a run and a notebook cannot
   disagree about which configuration is best.
 
@@ -71,8 +73,15 @@ points of both runs are identical; Ax is no longer a dependency.
 
 **Neutral**
 
-- Every run still records all four KPIs and publishes its Pareto front and the
-  `optim.n_solutions` shortlist, unchanged.
+- Every run still records all four KPIs and publishes the `optim.n_solutions`
+  shortlist.
+
+*Amended 2026-09-14:* no Pareto front is computed or published. The shortlist
+is the incumbent plus the highest weighted scores, replacing non-dominated
+solutions ranked by crowding distance; `pareto_<method>.csv` and
+`pareto_verified.parquet` become `solutions_<method>.csv` and
+`solutions.parquet`, and `pareto.parquet`, `on_pareto`, `n_pareto` and the
+hypervolume diagnostics are removed.
 
 ## Alternatives considered
 

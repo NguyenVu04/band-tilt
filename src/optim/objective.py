@@ -109,62 +109,6 @@ def as_maximised(kpis: Sequence[KpiVector]) -> np.ndarray:
     return np.array([kpi.as_array() for kpi in kpis], dtype=float) * signs
 
 
-def pareto_mask(kpis: Sequence[KpiVector]) -> np.ndarray:
-    """Which entries are non-dominated, as a boolean mask.
-
-    Domination is the standard strict rule on the maximised orientation: one
-    point dominates another when it is at least equal on all four and strictly
-    better on at least one. Tolerances play no part here — they belong to the
-    single-winner pick, not to the front.
-    """
-    values = as_maximised(kpis)
-    mask = np.ones(len(values), dtype=bool)
-    for index, point in enumerate(values):
-        dominated = np.all(values >= point, axis=1) & np.any(values > point, axis=1)
-        mask[index] = not dominated.any()
-    return mask
-
-
-def hypervolume(kpis: Sequence[KpiVector], reference: KpiVector) -> float:
-    """Volume dominated by these KPIs above a reference point.
-
-    The one number that says whether a multi-objective run is making progress:
-    it rises when the front pushes outward and is flat when it does not.
-
-    Args:
-        kpis: The evaluations to measure.
-        reference: The corner the volume is measured from. Pass the incumbent,
-            and the result is then the improvement over what is deployed — a
-            configuration worse than the incumbent on any KPI contributes
-            nothing, which is the intended reading.
-
-    Returns:
-        The dominated volume, in the product of the four KPIs' own units.
-
-        Expect very small numbers: this is a four-way product of improvements
-        that are themselves fractions, so a real gain can read as ``1e-10``.
-        Only the trend carries meaning — plot it on a log scale, and do not
-        compare it against a run that used a different reference point.
-    """
-    import torch
-    from botorch.utils.multi_objective.hypervolume import Hypervolume
-
-    values = torch.as_tensor(as_maximised(kpis), dtype=torch.double)
-    point = torch.as_tensor(as_maximised([reference])[0], dtype=torch.double)
-    return float(Hypervolume(ref_point=point).compute(values))
-
-
-def hypervolume_trace(kpis: Sequence[KpiVector], reference: KpiVector) -> np.ndarray:
-    """Hypervolume after each evaluation, for a progress plot.
-
-    Monotonically non-decreasing by construction, since each prefix is a subset
-    of the next.
-    """
-    return np.array(
-        [hypervolume(kpis[: index + 1], reference) for index in range(len(kpis))], dtype=float
-    )
-
-
 def tolerances(cfg: DictConfig) -> np.ndarray:
     """Per-KPI tie thresholds from ``kpi.tolerance``, in :data:`KPI_NAMES` order.
 

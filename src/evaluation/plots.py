@@ -452,49 +452,6 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
     return figure
 
 
-def pareto_plot(runs: list[Any], cfg: DictConfig) -> Figure:
-    """Hole rate against band priority score, every evaluation, every method.
-
-    The trade this problem is made of: the low band reaches furthest, so it
-    serves most users and holds the score down, and buying the score means
-    tilting it off the ground it was covering.
-
-    """
-    figure, axis = plt.subplots(figsize=(9.0, 5.5), constrained_layout=True)
-    for run in runs:
-        history = run.history
-        colour = METHOD_COLOURS.get(run.method)
-        axis.scatter(
-            history["hole_rate"],
-            history["band_priority_score"],
-            s=18,
-            alpha=0.45,
-            color=colour,
-            label=f"{run.method} ({len(history)} measured)",
-        )
-        front = history[history["on_pareto"]]
-        axis.scatter(
-            front["hole_rate"], front["band_priority_score"], s=48, color=colour, edgecolor="white"
-        )
-
-    if runs:
-        incumbent = runs[0].incumbent_kpi
-        axis.scatter(
-            [incumbent.hole_rate],
-            [incumbent.band_priority_score],
-            s=180,
-            marker="*",
-            color=INCUMBENT_COLOUR,
-            zorder=5,
-            label="incumbent",
-        )
-    axis.set_xlabel("hole rate (minimise)")
-    axis.set_ylabel("band priority score (maximise)")
-    axis.set_title("Filled markers are non-dominated within their run")
-    axis.legend(fontsize=8)
-    return figure
-
-
 def tilt_movement_plot(run: Any) -> Figure:
     """Where every cell-band ended up, and how far it moved.
 

@@ -265,7 +265,7 @@ def test_an_unknown_method_names_the_registered_ones(cfg, evaluator) -> None:
 def test_history_frame_carries_provenance_kpis_and_every_tilt(make_cfg, evaluator) -> None:
     """The schema all three methods share."""
     frame = run_search(evaluator, make_cfg("random")).frame()
-    expected = {"iteration", "phase", "generation_node", "seconds", "on_pareto"}
+    expected = {"iteration", "phase", "generation_node", "seconds"}
     assert expected <= set(frame.columns)
     assert set(KPI_NAMES) <= set(frame.columns)
     assert set(evaluator.space.parameter_names) <= set(frame.columns)
@@ -315,7 +315,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
         best_index=best_index,
         extra={"scenario_id": "scn_test"},
     )
-    assert set(written) == {"history", "pareto", "best_tilt", "run"}
+    assert set(written) == {"history", "best_tilt", "run"}
     for locator in written.values():
         assert Path(locator).is_file()
 

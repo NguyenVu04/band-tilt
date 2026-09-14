@@ -54,153 +54,123 @@ density:
   # before it may hold a hotspot centre. Keeps centres off near-empty ground.
   min_built_volume_fraction: 0.5
 
-# Co-located multi-band cells on a square node lattice.
+# Co-located multi-band cells on three nodes at the corners of an equilateral triangle.
 transmitters:
   layout:
-    # Distance between neighbouring nodes on the lattice.
-    node_spacing_m: 650.0
+    # Side of the node triangle.
+    node_spacing_m: 500.0
     # Cells per node, at evenly spaced azimuths.
     cells_per_node: 3
     # Rotation applied to every node's cell fan.
-    azimuth_offset_deg: 0.0
+    azimuth_offset_deg: 30.0
     # Mast height above local ground.
     mast_height_m: 30.0
     # Minimum estimated open-ground share for mast placement.
     min_free_fraction: 0.95
     # Required open-ground clearance around each mast.
     clearance_radius_m: 20.0
-    # How far to look for open ground when the ideal lattice position has none.
+    # How far to look for open ground when the ideal triangle corner has none.
     # Finding none fails the generator rather than placing a mast on a building.
-    snap_radius_m: 150.0
+    snap_radius_m: 250.0
     # Initial per-band tilt for generated cells.
     default_tilt:
-      b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-      b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-      b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+      b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+      b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+      b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
     # Initial per-band PRB limit for generated cells; 106 is 20 MHz at 15 kHz
     # SCS (TS 38.101-1 Table 5.3.2-1), so it must track kpi.capacity.bands.scs_hz.
     default_max_prb: {b2600: 106, b1800: 106, b700: 106}
   # Generated once against the delivered scene and held fixed across scenarios.
   cells:
     - name: n0c0
-      x: -380.34
-      y: -489.80
+      x: -4.12
+      y: 107.16
       z: 30.00
-      azimuth_deg: 0.0
+      azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n0c1
-      x: -380.34
-      y: -489.80
+      x: -4.12
+      y: 107.16
       z: 30.00
-      azimuth_deg: 120.0
+      azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n0c2
-      x: -380.34
-      y: -489.80
+      x: -4.12
+      y: 107.16
       z: 30.00
-      azimuth_deg: 240.0
+      azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c0
-      x: -465.72
-      y: 352.86
+      x: -241.19
+      y: -309.00
       z: 30.00
-      azimuth_deg: 0.0
+      azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c1
-      x: -465.72
-      y: 352.86
+      x: -241.19
+      y: -309.00
       z: 30.00
-      azimuth_deg: 120.0
+      azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n1c2
-      x: -465.72
-      y: 352.86
+      x: -241.19
+      y: -309.00
       z: 30.00
-      azimuth_deg: 240.0
+      azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c0
-      x: 257.15
-      y: -470.78
+      x: 315.92
+      y: -350.56
       z: 30.00
-      azimuth_deg: 0.0
+      azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c1
-      x: 257.15
-      y: -470.78
+      x: 315.92
+      y: -350.56
       z: 30.00
-      azimuth_deg: 120.0
+      azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
     - name: n2c2
-      x: 257.15
-      y: -470.78
+      x: 315.92
+      y: -350.56
       z: 30.00
-      azimuth_deg: 240.0
+      azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-      max_prb: {b2600: 106, b1800: 106, b700: 106}
-    - name: n3c0
-      x: 192.83
-      y: 229.83
-      z: 30.00
-      azimuth_deg: 0.0
-      tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-      max_prb: {b2600: 106, b1800: 106, b700: 106}
-    - name: n3c1
-      x: 192.83
-      y: 229.83
-      z: 30.00
-      azimuth_deg: 120.0
-      tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
-      max_prb: {b2600: 106, b1800: 106, b700: 106}
-    - name: n3c2
-      x: 192.83
-      y: 229.83
-      z: 30.00
-      azimuth_deg: 240.0
-      tilt:
-        b2600: {baseline_deg: 8.0, bounds_deg: [0.0, 16.0]}
-        b1800: {baseline_deg: 6.0, bounds_deg: [0.0, 14.0]}
-        b700: {baseline_deg: 4.0, bounds_deg: [0.0, 12.0]}
+        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 4.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 3.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 106, b1800: 106, b700: 106}
 
 # Radio-map solver settings. Each band is solved separately.

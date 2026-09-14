@@ -88,6 +88,6 @@ which is the thing these records exist to preserve.
 | # | Title | Status | Date | Revised |
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | 2026-08-29 |
-| [0001](0001-five-kpis-under-lexicographic-priority.md) | Four KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-09-12 |
-| [0002](0002-bayesian-optimization-without-a-trust-region.md) | Bayesian optimization without a trust region | Superseded by 0003 | 2026-09-07 | 2026-09-13 |
-| [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | — |
+| [0001](0001-five-kpis-under-lexicographic-priority.md) | Four KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-09-14 |
+| [0002](0002-bayesian-optimization-without-a-trust-region.md) | Bayesian optimization without a trust region | Superseded by 0003 | 2026-09-07 | 2026-09-14 |
+| [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |

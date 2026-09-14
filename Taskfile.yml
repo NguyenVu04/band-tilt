@@ -148,7 +148,7 @@ tasks:
         cmd: uv run python -m {{.PKG}}.optim.run optim/method={{.ITEM}} {{.CLI_ARGS}}
 
   evaluate:
-    desc: 'Compare the newest run of each method, write reports/ (notebook 05)'
+    desc: 'Compare the newest run of each method, write reports/ (notebook 04)'
     cmds:
       - uv run python -m {{.PKG}}.evaluation.run {{.CLI_ARGS}}
 

@@ -17,8 +17,8 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import KPI_NAMES, KpiVector, pareto_mask
-from src.optim.report import choice_table, choose, crowding_distance
+from src.optim.objective import KPI_NAMES, KpiVector, scores
+from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
 
@@ -129,7 +129,7 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
 
 
 def _kpis(count: int) -> list[KpiVector]:
-    """A spread of KPI vectors, so the front has an interior to thin."""
+    """A spread of KPI vectors to rank."""
     rng = np.random.default_rng(0)
     kpis = [KpiVector(0.5, 0.5, 0.5, 0.5)]
     for _ in range(count - 1):
@@ -137,55 +137,34 @@ def _kpis(count: int) -> list[KpiVector]:
     return kpis
 
 
-def test_crowding_distance_scores_the_extremes_infinite() -> None:
-    """The ends of every objective are what a spread has to keep."""
-    values = np.array([[0.0, 1.0], [0.5, 0.5], [1.0, 0.0]])
-    distance = crowding_distance(values)
-    assert np.isinf(distance[0]) and np.isinf(distance[2])
-    assert np.isfinite(distance[1])
-
-
-def test_crowding_distance_prefers_the_lonelier_solution() -> None:
-    """A point with room around it carries more of the front than a crowded one.
-
-    Rows 1 and 2 sit almost on top of each other. Row 2 is the one with the
-    long gap to row 3, so it is the one worth keeping when only one of the pair
-    can be afforded — which is exactly the thinning the publish budget does.
-    """
-    values = np.array([[0.0, 1.0], [0.10, 0.90], [0.11, 0.89], [1.0, 0.0]])
-    distance = crowding_distance(values)
-    assert distance[2] > distance[1]
-    assert np.isinf(distance[0]) and np.isinf(distance[3])
-
-
-def test_a_front_of_two_is_all_extremes() -> None:
-    """Nothing is interior, so nothing can be thinned."""
-    assert np.isinf(crowding_distance(np.array([[0.0, 1.0], [1.0, 0.0]]))).all()
-
-
-def test_choose_always_publishes_the_incumbent_first() -> None:
+def test_choose_always_publishes_the_incumbent_first(cfg) -> None:
     """Every published delta is measured against it, so it has to be offered."""
-    assert choose(_kpis(24), 4)[0] == 0
+    assert choose(_kpis(24), cfg, 4)[0] == 0
 
 
-def test_choose_respects_the_budget_and_never_repeats() -> None:
-    """The incumbent is usually on the front too, and the winner always is."""
-    picks = choose(_kpis(24), 4, keep=(0, 3))
+def test_choose_respects_the_budget_and_never_repeats(cfg) -> None:
+    """A required row that also ranks high is offered once."""
+    picks = choose(_kpis(24), cfg, 4, keep=(0, 3))
     assert len(picks) == 4
     assert len(set(picks)) == len(picks)
 
 
-def test_choose_never_drops_a_required_row_to_fit_the_budget() -> None:
+def test_choose_never_drops_a_required_row_to_fit_the_budget(cfg) -> None:
     """The budget is a preference; the incumbent and the winner are not."""
-    picks = choose(_kpis(24), 1, keep=(0, 3))
+    picks = choose(_kpis(24), cfg, 1, keep=(0, 3))
     assert set(picks) == {0, 3}
 
 
-def test_choose_only_offers_non_dominated_solutions() -> None:
-    """A dominated solution is worse on every count than one already offered."""
+def test_choose_fills_the_budget_by_score(cfg) -> None:
+    """After the incumbent, nothing left out outscores anything offered."""
     kpis = _kpis(24)
-    front = set(np.flatnonzero(pareto_mask(kpis)).tolist())
-    assert set(choose(kpis, 6)) <= front | {0}
+    picks = choose(kpis, cfg, 6)
+    values = scores(kpis, cfg)
+
+    offered = values[picks[1:]]
+    left_out = np.delete(values, picks)
+    assert np.all(np.diff(offered) <= 0)
+    assert offered.min() >= left_out.max()
 
 
 def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
@@ -204,7 +183,7 @@ def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
 def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
     """No row is a prediction, so the stub must have solved every one it offers."""
     _history, directory = run(cfg)
-    published = pd.read_parquet(directory / "pareto_verified.parquet")
+    published = pd.read_parquet(directory / "solutions.parquet")
 
     solved = {tuple(np.round(vector, 9)) for vector in stub.seen}
     for _, row in published.iterrows():
@@ -218,47 +197,25 @@ def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
 def test_the_recommended_row_is_the_run_json_winner(cfg, stub) -> None:
     """`choose` and `best_index` must not be able to name different solutions."""
     _history, directory = run(cfg)
-    published = pd.read_parquet(directory / "pareto_verified.parquet")
+    published = pd.read_parquet(directory / "solutions.parquet")
     meta = run_store.load(directory).meta
 
     assert published["recommended"].sum() == 1
     assert published.loc[published["recommended"], "iteration"].item() == meta["best_iteration"]
 
 
-def test_the_run_publishes_a_front_to_choose_from(cfg, stub) -> None:
-    """The deliverable offers the trade-offs, and always names one of them."""
+def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
+    """The deliverable offers the runners-up, and always names one solution."""
     run(cfg)
-    scores = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/pareto_rule.csv")
+    shortlist = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/solutions_rule.csv")
     options = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/tilt_options_rule.csv")
 
-    assert scores["recommended"].sum() == 1
+    assert shortlist["recommended"].sum() == 1
     for name in KPI_NAMES:
-        assert f"delta_{name}" in scores
+        assert f"delta_{name}" in shortlist
     # One tilt table per offered solution, each covering every cell-band pair.
-    assert set(options["solution"]) == set(scores["solution"])
-    assert len(options) == len(scores) * 6
-
-
-def test_a_dominated_winner_still_reaches_the_deliverable() -> None:
-    """The score can pick a dominated row, and it must still be offered.
-
-    A KPI weighted zero is invisible to `best_by_score`, so the winner can lose
-    on it to a row that ties everywhere else. Filtering the deliverable on
-    `on_pareto` alone would publish a front with nothing marked `recommended`.
-    """
-    published = pd.DataFrame(
-        {
-            "solution": [0, 1, 2],
-            "is_incumbent": [True, False, False],
-            "recommended": [False, True, False],
-            "on_pareto": [True, False, True],
-            **{name: [0.5, 0.4, 0.3] for name in KPI_NAMES},
-        }
-    )
-    table = choice_table(published, KpiVector(0.5, 0.5, 0.5, 0.5))
-
-    assert set(table["solution"]) == {0, 1, 2}
-    assert table["recommended"].sum() == 1
+    assert set(options["solution"]) == set(shortlist["solution"])
+    assert len(options) == len(shortlist) * 6
 
 
 def test_the_incumbent_delta_compares_two_measurements(cfg, space, stub) -> None:
@@ -284,12 +241,3 @@ def test_the_winners_map_costs_exactly_one_extra_solve(cfg, stub) -> None:
     assert len(stub.archived) == 1
     assert np.allclose(stub.archived[0], winner)
     assert run_store.load(directory).meta["n_evaluations"] == len(history)
-
-
-def test_the_front_covers_every_evaluation(cfg, stub) -> None:
-    """One measurement system, so one front over the whole run."""
-    history, directory = run(cfg)
-    frame = run_store.load(directory).history
-
-    assert len(frame) == len(history)
-    assert np.array_equal(frame["on_pareto"].to_numpy(), pareto_mask(history.kpis))

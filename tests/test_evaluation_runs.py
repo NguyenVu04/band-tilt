@@ -58,12 +58,10 @@ def make_run(root: Path, method: str, run_id: str, *, n: int = 3, **radio: objec
             "iteration": range(n),
             "phase": ["init"] * n,
             "seconds": [30.0] * n,
-            "on_pareto": [True] + [False] * (n - 1),
             **{name: [KPI[name]] * n for name in KPI_NAMES},
         }
     )
     history.to_parquet(directory / "history.parquet", index=False)
-    history.head(1).to_parquet(directory / "pareto.parquet", index=False)
     pd.DataFrame(
         {
             "cell": ["n0c0", "n0c0"],

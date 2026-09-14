@@ -1,6 +1,6 @@
 """Compare the newest run of every method and write the core tables and figures.
 
-Entry point for ``task evaluate``: a subset of notebook 05, which adds the SINR,
+Entry point for ``task evaluate``: a subset of notebook 04, which adds the SINR,
 overlap and capacity views. Reads run directories and the baseline radio map
 only, so like the rest of :mod:`src.evaluation` it needs no GPU.
 """
@@ -25,12 +25,12 @@ from src.tracking import log_stage
 from src.utils.plotting import save_fig, setup_plotting
 from src.utils.seed import set_seed
 
-FIGURES_DIR = Path("reports/figures/05_evaluation")
-TABLES_DIR = Path("reports/tables/05_evaluation")
+FIGURES_DIR = Path("reports/figures/04_evaluation")
+TABLES_DIR = Path("reports/tables/04_evaluation")
 
 
 def evaluate(cfg: DictConfig) -> pd.DataFrame:
-    """Write notebook 05's tables and figures under ``reports/``.
+    """Write notebook 04's tables and figures under ``reports/``.
 
     Returns the method comparison table.
 
@@ -102,7 +102,6 @@ def evaluate(cfg: DictConfig) -> pd.DataFrame:
     trace = compare.convergence(runs)
     table(trace, "convergence")
     figure(plots.convergence_plot(trace), "convergence")
-    figure(plots.pareto_plot(runs, cfg), "pareto_front")
 
     table(compare.tilt_movement(winner), f"tilt_movement_{winner.method}")
     figure(plots.tilt_movement_plot(winner), "tilt_movement")
