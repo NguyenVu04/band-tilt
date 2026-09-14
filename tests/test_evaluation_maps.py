@@ -129,13 +129,14 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     """Two UEs on one tile in one interval need twice one UE's PRBs."""
     from src.kpi import capacity
 
-    cfg.kpi.band_priority = {"b": 1.0}
     cfg.kpi.capacity = {
+        "band_preference": ["b"],
         "rsrp_threshold_dbm": -110.0,
         "throughput_per_ue_bps": 1e6,
         "bands": {"b": {"scs_hz": 15000}},
     }
     cfg.simulation = {
+        "seed": 0,
         "transmitters": {
             "cells": [
                 {

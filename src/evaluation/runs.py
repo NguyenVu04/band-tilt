@@ -248,17 +248,17 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
         ],
     )
     record(
-        "every run recorded the KPI thresholds it scored with",
+        "every run recorded the KPI definition it scored with",
         [run.label for run in runs if "kpi" not in run.meta.get("config", {})],
     )
 
-    thresholds = [
-        (run.label, _thresholds(run)) for run in runs if "kpi" in run.meta.get("config", {})
+    definitions = [
+        (run.label, _kpi_definition(run)) for run in runs if "kpi" in run.meta.get("config", {})
     ]
-    reference = thresholds[0][1] if thresholds else None
+    reference = definitions[0][1] if definitions else None
     record(
-        "KPI thresholds agree across runs",
-        [label for label, values in thresholds if values != reference],
+        "KPI definition agrees across runs",
+        [label for label, values in definitions if values != reference],
     )
     return pd.DataFrame(checks, columns=["check", "holds", "offenders"])
 
@@ -281,7 +281,19 @@ def require(checks: pd.DataFrame) -> None:
     )
 
 
-def _thresholds(run: Run) -> dict[str, Any]:
-    """The KPI thresholds a run scored with, from its own config snapshot."""
-    kpi = run.meta["config"]["kpi"]
-    return {key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")}
+def _kpi_definition(run: Run) -> dict[str, Any]:
+    """Everything the objective reads, from the run's own config snapshot.
+
+    The thresholds, the capacity model and the weights, plus each cell's PRB
+    limit: the served ratio depends on all of them, so two runs that differ on
+    any one did not optimize the same objective.
+    """
+    config = run.meta["config"]
+    kpi = config["kpi"]
+    cells = config.get("simulation", {}).get("transmitters", {}).get("cells", [])
+    return {
+        **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
+        "capacity": kpi.get("capacity"),
+        "weights": kpi.get("weights"),
+        "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
+    }

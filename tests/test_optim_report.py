@@ -82,7 +82,7 @@ class StubEvaluator:
             kpi=KpiVector(
                 hole_rate=float(np.mean((unit - 0.35) ** 2)),
                 overlap_rate=float(np.mean(unit) * 0.5),
-                band_priority_score=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                served_ratio=float(1.0 - np.mean((unit - 0.75) ** 2)),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
             ),
             seconds=1.0,

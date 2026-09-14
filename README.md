@@ -68,12 +68,11 @@ loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
 per-band radio maps, and samples them to produce synthetic MDT. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
 from the incumbent configuration. Four shared KPIs - hole rate, overlap rate,
-band priority (how many UEs the prioritised bands serve), and weak-signal rate -
-score every candidate through [`src/kpi/`](src/kpi/); their definitions and
-priority order are documented in
-[ADR 0001](docs/adr/0001-five-kpis-under-lexicographic-priority.md).
+served ratio (the share of UEs admitted to a cell-band), and weak-signal rate -
+score every candidate through [`src/kpi/`](src/kpi/); their definitions are documented in
+[ADR 0001](docs/adr/0001-four-kpis-and-weighted-score.md).
 [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE
-under per-cell PRB limits; band priority counts that serving band, and the PRB
+under per-cell PRB limits; the served ratio counts the UEs it admits, and the PRB
 demand map built from it is a diagnostic outside the objective.
 
 Sionna-RT scores every candidate the search proposes, at roughly 8 s each, and
@@ -140,7 +139,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and its priority rule, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and its weighted score, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -203,7 +202,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-155 passed
+153 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region and traffic logic, the four
@@ -229,7 +228,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, MDT measurement noise, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, Band Priority Score weights, the per-KPI tie tolerances, and the placeholder `capacity` block for the serving rule and PRB demand. The priority *order* is not here — it is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, score weights, the per-KPI tie tolerances, and the placeholder `capacity` block (band preference, serving threshold, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -375,9 +374,9 @@ band-tilt/
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
 | `src/simulation/` — scenario, scene, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
-| `src/kpi/` — the four KPIs (`hole`, `overlap`, `bps`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
+| `src/kpi/` — the four KPIs (`hole`, `overlap`, `served`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
-| `notebooks/` — `00_simulation` through `04_evaluation` | All eight written and adapted to this project |
+| `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
@@ -390,7 +389,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
-| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The Band Priority Score counts the serving band, so an objective depends on them |
+| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The served ratio counts the UEs that rule admits, so the objective depends on them |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards
@@ -419,7 +418,7 @@ task check
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
 `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 155 tests, all passing, none skipped. `src/data/`,
+`src/tracking.py` — 153 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

@@ -3,7 +3,8 @@
 Adds RSRP measurement error. Every cell-band with a path is reported; NaN means
 only that the ray tracer found no path. Each UE is then served from what it
 reported, by :mod:`src.kpi.capacity`, and the PRBs it needs there - at its first
-choice when blocked - make up the demand map.
+choice when blocked - make up the demand map. A UE with no reported layer above
+``kpi.hole_dbm`` has no candidate and adds no demand.
 
 Reported SINR is computed from the reported RSRP by :func:`_sinr_db`, not
 sampled from the solver's SINR, so the measurement error reaches it - and PRB

@@ -46,13 +46,13 @@ _CONFIG = {
         "tolerance": {
             "hole_rate": 0.001,
             "overlap_rate": 0.001,
-            "band_priority_score": 0.001,
+            "served_ratio": 0.001,
             "weak_rate": 0.001,
         },
         "weights": {
             "hole_rate": 4.0,
             "overlap_rate": 3.0,
-            "band_priority_score": 2.0,
+            "served_ratio": 2.0,
             "weak_rate": 1.0,
         },
     },
@@ -104,7 +104,7 @@ class StubEvaluator:
             kpi=KpiVector(
                 hole_rate=float(np.mean((unit - 0.3) ** 2)),
                 overlap_rate=float(np.mean(unit) * 0.4),
-                band_priority_score=float(1.0 - np.mean((unit - 0.8) ** 2)),
+                served_ratio=float(1.0 - np.mean((unit - 0.8) ** 2)),
                 weak_rate=float(np.mean((unit - 0.2) ** 2)),
             ),
             seconds=0.0,

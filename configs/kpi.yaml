@@ -1,8 +1,9 @@
 # @package kpi
 # Thresholds and weights defining the four KPIs, plus the capacity model behind
-# the serving rule and the PRB demand map.
+# the serving rule, the served ratio and the PRB demand map.
 
-# Strongest signal at or below which a location is a coverage hole.
+# Strongest signal at or below which a location is a coverage hole. Also the
+# RSRP a cell-band must exceed to serve a UE.
 hole_dbm: -120.0
 
 # Upper bound of weak coverage; the lower bound is hole_dbm.
@@ -11,38 +12,34 @@ weak_dbm: -90.0
 # Inclusive margin within which a co-band neighbour overlaps the serving cell.
 overlap_margin_db: 6.0
 
-# Band Priority Score weights, keyed by band label and normalised to [0, 1].
-# Sorted descending, they are also the serving-cell band preference.
-band_priority:
-  b2600: 3.0
-  b1800: 2.0
-  b700: 1.0
-
 # Weights of the score every method optimizes and every winner is picked by
 # (src/optim/objective.py `scores`, ADR 0003): the sum of weight x KPI, signed so
-# larger is better (band_priority_score +, the three rates -). Raw values, not
+# larger is better (served_ratio +, the three rates -). Raw values, not
 # normalised, so a KPI's pull is its weight times its range. Finite, non-negative,
 # not all zero.
 weights:
   hole_rate: 4.0
   overlap_rate: 3.0
-  band_priority_score: 2.0
+  served_ratio: 2.0
   weak_rate: 1.0
 
 # Noise floor per KPI, for reporting only: a delta within it is reported as a
 # tie rather than as better or worse. It does not affect which solution wins.
 #
-# Each sits at the ray tracer's run-to-run spread under a changed solver seed.
+# The three rates sit at the ray tracer's run-to-run spread under a changed
+# solver seed. served_ratio is UNMEASURED: derive it the same way before
+# reporting against it.
 tolerance:
   hole_rate: 0.002
   overlap_rate: 0.001
-  band_priority_score: 0.001
+  served_ratio: 0.001
   weak_rate: 0.004
 
-# Serving-cell choice and PRB demand (src/kpi/capacity.py). The serving band is
-# what the Band Priority Score counts. Every value is a PLACEHOLDER pending the
-# maintainer's numbers.
+# Serving-cell choice and PRB demand (src/kpi/capacity.py). Every value is a
+# PLACEHOLDER pending the maintainer's numbers.
 capacity:
+  # Serving band preference, most preferred first. Must list every band.
+  band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one.
   rsrp_threshold_dbm: -90.0
   # Assumed required throughput of each UE; sets PRBs per UE.

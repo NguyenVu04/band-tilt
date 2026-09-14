@@ -16,20 +16,20 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi import band_priority_score, hole_rate, overlap_rate, weak_rate
+from src.kpi import hole_rate, overlap_rate, served_ratio, weak_rate
 
 # ADR 0001's priority order, highest first: the column order of every table and
 # the key order ``kpi.weights`` and ``kpi.tolerance`` are read in.
 KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
-    "band_priority_score",
+    "served_ratio",
     "weak_rate",
 )
 
 # The KPIs where larger is better. Named once, so no call site re-decides a
 # sign; the other three are minimised.
-MAXIMISED = frozenset({"band_priority_score"})
+MAXIMISED = frozenset({"served_ratio"})
 
 
 @dataclass(frozen=True)
@@ -39,13 +39,13 @@ class KpiVector:
     Attributes:
         hole_rate: Share of the grid receiving nothing above ``kpi.hole_dbm``.
         overlap_rate: Share of the grid with at least one overlapping neighbour.
-        band_priority_score: Mean normalised priority weight of each UE's serving band.
+        served_ratio: Share of UEs admitted to a cell-band above the hole threshold.
         weak_rate: Share of the grid covered but below ``kpi.weak_dbm``.
     """
 
     hole_rate: float
     overlap_rate: float
-    band_priority_score: float
+    served_ratio: float
     weak_rate: float
 
     def as_dict(self) -> dict[str, float]:
@@ -84,14 +84,14 @@ def evaluate_kpis(
             no path was found.
         sinr: The solver's SINR in dB, same shape as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
-        mdt: The UE reports; ``tile_row`` and ``tile_col`` weight the band
-            priority score.
+        mdt: The UE reports; ``t_index``, ``tile_row`` and ``tile_col`` place the
+            UEs the served ratio counts.
         cfg: Composed config; the KPIs read ``cfg.kpi``.
     """
     return KpiVector(
         hole_rate=hole_rate(rsrp, cfg),
         overlap_rate=overlap_rate(rsrp, cfg),
-        band_priority_score=band_priority_score(rsrp, sinr, band_labels, mdt, cfg),
+        served_ratio=served_ratio(rsrp, sinr, band_labels, mdt, cfg),
         weak_rate=weak_rate(rsrp, cfg),
     )
 

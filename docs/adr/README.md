@@ -65,29 +65,22 @@ Superseding a record means editing exactly two lines: the old record's status,
 and the new record's `Supersedes` line. The old record's Context and Decision
 stay as they were written, because they are the historical account.
 
-### Revision in place — the exception, not the practice
+### Rewriting in place — the exception, not the practice
 
-0002 was **revised in place** on 2026-09-09, at the maintainer's direction, when
-the search moved onto a learned stand-in for the ray tracer, and again on
-2026-09-12 when that revision was withdrawn and the search returned to scoring
-Sionna-RT directly.
+On 2026-09-14, at the maintainer's direction, 0001 and 0003 were rewritten to
+describe the current system and 0002 (superseded by 0003) was deleted. This
+departs from the rule above; the earlier text, including every revision note,
+is in Git history. Each rewritten record says so in its header.
 
-0001 was **revised in place** on 2026-08-28, at the maintainer's direction,
-rather than superseded by a new record. The surviving records were revised
-in place again on 2026-08-29, also at the maintainer's direction, to remove the
-citations to a specification document that is no longer treated as a source of
-truth. Both are departures from the rule above and are recorded as such: each
-carries a `Revised` line in its header and a *Revision note* section stating
-exactly what changed and why. The pre-revision text is in Git history.
-
-Prefer superseding. Revision in place loses the shape of the original argument,
-which is the thing these records exist to preserve.
+Prefer superseding. Rewriting loses the shape of the original argument, which
+is the thing these records exist to preserve.
 
 ## Index
 
-| # | Title | Status | Date | Revised |
+| # | Title | Status | Date | Rewritten |
 |---|---|---|---|---|
-| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | 2026-08-29 |
-| [0001](0001-five-kpis-under-lexicographic-priority.md) | Four KPIs under lexicographic priority | Accepted | 2026-08-28 | 2026-09-14 |
-| [0002](0002-bayesian-optimization-without-a-trust-region.md) | Bayesian optimization without a trust region | Superseded by 0003 | 2026-09-07 | 2026-09-14 |
+| [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
+| [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
 | [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
+
+0002 is deleted; the number is not reused.

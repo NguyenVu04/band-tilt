@@ -28,14 +28,15 @@ def cfg():
     return OmegaConf.create(
         {
             "kpi": {
-                "band_priority": {"hi": 3.0, "lo": 1.0},
+                "hole_dbm": -120.0,
                 "capacity": {
+                    "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
                     "throughput_per_ue_bps": _B_PRB,
                     "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
-            "simulation": {"transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
+            "simulation": {"seed": 0, "transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
         }
     )
 
@@ -76,6 +77,28 @@ def test_below_every_threshold_the_strongest_serves_and_no_path_is_dropped() -> 
     assert order.tolist() == [3, 0, 2]
 
 
+def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
+    """-120 dBm is a hole, so only the -119 dBm layer may serve."""
+    rsrp = np.array([[-120.0, -119.0], [-130.0, np.nan]])
+    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0, -120.0)
+    assert order.tolist() == [1]
+
+
+def test_admission_order_does_not_follow_row_order(cfg) -> None:
+    """One PRB-limited cell, many identical UEs: the admitted ones are not the first rows."""
+    cfg.simulation.transmitters.cells = _cells({"hi": 60, "lo": 1})
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    n_ue = 40
+    rsrp = np.array([[[-90.0], [np.nan]]] * n_ue)
+    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
+    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(n_ue, dtype=int), spec)
+    admitted = np.flatnonzero(band >= 0)
+    assert admitted.size == 10
+    assert admitted.tolist() != list(range(10))
+    again, _, _ = capacity.serve_rows(rsrp, sinr, np.zeros(n_ue, dtype=int), spec)
+    assert np.array_equal(band, again)
+
+
 def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
     """Each UE needs 6 PRBs of a 10-PRB limit, so the second UE moves on."""
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
@@ -109,8 +132,10 @@ def test_each_cell_band_has_its_own_limit_and_intervals_do_not_share_prbs(cfg) -
     rsrp = np.array([[[-90.0, -95.0]]] * 3)  # [ue, band, tx]
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
     band, tx, per_ue = capacity.serve_rows(rsrp, sinr, np.array([0, 0, 1]), spec)
-    assert band.tolist() == [0, -1, 0]
-    assert tx.tolist() == [1, -1, 1]
+    # The two interval-0 UEs are identical, so which one is blocked is the shuffle's call.
+    assert sorted(band[:2].tolist()) == [-1, 0]
+    assert sorted(tx[:2].tolist()) == [-1, 1]
+    assert (band[2], tx[2]) == (0, 1)
     assert per_ue.tolist() == pytest.approx([6.0, 6.0, 6.0])
 
 

@@ -1,34 +1,10 @@
-# 1. Four KPIs under lexicographic priority
+# 1. Four KPIs
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
-- **Revised:** 2026-08-28 — revised in place to follow a change in the
-  formulation. The priority order and the Mean Overlap Neighbors denominator
-  changed; see *Revision note — 2026-08-28* below.
-- **Revised:** 2026-08-29 — revised in place to remove the citations to a
-  specification document that is no longer treated as a source of truth. No
-  decision changed.
-- **Revised:** 2026-09-09 — revised in place at the maintainer's direction.
-  Band Priority Score and Expected RSRP Improvement swap priority slots;
-  see *Revision note — 2026-09-09* below.
-- **Revised:** 2026-09-08 — revised in place, again at the maintainer's
-  direction rather than superseded. Expected RSRP Improvement replaces Mean
-  Overlap Neighbours in the third priority slot; see *Revision note — 2026-09-08*
-  below.
-- **Revised:** 2026-09-10 — revised in place at the maintainer's direction.
-  Expected RSRP Improvement is removed, leaving four KPIs; see *Revision note —
-  2026-09-10* below. The file name keeps "five" so existing links still resolve.
-- **Revised:** 2026-09-11 — revised in place at the maintainer's direction.
-  Band Priority Score counts each UE's serving band under the capacity model's
-  serving rule rather than the strongest band on its tile; see *Revision note —
-  2026-09-11* below.
-- **Revised:** 2026-09-12 — revised in place at the maintainer's direction. The
-  synthetic MDT no longer reports SINR and the radio map no longer stores it;
-  PRBs per UE derive from SINR recomputed from the reported RSRP. No KPI
-  definition changed; see *Revision note — 2026-09-12* below.
-- **Revised:** 2026-09-14 — revised in place at the maintainer's direction. No
-  Pareto front is computed any more, and the `mobo` method this record names no
-  longer exists; see *Revision note — 2026-09-14* below.
+- **Rewritten:** 2026-09-14 — rewritten at the maintainer's direction to describe
+  the current system. Earlier revisions (lexicographic selection, Mean Overlap
+  Neighbours, Expected RSRP Improvement, Band Priority Score) are in Git history.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** —
@@ -40,391 +16,85 @@ the choice of number *is* the research question — every result the project
 produces is a statement about whichever quantity gets picked here.
 
 Radio network optimization has many candidate KPIs: coverage rates at various
-thresholds, interference measures, throughput proxies, accessibility, retainability,
-handover statistics. Including more looks safer and is not: each additional
-objective dilutes the others, widens the Pareto front, and makes the TuRBO/MARL
-comparison harder to read.
+thresholds, interference measures, throughput proxies, accessibility,
+retainability, handover statistics. Each additional one dilutes the others and
+makes method comparisons harder to read.
 
-Three further pressures shape the choice.
-
-*The objectives conflict.* Tilting a cell down shrinks its footprint — that
-reduces overlap with neighbours and simultaneously risks opening holes at the
-cell edge. There is no configuration that minimises everything, so the
-formulation has to say what wins.
-
-*They are on incomparable scales.* Hole rate is a percentage in `[0, 100]`. Mean
-overlap neighbours is a small count. Band Priority Score is on whatever scale the
-band weights use. A weighted sum over raw values has its effective priority set by
-the scales, not by the weights.
-
-*A strict order is unimplementable as literally stated.* Lexicographic
-optimization compares the second objective only when the first ties. Hole rate is
-continuous, so exact ties essentially never happen, and a literal implementation
-is single-objective optimization on hole rate wearing a costume.
-
-There is also a KPI that was available and deliberately left out. Accessibility —
-whether a UE can actually connect — is standard in RAN optimization and was
-considered for both the serving-cell rule and a dominant-band criterion.
+The objectives conflict. Tilting a cell down shrinks its footprint — that
+reduces overlap with neighbours and risks opening holes at the cell edge, and it
+changes which UEs a cell can carry within its PRBs. No configuration minimises
+everything, so the formulation has to say how they trade.
 
 ## Decision
 
-The objective is exactly four KPIs:
+The objective is exactly four KPIs, defined in `src/kpi/` and nowhere else:
 
 | KPI | Definition | Direction |
 |---|---|---|
-| Hole rate | fraction of grid with `R_max <= -120` dBm | minimise |
-| Overlap rate | fraction of grid with any co-band neighbour within 6 dB of that band's serving cell | minimise |
-| Band Priority Score | mean normalised priority weight `w̃` of the band each covered UE is served by under the serving rule (`src/kpi/capacity.py`); a PRB-blocked UE scores 0 | **maximise** |
-| Weak rate | fraction of grid with `-120 < R_max <= -90` dBm | minimise |
+| Hole rate | fraction of grid tiles with `R_max <= kpi.hole_dbm` | minimise |
+| Overlap rate | fraction of grid tiles with any co-band neighbour within `kpi.overlap_margin_db` of that band's serving cell | minimise |
+| Served ratio | fraction of MDT UEs admitted by the serving rule (`src/kpi/capacity.py`) to a cell-band whose RSRP is above `kpi.hole_dbm` | **maximise** |
+| Weak rate | fraction of grid tiles with `hole_dbm < R_max <= kpi.weak_dbm` | minimise |
 
-They are ordered lexicographically: **Hole > Overlap > Band Priority Score >
-Weak**. Coverage holes come first, then how often layers collide, then whether
-the right frequency layer is serving the users who reported, and finally the
-marginal quality of what is already covered.
+The column order, **Hole > Overlap > Served > Weak**, is the reporting order
+and the order of the default weights. Selection is the weighted score of
+[ADR 0003](0003-turbo-on-a-weighted-kpi-score.md), not a lexicographic rule.
 
-One of the four is maximised, and it is the one weighted by the UE reports
-rather than uniformly over the grid. The three minimised KPIs are shares of the
-map; the maximised one is a share of the traffic.
+**The serving rule.** Each UE takes the most preferred band
+(`kpi.capacity.band_preference`) whose layer clears
+`kpi.capacity.rsrp_threshold_dbm`, else the strongest layer; a cell-band out of
+PRBs (`max_prb`) passes the UE to the next candidate. PRBs per UE are
+`throughput_per_ue_bps / (12 · SCS · log2(1 + SINR))`, with the solver's
+full-load co-band SINR. UEs within an interval are admitted in a seeded random
+order, so which UE is blocked does not follow its position in the MDT. A layer
+at or below `kpi.hole_dbm` never serves.
 
-Each objective carries a **tolerance** in `configs/kpi.yaml`. A difference smaller
-than its tolerance is treated as a tie and the comparison moves to the next
-objective. Without this the order does not bind.
+A UE on a hole, and a UE blocked everywhere, both count as not served. The
+three rates are shares of the map; the served ratio is a share of the traffic.
 
-Where an optimizer cannot express a lexicographic goal, a scalarized fallback is
-provided. It operates on **normalised** KPIs, and the weights are checked to
-satisfy `lambda_H > lambda_O > lambda_BPS > lambda_W` rather than trusted.
+Each KPI carries a **tolerance** in `configs/kpi.yaml`, used only to report a
+delta as better, worse or a tie.
 
-**Accessibility is excluded** — not as a KPI, not as an objective term, not as a
-serving-cell or dominant-band criterion.
-
-The definitions live in `src/kpi/` and nowhere else. TuRBO, MARL and the final
-Sionna-RT validation all score through the same functions, and no call site
-re-derives a threshold. What a producer hands over is a radio map rather than
-these KPIs, so there is one evaluator and it sits downstream of every
-producer.
+**Accessibility is excluded** as a KPI: synthetic MDT carries RSRP and position,
+not connection outcomes, and Sionna-RT models propagation, not random access.
 
 ## Consequences
 
 **Positive**
 
-- The objective is small enough to reason about and to plot: four columns, one
-  comparison table.
-- The priority is explicit, so a configuration that fills holes at the cost of
-  overlap is unambiguously better rather than a matter of taste.
-- One implementation means TuRBO and MARL cannot be scoring subtly different
-  things, which is what makes the TuRBO-versus-MARL comparison valid.
-- Excluding accessibility keeps the formulation about radio coverage, where the
-  MDT data and the ray-tracing simulation both have something to say.
+- Four columns, one comparison table, one implementation scored by every method.
+- The served ratio makes capacity visible: a tilt that covers a hotspot from a
+  cell with no PRBs left does not look like a win.
 
 **Negative**
 
-- The tolerances are consequential and have no principled value. Too tight and
-  the formulation collapses to hole-rate minimisation; too loose and the priority
-  stops binding. They will be chosen by judgement and must be reported.
-- The lexicographic relation with slack is **not transitive**, so it is not a
-  valid sort key. Selecting a best candidate needs a single pass, and any
-  "ranking" of candidates is order-dependent.
-- Excluding accessibility means the optimizer can produce a configuration with
-  excellent RSRP coverage that is worse to actually connect to, and nothing in
-  the formulation will notice.
-- **The objective mixes two notions of where the map matters.** Hole, overlap
-  and weak rate weight every tile equally; Band Priority Score scores each UE
-  report. A configuration can therefore improve slot 3
-  while making ground the MDT never sampled worse, and slots 1, 2 and 4 are what
-  has to catch that.
-- Throughput is not in the objective, so an overlap reduction that costs
-  capacity looks like a pure win. SINR and PRB limits enter only indirectly,
-  through the serving rule Band Priority Score counts by; SINR is derived from
-  RSRP, never measured or stored (see the 2026-09-12 note). Every `kpi.capacity`
-  value is a placeholder — slot 3 is only as good as those values; see the
-  2026-09-11 note.
-- Changing any threshold makes every previously produced result incomparable.
-
-**Neutral**
-
-- The scalarized path exists and is lossy by construction. It is a compatibility
-  shim for optimizers that need one number, and results produced with it must say
-  so.
-- Adding a fifth KPI later is possible but supersedes this record and invalidates
-  the existing comparisons.
-- No KPI compares a candidate against measured data any more; every one scores
-  the candidate map on its own terms, with the MDT supplying only UE positions.
+- **Every `kpi.capacity` value is a placeholder.** The served ratio is only as
+  good as the per-UE throughput, PRB limits, SCS and band preference behind it.
+- `kpi.tolerance.served_ratio` is unmeasured; the other tolerances sit at the
+  ray tracer's run-to-run spread under a changed solver seed.
+- The objective mixes two notions of where the map matters: three KPIs weight
+  every tile equally, the served ratio weights UE reports. It also overlaps hole
+  rate, since a UE on a hole is unserved.
+- Nothing band-aware is in the objective. Band preference shapes the serving
+  rule and therefore PRB blocking, but no KPI rewards a particular band.
+- The capacity model is optimistic and inconsistent: Shannon rate with no MCS
+  cap or overhead, full-load interference beside partial PRB load.
+- Changing any threshold or capacity value makes earlier results incomparable;
+  `src/evaluation/runs.py` refuses to compare such runs.
 
 ## Alternatives considered
 
-**A single weighted-sum objective.** Simple, works with every optimizer, and
-yields a total order. Rejected as the *definition* because it cannot express a
-strict priority: for any weights there is a trade that sacrifices hole rate for
-enough of the other three, which is exactly the outcome the priority forbids. Kept
-as a fallback where an optimizer requires it.
+**Band Priority Score** — the mean normalised weight of each UE's serving band.
+Replaced because it rewarded *which* band served, on judgement weights, rather
+than *whether* the UE was served.
 
-**Full multi-objective optimization, reporting a Pareto front.** Makes the
-conflicts explicit and imposes no priority. Rejected as the primary formulation
-because the deliverable is one tilt configuration to deploy, and choosing from a
-four-dimensional front requires exactly the priority this record states — so the
-decision reappears, less visibly. A multi-objective acquisition was available
-in `configs/optim/method/mobo.yaml` until ADR 0003 removed it; see the 2026-09-14
-revision note.
+**Full multi-objective optimization, reporting a Pareto front.** Rejected
+because the deliverable is one tilt configuration, and picking from a
+four-dimensional front needs a preference anyway; see ADR 0003.
 
-**Constrained optimization: maximise Band Priority Score subject to hole rate
-below a cap.** Clean, standard, and directly deployable. Rejected because the caps
-are as arbitrary as the tolerances but bind much harder — a configuration one
-hundredth of a point over the cap is infeasible rather than slightly worse, and
-the sensible cap is not known before seeing what the tilt space can achieve.
+**Constrained optimization** (maximise served ratio subject to a hole-rate cap).
+Clean and directly deployable, but the sensible cap is not known before seeing
+what the tilt space can achieve.
 
-**Include accessibility.** Standard in RAN optimization and operationally
-meaningful. Rejected because it is not derivable from what this project has:
-synthetic MDT carries RSRP and position, not connection outcomes, and Sionna-RT
-models propagation rather than random access. Including it would mean modelling
-accessibility from RSRP, which adds an assumption without adding information.
-
-**Include throughput or SINR.** Closer to user experience than coverage rates.
-Rejected for scope: it needs a load model and a scheduler assumption, neither of
-which the available data supports, and the resulting number would be dominated by
-those assumptions rather than by the tilt configuration under study.
-
-## Revision note — 2026-08-28
-
-This record was **revised in place** rather than superseded, at the maintainer's
-direction. That departs from the rule in [README.md](README.md) that an accepted
-record is never rewritten; the original text is recoverable from Git history at
-`abcdf6c`. What changed:
-
-| | Originally recorded | Now |
-|---|---|---|
-| Priority | Hole > Overlap > **Weak** > overlap severity > band coordination | Hole > Overlap > **Mean overlap neighbours > BPS > Weak** |
-| Mean overlap neighbours | mean of `N_ov` over **overlapping locations only** | mean of `N_ov` over **all** locations, `(1/\|G\|)·Σ N_ov(g)` |
-| Scalarized constraint | `lambda_H > lambda_O > lambda_W` | `lambda_H > lambda_O > lambda_ON > lambda_BPS > lambda_W` |
-
-Both changes follow the 2026-08-28 change in the formulation. The demotion of
-weak rate to last is the larger practical change: under the original order a
-configuration could not trade weak coverage for band coordination, and now it
-can. The denominator change is recorded as a cost under *Consequences →
-Negative* above — it is the one part of this revision that removes information
-from the objective rather than reordering it.
-
-The Mean Overlap Neighbours denominator recorded here was superseded before it
-was ever reimplemented; the KPI itself was removed by the 2026-09-08 revision
-below.
-
-## Revision note — 2026-09-08
-
-**Revised in place** rather than superseded, at the maintainer's direction, for
-the same reason and with the same caveat as the note above: this departs from
-the rule in [README.md](README.md) that an accepted record is never rewritten,
-and the previous text is recoverable from Git history.
-
-| | Previously recorded | Now |
-|---|---|---|
-| Slot 3 | Mean overlap neighbours, minimise | Expected RSRP Improvement, **maximise** |
-| Maximised KPIs | one (BPS) | two (Expected RSRP Improvement, BPS) |
-| Scalarized constraint | `lambda_ON` | `lambda_EI` |
-
-Mean overlap neighbours is **removed**, not demoted. The *Consequences →
-Negative* section of the 2026-08-28 revision already recorded it as "partly
-redundant with overlap rate" once its denominator became all `|G|`: any
-configuration lowering overlap rate lowered it too, almost mechanically, so the
-third slot was carrying a rescaling of the second. Expected RSRP Improvement
-puts something independent there — it is the only KPI that reads what the UEs
-measured rather than scoring the candidate map on its own terms.
-
-The sigmoid is not decoration. `mean(1[ΔR > 0])` — the fraction of reports
-improved — is the quantity of interest and needs no `τ`, but it is a step
-function and gives a Gaussian-process model nothing to follow. `σ(ΔR/τ)` is its smooth
-relaxation, which is what makes the KPI usable as a Bayesian-optimization
-objective.
-
-`kpi.tolerance.expected_rsrp_improvement` is **unmeasured**. Every other
-tolerance sits at the ray tracer's run-to-run spread under a changed solver
-seed; this one is a placeholder carried in `configs/kpi.yaml` with that stated,
-and it must be derived the same way before any result is reported against it.
-
-
-## Revision note — 2026-09-09
-
-Revised in place at the maintainer's direction, as this record has been three
-times before. One thing changed: **Band Priority Score and Expected RSRP
-Improvement swap the third and fourth priority slots.** The five KPIs, their
-definitions, their directions and their thresholds are untouched, as is the
-lexicographic mechanism and its tolerances.
-
-The order is now **Hole > Overlap > Band Priority Score > Expected RSRP
-Improvement > Weak**.
-
-**What this costs.** Every result produced before this change is incomparable
-with every result after it, which is the standing consequence of any reordering
-and the reason this is a record rather than a config key. Runs on disk are not
-migrated: their `run.json` carries the config that scored them, so which order a
-past run used is recoverable, but its winner is not the winner the new order
-would pick.
-
-**One consequence worth stating, because it was already a known gap.** This
-record's *Consequences* section flags
-`kpi.tolerance.expected_rsrp_improvement` as **unmeasured** — a placeholder,
-where the other four sit at the ray tracer's run-to-run spread. Until now that
-unmeasured tolerance sat in the third slot, deciding ties before any measured
-one was consulted. It now sits fourth, behind Band Priority Score, whose
-tolerance is measured. That narrows the reach of the gap; it does not close it,
-and measuring the tolerance remains on the roadmap.
-
-The reasoning for preferring the frequency layer over the reported improvement
-is the maintainer's, and is recorded here as their direction rather than
-reconstructed after the fact.
-
-## Revision note — 2026-09-10
-
-Revised in place at the maintainer's direction. **Expected RSRP Improvement is
-removed.** The other four KPIs keep their definitions, directions, thresholds
-and tolerances; the order is now **Hole > Overlap > Band Priority Score > Weak**.
-
-| | Previously recorded | Now |
-|---|---|---|
-| KPIs | five | four |
-| Maximised KPIs | two (Expected RSRP Improvement, BPS) | one (BPS) |
-| Scalarized constraint | `... > lambda_BPS > lambda_EI > lambda_W` | `... > lambda_BPS > lambda_W` |
-
-The same change removes the MDT's synthetic censoring, the per-scenario building
-perturbation and the per-scenario material draw from the simulator. Expected
-RSRP Improvement was the only KPI that read the reported RSRP values, and the
-only one whose tolerance was unmeasured; both gaps close with it.
-
-**What this costs.** As with every revision, results before and after are
-incomparable. Runs on disk are not migrated; their `run.json` records the five
-KPIs that scored them.
-
-**SINR and PRB demand enter as a diagnostic, not an objective.**
-`src/kpi/capacity.py` picks a serving cell-band per UE (band preference above an
-RSRP threshold, else the strongest, under per-cell-band PRB limits) and turns
-full-load co-band SINR into PRBs per UE. The evaluation's demand map is now PRBs
-required per tile. The *Include throughput or SINR* alternative above still
-holds for the objective: the model's load and scheduler assumptions are
-placeholders, and no optimizer sees the result. (The SINR here was the ray
-tracer's at the time; since the 2026-09-12 note it is recomputed from RSRP.)
-
-## Revision note — 2026-09-11
-
-Revised in place at the maintainer's direction. **Band Priority Score changes
-definition**; its slot, direction, weights and tolerance value are unchanged.
-
-| | Previously recorded | Now |
-|---|---|---|
-| Band counted | strongest layer on the UE's tile (`dominant_band`) | the UE's serving band from `src/kpi/capacity.py`: band preference above `kpi.capacity.rsrp_threshold_dbm`, else the strongest, under per-cell-band PRB limits |
-| Unit summed | tiles, weighted by UE report count | UE reports, one term each |
-| PRB-blocked UE | not modelled | in the denominator at weight 0 |
-| UE on a hole | excluded | excluded |
-
-The score is `mean over covered UEs of w̃[band_u]`, with `w̃` the min-max
-normalised `kpi.band_priority`. It asks how many UEs the prioritised bands
-actually serve, not how many stand where a prioritised band is loudest.
-
-**What this costs.** Band Priority Score values before and after are
-incomparable, and so is any winner that slot 3 decided. Runs on disk are not
-migrated.
-
-**Two statements above no longer hold.** The 2026-09-10 note's "no optimizer
-sees the result" is now false: the serving rule, its SINR and its PRB limits
-decide slot 3. The *Include throughput or SINR* alternative is correspondingly
-walked back in part — SINR and load now shape the objective, on placeholder
-values.
-
-**`kpi.tolerance.band_priority_score` is unmeasured for the new definition.**
-It was set at the ray tracer's run-to-run spread of the old score. The value is
-carried unchanged and must be re-derived the same way before any result is
-reported against it — the gap the 2026-09-08 note recorded for Expected RSRP
-Improvement, now in slot 3.
-
-## Revision note — 2026-09-12
-
-Revised in place at the maintainer's direction. **No KPI definition, slot,
-direction, threshold or tolerance changes.** What changes is where slot 3's SINR
-comes from.
-
-SINR existed twice. `src/simulation/radio.py` stored sionna-rt's
-`RadioMap.sinr` in `radio_map.npz`, and `src/simulation/mdt.py` sampled it,
-added an independent Gaussian error, and wrote 36 `sinr_*` columns into the MDT.
-Separately, `src/kpi/capacity.py` derives SINR from RSRP alone — full-load
-co-band interference plus `k·T·B`. Every KPI reader already used the derived
-one, because it has to: an optimizer's map carries RSRP and nothing else.
-
-| | Previously recorded | Now |
-|---|---|---|
-| `radio_map.npz` | `rsrp_dbm` and `sinr_db` | `rsrp_dbm` only |
-| MDT columns | `rsrp_*` and `sinr_*` per cell-band | `rsrp_*` only |
-| Noise knobs | `rsrp_noise_sigma_db`, `sinr_noise_sigma_db` | `rsrp_noise_sigma_db` |
-| PRBs per UE at the MDT stage | from the reported SINR | from SINR recomputed off the reported RSRP |
-| KPI readers | already recomputed from RSRP | unchanged |
-
-The two agreed to **MAE 7e-06 dB, max 0.0086 dB** over the stored map, recorded
-by a one-off check on 2026-09-11. That measurement is what showed the stored
-copy to be redundant, and it is also the last time it can be taken: the
-comparison is retired with the array it compared against.
-
-**What this costs.** `demand_map.npz` shifts. The measurement error now reaches
-PRB demand once, through RSRP, instead of twice through two independent draws,
-so PRB demand and any Band Priority Score that PRB blocking decided are not
-comparable with earlier runs. Runs on disk are not migrated. The reported
-`rsrp_*` values themselves are unchanged for a given seed — the RSRP noise draw
-was left exactly as it was.
-
-**What this buys.** One definition of SINR, in `src/kpi/capacity.py`, exercised
-by every scorer. The previous arrangement could drift: nothing compared the
-reported SINR against the clean SINR, and `sinr_noise_sigma_db` was applied and
-then read by only the demand map, so a wrong value there was invisible.
-
-**The *Include throughput or SINR* alternative and the 2026-09-11 walk-back both
-still stand.** SINR still shapes the objective through the serving rule, on
-placeholder `kpi.capacity` values. Only its source narrowed.
-
-## Revision note — 2026-09-13
-
-Revised in place at the maintainer's direction, reversing the source change of
-the 2026-09-12 note. **No KPI definition, slot, direction, threshold or
-tolerance changes.**
-
-| | 2026-09-12 | Now |
-|---|---|---|
-| `radio_map.npz` (baseline and every run's `best_radio_map.npz`) | `rsrp_dbm` only | `rsrp_dbm` and `sinr_db`, the solver's `RadioMap.sinr` |
-| MDT columns | `rsrp_*` only | `rsrp_*` and `sinr_*` per cell-band |
-| MDT SINR | recomputed off reported RSRP inside the serving rule | computed once off reported RSRP by `src/simulation/mdt.py` and written |
-| KPI readers (Band Priority Score, PRB demand, SINR plots) | recomputed SINR from RSRP with `src/kpi/capacity.py::sinr_db` | read the stored SINR; `capacity.sinr_db` is removed |
-
-Only two places produce SINR: sionna-rt's radio map solver, and the MDT stage
-applying the same co-band, full-load `k·T·B` model to the noisy RSRP. Every
-optimizer evaluation now carries the solver's SINR beside its RSRP, so the
-reason the 2026-09-12 note gave for deriving it — an optimizer's map carries
-RSRP and nothing else — no longer holds.
-
-**What this costs.** Runs and `radio_map.npz` files written before this date
-have no `sinr_db` and cannot be evaluated; they are not migrated. The two
-sources used the same model, and the 2026-09-12 note measured their agreement
-as negligible, so KPI values are expected to be comparable, but that is not
-re-measured here. The parked surrogate package, which predicted RSRP only, is
-removed except for `src/surrogate/features.py`.
-
-## Revision note — 2026-09-13 (selection)
-
-Revised at the maintainer's direction; see
-[ADR 0003](0003-turbo-on-a-weighted-kpi-score.md). **No KPI definition,
-direction, threshold or tolerance changes.**
-
-**Selection is no longer lexicographic.** The winner of a run, of the rule
-sweep and of a comparison between methods is the highest weighted score,
-`kpi.weights` times each KPI, signed so larger is better. The defaults 4, 3, 2,
-1 follow the priority order stated above, but a weighted sum is not a strict
-order: a large enough gain on a lower-priority KPI now outweighs a small loss on
-a higher one. `kpi.tolerance` is kept for reporting a delta as better, worse or
-a tie, and no longer decides anything.
-
-## Revision note — 2026-09-14
-
-Revised in place at the maintainer's direction. **No KPI definition, direction,
-threshold, tolerance or weight changes.**
-
-No run computes or publishes a Pareto front any more; see the 2026-09-14
-amendment to [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md). The shortlist an
-operator reads is the incumbent plus the highest weighted scores. The Context's
-remark that more objectives widen the Pareto front, and the *Full
-multi-objective optimization* alternative, are kept as the reasoning of their
-time. That alternative's closing sentence claimed
-`configs/optim/method/mobo.yaml` was still available; ADR 0003 removed the
-method, and the sentence now says so.
+**Include throughput directly.** Closer to user experience; left out because the
+load and scheduler assumptions would dominate the number.

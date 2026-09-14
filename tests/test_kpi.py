@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import band_priority_score, hole_rate, weak_rate
+from src.kpi import hole_rate, served_ratio, weak_rate
 from src.kpi.capacity import _tile_index
 from src.kpi.overlap import overlap_neighbors
 
@@ -21,8 +21,8 @@ def cfg():
                 "hole_dbm": -120.0,
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
-                "band_priority": {"hi": 3.0, "lo": 1.0},
                 "capacity": {
+                    "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
                     # Low enough that no fixture UE is blocked unless it asks to be.
                     "throughput_per_ue_bps": 1.0,
@@ -30,6 +30,7 @@ def cfg():
                 },
             },
             "simulation": {
+                "seed": 0,
                 "transmitters": {
                     "cells": [
                         {
@@ -121,42 +122,41 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
         _tile_index(_mdt([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
-# --- band priority score ---------------------------------------------------
+# --- served ratio ----------------------------------------------------------
 
 
-def test_band_priority_score_counts_the_serving_band_not_the_strongest(cfg) -> None:
-    """Tile 0: 'hi' clears -100 dBm and serves though 'lo' is stronger.
-
-    Tile 1: 'hi' is below the threshold, so 'lo' serves. Three of four UEs
-    stand on tile 0.
-    """
+def test_every_covered_ue_with_room_is_served(cfg) -> None:
+    """Three UEs on covered tiles, PRBs to spare: all served."""
     rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
     mdt = _mdt(
-        [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3
+        [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 2
         + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
     )
-    assert band_priority_score(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(1.0)
 
 
-def test_a_blocked_ue_counts_at_weight_zero(cfg) -> None:
-    """Each band holds one UE's PRBs: the second UE takes 'lo', the third is blocked."""
+def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
+    """Tile 1 is heard only at or below -120 dBm, so no layer may serve it."""
+    rsrp = _map([[[-80.0, -120.0]], [[-90.0, -140.0]]])
+    mdt = _mdt(
+        [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
+    )
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.5)
+
+
+def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
+    """Each band holds one UE's PRBs: two of three UEs fit."""
     # At 0 dB one PRB carries 180 kbit/s, so each UE needs 0.6 PRB.
     cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
     mdt = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
-    score = band_priority_score(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg)
-    assert score == pytest.approx(1.0 / 3.0)
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(2.0 / 3.0)
 
 
-def test_a_ue_standing_on_a_hole_is_excluded_from_both_sums(cfg) -> None:
-    """No band serves it, so it can neither raise nor lower the score."""
-    rsrp = _map([[[-80.0, -130.0]], [[-90.0, -140.0]]])
-    served_only = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}])
-    with_hole = _mdt(
-        [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
-    )
-    sinr = _sinr(rsrp)
-    assert band_priority_score(rsrp, sinr, ["hi", "lo"], with_hole, cfg) == pytest.approx(
-        band_priority_score(rsrp, sinr, ["hi", "lo"], served_only, cfg)
-    )
+def test_served_ratio_rejects_an_empty_mdt(cfg) -> None:
+    """No UE, no denominator."""
+    rsrp = _map([[[-80.0]], [[-80.0]]])
+    empty = pd.DataFrame(columns=["t_index", "tile_row", "tile_col"])
+    with pytest.raises(ValueError, match="no UE"):
+        served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], empty, cfg)

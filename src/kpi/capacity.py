@@ -1,10 +1,15 @@
 """Serving-cell choice and PRB demand.
 
-The one serving rule in the project, read by the MDT stage, the Band Priority
-Score and the demand map: prefer bands in ``kpi.band_priority`` order while the
-band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take the
-strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
-the UE to the next candidate in that same ranking.
+The one serving rule in the project, read by the MDT stage, the served ratio
+and the demand map: prefer bands in ``kpi.capacity.band_preference`` order while
+the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
+the strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
+the UE to the next candidate in that same ranking. A layer at or below
+``kpi.hole_dbm`` is never a candidate.
+
+Within an interval UEs are admitted in a seeded random order. Taking them in
+row order would hand PRBs to whichever UEs the MDT happens to sort first - the
+processed MDT is sorted by tile - so blocking would follow grid position.
 
 SINR is an input, never computed here: a radio map carries the solver's own
 (:func:`src.simulation.radio.solve_band`), and the MDT carries one derived from
@@ -12,8 +17,7 @@ the reported RSRP (:mod:`src.simulation.mdt`). PRBs are kept fractional: an
 average over an interval, and smooth in tilt.
 
 :func:`max_rsrp`, the strongest layer at each location, also lives here: the
-hole and weak rates and the Band Priority Score's hole gate read it. It is not
-the serving rule.
+hole and weak rates read it. It is not the serving rule.
 """
 
 from __future__ import annotations
@@ -38,39 +42,43 @@ class CapacitySpec:
     Attributes:
         band_rank: Preference per band, 0 most preferred, shape ``[n_band]``.
         rsrp_threshold_dbm: Below this a band is skipped for the next one.
+        min_rsrp_dbm: A layer at or below this is never a candidate.
         throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
         max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
+        seed: Seeds the per-interval admission order.
     """
 
     band_rank: np.ndarray
     rsrp_threshold_dbm: float
+    min_rsrp_dbm: float
     throughput_per_ue_bps: float
     scs_hz: np.ndarray
     max_prb: np.ndarray
+    seed: int
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
-        """Read ``kpi.capacity``, ``kpi.band_priority`` and the simulation's cells and bands.
+        """Read ``kpi.capacity``, ``kpi.hole_dbm``, ``simulation.seed`` and the cells.
 
         The cells are taken in config order, which is the radio map's tx axis:
         :func:`src.simulation.radio.solve` writes them in that order and
         preprocessing checks ``tx_name`` against the config.
 
         Raises:
-            ValueError: When a band has no priority weight or capacity entry, or
-                the config holds other than ``n_tx`` cells.
+            ValueError: When a band is absent from ``band_preference`` or has no
+                capacity entry, or the config holds other than ``n_tx`` cells.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
         capacity = cfg.kpi.capacity
+        preference = [str(label) for label in capacity.band_preference]
         missing = [
-            label
-            for label in band_labels
-            if label not in cfg.kpi.band_priority or label not in capacity.bands
+            label for label in band_labels if label not in preference or label not in capacity.bands
         ]
         if missing:
             raise ValueError(
-                f"No kpi.band_priority or kpi.capacity.bands entry for {', '.join(missing)}."
+                "No kpi.capacity.band_preference or kpi.capacity.bands entry for "
+                f"{', '.join(missing)}."
             )
         cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
         if len(cells) != n_tx:
@@ -78,15 +86,16 @@ class CapacitySpec:
                 f"simulation.transmitters.cells holds {len(cells)} cells for a radio map with "
                 f"{n_tx} transmitters."
             )
-        weight = np.array([float(cfg.kpi.band_priority[label]) for label in band_labels])
         return cls(
-            band_rank=np.argsort(np.argsort(-weight, kind="stable"), kind="stable"),
+            band_rank=np.array([preference.index(label) for label in band_labels]),
             rsrp_threshold_dbm=float(capacity.rsrp_threshold_dbm),
+            min_rsrp_dbm=float(cfg.kpi.hole_dbm),
             throughput_per_ue_bps=float(capacity.throughput_per_ue_bps),
             scs_hz=np.array([float(capacity.bands[label].scs_hz) for label in band_labels]),
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
             ),
+            seed=int(cfg.simulation.seed),
         )
 
 
@@ -181,22 +190,27 @@ def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
         return np.divide(per_ue_bps, np.asarray(rate_bps, dtype=float))
 
 
-def _candidate_order(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
+def _candidate_order(
+    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
+) -> np.ndarray:
     """Cell-bands one location may be served by, most preferred first.
 
     Args:
         rsrp: ``[n_band, n_tx]`` RSRP in dBm at one location, NaN where no path.
         band_rank: Preference per band, 0 most preferred.
         threshold_dbm: The RSRP a layer needs to be taken on band preference.
+        min_rsrp_dbm: A layer at or below this is left out.
 
     Returns:
         Flat indices into ``rsrp``: layers at or above the threshold by band
-        preference then RSRP, followed by the rest by RSRP. No-path layers are
-        left out. The first entry is the rule's choice before capacity.
+        preference then RSRP, followed by the rest by RSRP. No-path layers and
+        layers at or below ``min_rsrp_dbm`` are left out. The first entry is the
+        rule's choice before capacity.
     """
     flat = rsrp.ravel()
     band = np.repeat(np.arange(rsrp.shape[0]), rsrp.shape[1])
-    heard = np.isfinite(flat)
+    # NaN compares False, so no-path layers drop out here too.
+    heard = flat > min_rsrp_dbm
     above = heard & (flat >= threshold_dbm)
     strength = np.where(heard, -flat, np.inf)
     # np.lexsort sorts by the last key first.
@@ -227,7 +241,9 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
     # Python loop over UEs; vectorise if this enters the search loop.
     for ue in range(n_ue):
         ue_need = need[ue].ravel()
-        order = _candidate_order(rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm)
+        order = _candidate_order(
+            rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
+        )
         order = order[np.isfinite(ue_need[order])]
         if order.size == 0:
             continue
@@ -245,7 +261,10 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
 def serve_rows(
     rsrp: np.ndarray, sinr: np.ndarray, t_index: np.ndarray, spec: CapacitySpec
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run :func:`_select_serving` once per interval.
+    """Run :func:`_select_serving` once per interval, in a seeded random UE order.
+
+    The order depends only on ``spec.seed`` and the interval, so every tilt
+    candidate scored against one MDT admits its UEs in the same order.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
@@ -254,13 +273,15 @@ def serve_rows(
         spec: The capacity settings.
 
     Returns:
-        ``(band, tx, prb_per_ue)`` per UE, as :class:`_Serving` holds them.
+        ``(band, tx, prb_per_ue)`` per UE, in input order, as :class:`_Serving`
+        holds them.
     """
     band = np.full(len(t_index), -1)
     tx = np.full(len(t_index), -1)
     per_ue = np.full(len(t_index), np.nan)
     for value in np.unique(t_index):
-        at = np.flatnonzero(t_index == value)
+        rng = np.random.default_rng((spec.seed, int(value)))
+        at = rng.permutation(np.flatnonzero(t_index == value))
         serving = _select_serving(rsrp[at], sinr[at], spec)
         band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
     return band, tx, per_ue

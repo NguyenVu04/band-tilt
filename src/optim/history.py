@@ -2,9 +2,7 @@
 
 Every method writes the same tables, so a comparison between them is a
 comparison of search strategies rather than of bookkeeping. :class:`History`
-only builds frames; where those frames land is the writer's business, which is
-what lets a deployment send a run somewhere other than a local directory
-without the search knowing.
+only builds frames; :class:`LocalRunWriter` puts them on disk.
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,18 +24,6 @@ from src.optim.objective import (
     scores,
 )
 from src.optim.space import TiltSpace
-
-
-class RunWriter(Protocol):
-    """Where a run's artifacts go."""
-
-    def write_frame(self, name: str, frame: pd.DataFrame) -> str:
-        """Persist a table under ``name``. Returns a locator for the log."""
-        ...
-
-    def write_json(self, name: str, payload: dict[str, Any]) -> str:
-        """Persist a document under ``name``. Returns a locator for the log."""
-        ...
 
 
 @dataclass(frozen=True)
@@ -160,7 +146,7 @@ class History:
         return [result.kpi for result in self.results]
 
     def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
-        """One row per evaluation: provenance, the four KPIs, all 36 tilts.
+        """One row per evaluation: provenance, the four KPIs, every tilt.
 
         With ``cfg``, also ``score``, the weighted score that selects the winner
         (reads ``kpi.weights``).
@@ -210,7 +196,7 @@ class History:
 
 def write_run(
     history: History,
-    writer: RunWriter,
+    writer: LocalRunWriter,
     cfg: DictConfig,
     *,
     method: str,

@@ -102,7 +102,6 @@ stages:
           - radio_map
       - configs/kpi.yaml:
           - capacity
-          - band_priority
     outs:
       - data/interim/mdt.csv
       - data/interim/demand_map.npz
@@ -145,7 +144,7 @@ stages:
 
   # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
   # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
-  # like `simulation_radio`. The run it writes is complete: a measured front, a
+  # like `simulation_radio`. The run it writes is complete: a measured shortlist, a
   # named winner and the deliverable.
   #
   # Depends on the cell table via configs/simulation.yaml rather than on
@@ -194,7 +193,7 @@ stages:
           - hole_dbm
           - weak_dbm
           - overlap_margin_db
-          - band_priority
+          - capacity
           - weights
           - tolerance
       - configs/simulation.yaml:

@@ -21,9 +21,7 @@ dependencies = [
     "numpy>=2.0",
     "pandas>=2.2",
     "pyarrow>=25.0",
-    "scikit-learn>=1.5",
     "hydra-core>=1.3.6",
-    "joblib>=1.4",
     "scipy>=1.14",
 ]
 
@@ -82,8 +80,6 @@ target-version = "py311"
 extend-exclude = ["notebooks", "*.md"]
 
 [tool.ruff.lint]
-# D (pydocstyle) is intentionally enabled: this template ships contracts and
-# documentation rather than implementations, and lint keeps it that way.
 select = ["E", "F", "I", "UP", "B", "D"]
 ignore = [
     "D203", # incompatible with D211 (no blank line before class docstring)
@@ -92,10 +88,6 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
-
-[tool.ruff.lint.per-file-ignores]
-# Placeholder bodies raise NotImplementedError; unused arguments are the point.
-"src/**" = ["ARG001", "ARG002"]
 
 [tool.ruff.format]
 docstring-code-format = true
