@@ -11,7 +11,7 @@ budget:
   # Trust-region evaluations after it does.
   n_iter: 128
   # Evaluations per round.
-  batch_size: 4
+  batch_size: 9
 
 # Trust-region schedule in the unit cube the tilt box is rescaled to, as in
 # Eriksson et al. (2019). The failure tolerance is derived, ceil(max(4, d) / batch_size).
