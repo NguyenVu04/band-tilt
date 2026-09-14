@@ -9,7 +9,7 @@ budget:
   # design of this size, out of the same budget.
   n_init: 32
   # Trust-region evaluations after it does.
-  n_iter: 128
+  n_iter: 160
   # Evaluations per round.
   batch_size: 9
 
@@ -17,7 +17,7 @@ budget:
 # Eriksson et al. (2019). The failure tolerance is derived, ceil(max(4, d) / batch_size).
 trust_region:
   length_init: 0.8
-  # 0.5 ** 7: below this the region has collapsed and the search restarts.
-  length_min: 0.0078125
+  # 0.5 ** 8: below this the region has collapsed and the search restarts.
+  length_min: 0.00390625
   length_max: 1.6
   success_tolerance: 3

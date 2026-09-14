@@ -7,4 +7,4 @@ name: random
 budget:
   # Sobol draws labelled `init`, to line up with turbo's phase boundary.
   n_init: 32
-  n_iter: 128
+  n_iter: 160
