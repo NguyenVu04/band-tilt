@@ -208,9 +208,9 @@ radio_map:
   # Scene temperature used for thermal-noise power.
   temperature: 298.15
   # Rays launched per transmitter.
-  samples_per_tx: 16000000
+  samples_per_tx: 10000000
   # Longest path the solver traces, in interactions.
-  max_depth: 16
+  max_depth: 8
   # Propagation mechanisms recorded with each output map.
   los: true
   specular_reflection: true

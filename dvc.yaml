@@ -4,7 +4,7 @@
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
 # Five stages are active: the three `simulation_*` stages (notebook 00),
-# `preprocessing` (notebook 02) and `optimization` (notebooks 04a and 04b).
+# `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
 # MARL and held-out validation still have no code in src/, so there is nothing
 # to define a stage against. Add those when the modules land instead of
 # guessing at their shape now.
@@ -143,7 +143,7 @@ stages:
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
 
-  # --- Optimization: search the tilt space (notebooks 04a and 04b) ----------
+  # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
   # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
   # like `simulation_radio`. The run it writes is complete: a measured front, a
   # named winner and the deliverable.

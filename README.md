@@ -272,8 +272,8 @@ through the task runner and `dvc repro`. Both call the same functions in
 | 1 — Generate the scenario, radio maps and synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
 | 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
-| 4 — Optimize with the baselines | [`04a_baseline`](notebooks/04a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
-| 5 — Optimize with TuRBO on the weighted KPI score | [`04b_turbo`](notebooks/04b_turbo.ipynb) | `task bo` |
+| 4 — Optimize with the baselines | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
+| 5 — Optimize with TuRBO on the weighted KPI score | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
 | 4–5 for every method | — | `task optim` |
 | 6 — Compare the runs, write the tables and figures | [`05_evaluation`](notebooks/05_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
 
