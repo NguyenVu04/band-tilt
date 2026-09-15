@@ -41,7 +41,7 @@ capacity:
   # Serving band preference, most preferred first. Must list every band.
   band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one.
-  rsrp_threshold_dbm: -90.0
+  rsrp_threshold_dbm: -120.0
   # Assumed required throughput of each UE; sets PRBs per UE.
   throughput_per_ue_bps: 20000000 # 20 Mbps
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).

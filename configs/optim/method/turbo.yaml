@@ -7,11 +7,13 @@ name: turbo
 budget:
   # Sobol trials before the trust region takes over. A restart spends another
   # design of this size, out of the same budget.
-  n_init: 32
+  n_init: 16
   # Trust-region evaluations after it does.
   n_iter: 128
-  # Evaluations per round.
-  batch_size: 9
+  # Evaluations per round. The evaluator traces a batch one point at a time, so a
+  # larger batch saves no wall clock; it only cuts GP refits and trust-region
+  # updates. Not 1: a refit costs more than a trace.
+  batch_size: 3
 
 # Trust-region schedule in the unit cube the tilt box is rescaled to, as in
 # Eriksson et al. (2019). The failure tolerance is derived, ceil(max(4, d) / batch_size).
