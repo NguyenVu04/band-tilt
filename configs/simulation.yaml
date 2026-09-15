@@ -242,7 +242,6 @@ output:
   manifest_file: data/external/scenario.json
   radio_map_file: data/interim/radio_map.npz
   mdt_file: data/interim/mdt.csv
-  demand_map_file: data/interim/demand_map.npz
 
 # Base seed. GPU ray-map accumulation is not bit-reproducible.
 seed: ${seed}

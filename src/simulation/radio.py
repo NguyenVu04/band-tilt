@@ -244,10 +244,6 @@ def write_radio_map(
         rr_depth=solver_spec.rr_depth,
         rr_prob=solver_spec.rr_prob,
         solver_seed=solver_seed,
-        # With bandwidth_hz, the kTB noise the stored SINR was solved against;
-        # the MDT stage reads both to compute SINR from reported RSRP.
-        temperature_k=solver_spec.temperature_k,
-        bandwidth_hz=np.array([band.bandwidth_hz for band in bands]),
         power_dbm=power_dbm,
         # The solver's own tile centres, so alignment against the UE grid can be
         # checked rather than assumed. A silent half-tile offset would corrupt

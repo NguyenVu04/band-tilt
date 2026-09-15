@@ -1,7 +1,7 @@
 """Serving-cell choice and PRB demand.
 
-The one serving rule in the project, read by the MDT stage, the served ratio
-and the demand map: prefer bands in ``kpi.capacity.band_preference`` order while
+The one serving rule in the project, read by the served ratio and the demand
+map: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
 the strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
 the UE to the next candidate in that same ranking. A layer at or below
@@ -11,10 +11,9 @@ Within an interval UEs are admitted in a seeded random order. Taking them in
 row order would hand PRBs to whichever UEs the MDT happens to sort first - the
 processed MDT is sorted by tile - so blocking would follow grid position.
 
-SINR is an input, never computed here: a radio map carries the solver's own
-(:func:`src.simulation.radio.solve_band`), and the MDT carries one derived from
-the reported RSRP (:mod:`src.simulation.mdt`). PRBs are kept fractional: an
-average over an interval, and smooth in tilt.
+SINR is an input, never computed here: the solver's own, from the radio map
+(:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
+over an interval, and smooth in tilt.
 
 :func:`max_rsrp`, the strongest layer at each location, also lives here: the
 hole and weak rates read it. It is not the serving rule.

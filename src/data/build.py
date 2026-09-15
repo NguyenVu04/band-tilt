@@ -2,8 +2,8 @@
 
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
-``mdt.parquet`` is the synthetic MDT, typed, with each cell-band's RSRP and
-SINR and an explicit reported indicator.
+``mdt.parquet`` is the synthetic MDT, typed, with each cell-band's RSRP and an
+explicit reported indicator.
 """
 
 from __future__ import annotations
@@ -92,24 +92,21 @@ def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
 
     Returns:
         One row per UE report: the position columns, ``scenario_id``, the
-        ``rsrp_*`` and ``sinr_*`` measurements and the ``reported_*`` flags.
-        Sorted so the output does not depend on the order the simulator
-        emitted rows.
+        ``rsrp_*`` measurements and the ``reported_*`` flags. Sorted so the
+        output does not depend on the order the simulator emitted rows.
     """
     measurement = artifacts.measurement_columns
-    sinr = artifacts.sinr_columns
     frame = artifacts.mdt.copy()
 
     reported = frame[measurement].notna()
     reported.columns = [column.replace("rsrp_", "reported_", 1) for column in measurement]
 
     frame = frame.astype(_DTYPES)
-    frame[measurement + sinr] = frame[measurement + sinr].astype("float32")
+    frame[measurement] = frame[measurement].astype("float32")
     frame["scenario_id"] = pd.Categorical([artifacts.scenario_id] * len(frame))
 
     frame = pd.concat(
-        [frame[[*POSITION_COLUMNS, "scenario_id"]], frame[measurement], frame[sinr], reported],
-        axis=1,
+        [frame[[*POSITION_COLUMNS, "scenario_id"]], frame[measurement], reported], axis=1
     )
     return frame.sort_values(
         ["t_index", "tile_row", "tile_col", "x", "y"], kind="stable"
