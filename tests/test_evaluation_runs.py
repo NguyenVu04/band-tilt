@@ -54,6 +54,7 @@ def make_run(
     run_id: str,
     *,
     n: int = 3,
+    seed: int = 0,
     throughput_per_ue_bps: float = 1e6,
     **radio: object,
 ) -> Path:
@@ -94,6 +95,7 @@ def make_run(
                 # Deliberately a Windows-style path: it must never be resolved.
                 "best_radio_map": r"C:\somewhere\else\best_radio_map.npz",
                 "config": {
+                    "optim": {"seed": seed},
                     "kpi": {
                         "hole_dbm": -120.0,
                         "weak_dbm": -90.0,
@@ -156,15 +158,19 @@ def test_discover_skips_strays_and_orders_by_id(tmp_path) -> None:
     assert [run.run_id for run in found] == ["2026-01-01_00-00-00", "2026-01-02_00-00-00"]
 
 
-def test_latest_per_method_picks_the_newest(tmp_path) -> None:
-    """Run ids are UTC stamps, so lexical order is time order."""
-    make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
-    make_run(tmp_path, "turbo", "2026-01-09_00-00-00")
-    make_run(tmp_path, "random", "2026-01-05_00-00-00")
+def test_latest_per_method_and_seed_keeps_one_run_per_seed(tmp_path) -> None:
+    """A rerun replaces its seed's earlier run; another seed is kept beside it."""
+    make_run(tmp_path, "turbo", "2026-01-01_00-00-00", seed=0)
+    make_run(tmp_path, "turbo", "2026-01-09_00-00-00", seed=0)
+    make_run(tmp_path, "turbo", "2026-01-02_00-00-00", seed=1)
+    make_run(tmp_path, "random", "2026-01-05_00-00-00", seed=0)
 
-    latest = run_store.latest_per_method(run_store.discover(tmp_path))
-    assert latest["turbo"].run_id == "2026-01-09_00-00-00"
-    assert latest["random"].run_id == "2026-01-05_00-00-00"
+    latest = run_store.latest_per_method_and_seed(run_store.discover(tmp_path))
+    assert [(run.method, run.seed, run.run_id) for run in latest] == [
+        ("random", 0, "2026-01-05_00-00-00"),
+        ("turbo", 0, "2026-01-09_00-00-00"),
+        ("turbo", 1, "2026-01-02_00-00-00"),
+    ]
 
 
 def test_verify_passes_when_everything_matches(tmp_path) -> None:

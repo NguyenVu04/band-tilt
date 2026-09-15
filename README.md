@@ -268,13 +268,12 @@ through the task runner and `dvc repro`. Both call the same functions in
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — Generate the scenario, radio maps and synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
-| 2 — Explore the simulation output; specify notebook 02 | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no artifacts) |
-| 3 — Verify and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
-| 4 — Optimize with the baselines | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based search) |
-| 5 — Optimize with TuRBO on the weighted KPI score | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
-| 4–5 for every method | — | `task optim` |
-| 6 — Compare the runs, write the tables and figures | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (reads run directories; writes to `reports/`) |
+| 1 — The synthetic network: sites, traffic, radio map, synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
+| 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
+| 3 — Verify the data and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
+| 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |
+| 5 — TuRBO, and the solver-noise re-trace | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` (the re-trace is notebook-only) |
+| 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, writes `reports/`) |
 
 ```bash
 task pipeline           # every stage below, in order
@@ -388,7 +387,7 @@ band-tilt/
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `01_eda.ipynb` section 11. Every optimized configuration is therefore tuned and scored on the same world |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `04_evaluation.ipynb` section 9. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace measures ray-tracing variance only |
 | `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The served ratio counts the UEs that rule admits, so the objective depends on them |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 

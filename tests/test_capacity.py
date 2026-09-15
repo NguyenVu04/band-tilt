@@ -154,6 +154,19 @@ def test_prb_by_interval_sums_each_tile_within_each_interval() -> None:
     assert prb.sum() == pytest.approx(3.0)
 
 
+def test_prb_by_interval_accepts_the_processed_int16_tiles() -> None:
+    """The processed MDT stores tiles as int16, and row * n_cols overflows it on a large grid."""
+    shape = (300, 300)
+    _, prb = capacity.prb_by_interval(
+        np.array([0]),
+        np.array([299], dtype=np.int16),
+        np.array([299], dtype=np.int16),
+        np.array([2.0]),
+        shape,
+    )
+    assert prb[0, 299, 299] == pytest.approx(2.0)
+
+
 def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     """One UE on the tile in interval 0, three in interval 1: the raster holds three."""
     cfg.simulation.transmitters.cells = _cells({"hi": 1000, "lo": 1000})

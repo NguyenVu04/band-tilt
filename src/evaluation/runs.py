@@ -87,6 +87,11 @@ class Run:
         return KpiVector.from_mapping(self.meta["best_kpi"])
 
     @property
+    def seed(self) -> int:
+        """The search seed, ``optim.seed``, from the run's own config snapshot."""
+        return int(self.meta["config"]["optim"]["seed"])
+
+    @property
     def scenario_id(self) -> str:
         """The scenario this run optimized against."""
         return str(self.meta["scenario_id"])
@@ -167,16 +172,19 @@ def discover(root: str | Path) -> list[Run]:
     return runs
 
 
-def latest_per_method(runs: list[Run]) -> dict[str, Run]:
-    """The newest run of each method, keyed by method.
+def latest_per_method_and_seed(runs: list[Run]) -> list[Run]:
+    """The newest run of each (method, seed), ordered by method then seed.
 
     Newest by run id, which is a UTC timestamp, so lexical order is
     chronological order.
+
+    Raises:
+        KeyError: When a run's config snapshot records no ``optim.seed``.
     """
-    latest: dict[str, Run] = {}
+    latest: dict[tuple[str, int], Run] = {}
     for run in sorted(runs, key=lambda run: run.run_id):
-        latest[run.method] = run
-    return latest
+        latest[(run.method, run.seed)] = run
+    return [latest[key] for key in sorted(latest)]
 
 
 def baseline_map(cfg: DictConfig) -> dict[str, np.ndarray]:

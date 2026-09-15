@@ -348,7 +348,8 @@ def prb_by_interval(
     n_rows, n_cols = shape
     size = n_rows * n_cols
     t_values, t_pos = np.unique(t_index, return_inverse=True)
-    flat = t_pos * size + row * n_cols + col
+    # int64 first: the processed MDT stores tiles as int16, and row * n_cols overflows it.
+    flat = t_pos * size + np.asarray(row, dtype=np.int64) * n_cols + np.asarray(col, dtype=np.int64)
     prb = np.bincount(flat, weights=np.nan_to_num(prb_per_ue), minlength=len(t_values) * size)
     return t_values, prb.reshape(len(t_values), n_rows, n_cols)
 

@@ -2,8 +2,7 @@
 
 Every check names the source of the bound it enforces: ``configs/simulation.yaml``,
 the scenario manifest, or the radio map itself. A bound with no nameable source is
-a statistical threshold and belongs in a ``02x`` notebook, fitted on train only
-(``notebooks/01_eda.ipynb`` section 11).
+a statistical threshold and belongs in a ``02x`` notebook, fitted on train only.
 
 The KPI thresholds are deliberately absent. ``kpi.hole_dbm`` and ``kpi.weak_dbm``
 classify a tile; they never disqualify a measurement.

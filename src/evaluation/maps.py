@@ -155,33 +155,6 @@ def underserved(
     return busy & (coverage_class(rsrp, cfg) != GOOD)
 
 
-def coverage_cdf(best: np.ndarray, counts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Share of tiles, and of demand, at or below each RSRP level.
-
-    Args:
-        best: Best-server RSRP, ``[n_rows, n_cols]``, possibly ``-inf``.
-        counts: The demand raster.
-
-    Returns:
-        ``(levels, tile_share, demand_share)``, each 1-D and aligned. Unreached
-        tiles are placed at the lowest finite level so the curves start
-        together; their share is exactly the uncovered fraction.
-    """
-    flat = np.asarray(best, dtype=float).ravel()
-    weights = np.asarray(counts, dtype=float).ravel()
-    finite = flat[np.isfinite(flat)]
-    floor = finite.min() if finite.size else 0.0
-    flat = np.where(np.isfinite(flat), flat, floor)
-
-    order = np.argsort(flat)
-    levels = flat[order]
-    tile_share = np.arange(1, levels.size + 1) / levels.size
-    ordered_weights = weights[order]
-    total = ordered_weights.sum()
-    demand_share = np.cumsum(ordered_weights) / total if total else np.zeros_like(tile_share)
-    return levels, tile_share, demand_share
-
-
 def extent_of(radio: dict[str, Any]) -> list[float]:
     """Metric bounds of the grid, as matplotlib's ``imshow`` extent.
 

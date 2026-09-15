@@ -84,26 +84,6 @@ def test_underserved_survives_an_empty_demand_raster(cfg: DictConfig) -> None:
     assert not flagged.any()
 
 
-def test_coverage_cdf_ends_at_one_and_tracks_demand() -> None:
-    """All demand sits on the strongest tile, so it arrives only at the last step."""
-    best = np.array([[-130.0, -110.0, -70.0]])
-    counts = np.array([[0, 0, 7]])
-    levels, tile_share, demand_share = maps.coverage_cdf(best, counts)
-
-    assert levels.tolist() == [-130.0, -110.0, -70.0]
-    assert tile_share[-1] == pytest.approx(1.0)
-    assert demand_share[-1] == pytest.approx(1.0)
-    assert demand_share[0] == pytest.approx(0.0)
-
-
-def test_coverage_cdf_places_unreached_tiles_at_the_floor() -> None:
-    """An infinite level would make the axis unplottable."""
-    best = np.array([[-np.inf, -100.0]])
-    levels, _, _ = maps.coverage_cdf(best, np.ones((1, 2), dtype=int))
-    assert np.isfinite(levels).all()
-    assert levels[0] == pytest.approx(-100.0)
-
-
 def test_serving_band_prefers_a_band_above_threshold_else_the_strongest() -> None:
     """Tile 0: preferred band 0 clears -100 dBm. Tile 1: neither does, band 1 is stronger.
 

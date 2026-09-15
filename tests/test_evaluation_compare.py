@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,7 @@ import pytest
 from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import compare
+from src.evaluation.runs import Run
 from src.optim.objective import KPI_NAMES, KpiVector
 
 TOLERANCE = {
@@ -147,3 +149,101 @@ def test_coverage_comparison_puts_labels_side_by_side() -> None:
 def test_coverage_comparison_of_nothing_is_empty() -> None:
     """No runs is a legitimate state, not an error."""
     assert compare.coverage_comparison({}).empty
+
+
+WEIGHTS = {"hole_rate": 1.0, "overlap_rate": 0.0, "served_ratio": 1.0, "weak_rate": 0.0}
+
+
+@pytest.fixture
+def scored_cfg() -> DictConfig:
+    """Tolerances plus weights that score ``served_ratio - hole_rate``."""
+    return OmegaConf.create({"kpi": {"tolerance": dict(TOLERANCE), "weights": dict(WEIGHTS)}})
+
+
+def _run(method: str, seed: int, holes: list[float], phases: list[str] | None = None) -> Run:
+    """A run whose score is ``-hole_rate`` per evaluation, row 0 the incumbent."""
+    n = len(holes)
+    history = pd.DataFrame(
+        {
+            "iteration": range(n),
+            "phase": phases or ["incumbent"] + ["init"] * (n - 1),
+            "hole_rate": holes,
+            "overlap_rate": [0.3] * n,
+            "served_ratio": [0.0] * n,
+            "weak_rate": [0.1] * n,
+        }
+    )
+    best = int(np.argmin(holes))
+    kpi = {name: float(history.loc[best, name]) for name in KPI_NAMES}
+    incumbent = {name: float(history.loc[0, name]) for name in KPI_NAMES}
+    meta = {
+        "best_iteration": best,
+        "best_kpi": kpi,
+        "incumbent_kpi": incumbent,
+        "config": {"optim": {"seed": seed}},
+    }
+    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), meta)
+
+
+def test_seed_summary_interval_brackets_the_mean(scored_cfg: DictConfig) -> None:
+    """Two seeds give a finite interval centred on the mean winner."""
+    runs = [_run("turbo", 0, [0.5, 0.2]), _run("turbo", 1, [0.5, 0.4])]
+    table = compare.seed_summary(runs, scored_cfg).set_index("kpi")
+    assert table.loc["hole_rate", "mean"] == pytest.approx(0.3)
+    assert table.loc["hole_rate", "ci95_low"] < 0.3 < table.loc["hole_rate", "ci95_high"]
+    assert table.loc["hole_rate", "verdict"] == compare.BETTER
+    assert table.loc["score", "direction"] == "maximise"
+    assert table.loc["score", "verdict"] == ""
+
+
+def test_winner_vs_candidates_separates_winner_from_typical(scored_cfg: DictConfig) -> None:
+    """The incumbent is excluded from the candidate median."""
+    row = compare.winner_vs_candidates([_run("random", 0, [0.9, 0.1, 0.2, 0.3])], scored_cfg).iloc[
+        0
+    ]
+    assert row["incumbent"] == pytest.approx(-0.9)
+    assert row["candidate_median"] == pytest.approx(-0.2)
+    assert row["winner"] == pytest.approx(-0.1)
+
+
+def test_weight_sensitivity_detects_a_changed_winner(scored_cfg: DictConfig) -> None:
+    """Weighting only served ratio (constant here) ties everything, so row 0 wins instead."""
+    table = compare.weight_sensitivity(
+        [_run("turbo", 0, [0.5, 0.2])], scored_cfg, {"served_only": (0.0, 0.0, 1.0, 0.0)}
+    ).set_index("scheme")
+    assert table.loc["configured", "same_winner_share"] == pytest.approx(1.0)
+    assert table.loc["served_only", "same_winner_share"] == pytest.approx(0.0)
+
+
+def test_paired_method_gain_pairs_by_seed(scored_cfg: DictConfig) -> None:
+    """A seed only one method ran is left out of the pairs."""
+    runs = [
+        _run("turbo", 0, [0.5, 0.1]),
+        _run("random", 0, [0.5, 0.3]),
+        _run("turbo", 1, [0.5, 0.2]),
+        _run("random", 1, [0.5, 0.3]),
+        _run("turbo", 2, [0.5, 0.1]),
+    ]
+    row = compare.paired_method_gain(runs, scored_cfg).iloc[0]
+    assert row["n_pairs"] == 2
+    assert row["mean_gain"] == pytest.approx(0.15)
+    assert row["method_better"] == 2
+
+
+def test_retraced_gain_and_solver_noise_read_the_retrace(scored_cfg: DictConfig) -> None:
+    """Gains pair by solver seed; the pooled spread ignores the gap between configurations."""
+    frame = pd.DataFrame(
+        {
+            "configuration": ["incumbent", "turbo", "incumbent", "turbo"],
+            "solver_seed": [0, 0, 1, 1],
+            "hole_rate": [0.50, 0.30, 0.52, 0.32],
+            "overlap_rate": [0.3] * 4,
+            "served_ratio": [0.0] * 4,
+            "weak_rate": [0.1] * 4,
+        }
+    )
+    gain = compare.retraced_gain(frame, scored_cfg).iloc[0]
+    assert gain["mean_gain"] == pytest.approx(0.2)
+    assert gain["positive_share"] == pytest.approx(1.0)
+    noise = compare.solver_noise(frame, scored_cfg).set_index("kpi")
+    assert noise.loc["hole_rate", "pooled_std"] == pytest.approx(np.sqrt(0.0002))

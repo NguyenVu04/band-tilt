@@ -12,8 +12,23 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.utils.plotting import label
+
 # Beside reports/figures, and ignored by git the same way.
 TABLES_DIR = Path("reports/tables")
+
+# Columns whose values are keys too, so a band or KPI reads the same in a cell
+# as in a header.
+_KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration", "scheme")
+
+
+def readable(frame: pd.DataFrame) -> pd.DataFrame:
+    """A copy with display names for the columns and for key-valued cells."""
+    out = frame.copy()
+    for column in _KEY_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(label)
+    return out.rename(columns=label)
 
 
 def save_table(

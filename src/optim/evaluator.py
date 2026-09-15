@@ -14,6 +14,7 @@ or a stub in a test — so a search can be exercised without a GPU.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -88,10 +89,14 @@ class Evaluator:
         cfg: The composed config, read for everything below.
         keep_rsrp: Whether each result carries its radio maps. False by default
             because a run keeps every result and the maps do not fit.
+        solver_seed: The ray tracer's Monte-Carlo seed; the ``solver`` stream of
+            ``simulation.seed`` when None. Reassign it to re-measure a
+            configuration under other solver noise.
     """
 
     cfg: DictConfig
     keep_rsrp: bool = False
+    solver_seed: int | None = None
 
     space: TiltSpace = field(init=False)
     n_calls: int = field(init=False, default=0)
@@ -108,7 +113,8 @@ class Evaluator:
         )
         self._solver = radio.SolverSpec.from_config(cfg)
         # Shared seed: common Monte-Carlo noise cancels, so KPI *differences* are much cleaner.
-        self._solver_seed = seeds.stream(cfg, "solver")
+        if self.solver_seed is None:
+            self.solver_seed = seeds.stream(cfg, "solver")
         self._height_m = float(cfg.simulation.ue.height_m)
         self._power_dbm = float(cfg.simulation.antenna.power_rs)
         self._mdt = pd.read_parquet(cfg.data.output.mdt_file)
@@ -168,7 +174,7 @@ class Evaluator:
                 cells,
                 band,
                 self._solver,
-                self._solver_seed,
+                self.solver_seed,
                 self._grid_meta,
                 self._height_m,
                 self._power_dbm,
@@ -214,9 +220,45 @@ class Evaluator:
             cells=self.space.to_cells(result.tilt_deg),
             grid_meta=self._grid_meta,
             solver_spec=self._solver,
-            solver_seed=self._solver_seed,
+            solver_seed=self.solver_seed,
             height_m=self._height_m,
             power_dbm=self._power_dbm,
             scenario_id=self.scenario_id,
             centres=self._centres,
         )
+
+
+def retrace(
+    cfg: DictConfig, configurations: dict[str, np.ndarray], solver_seeds: Sequence[int]
+) -> pd.DataFrame:
+    """Re-score each tilt vector under every solver seed.
+
+    Every run selects its winner under one fixed solver seed, so part of a
+    winner's margin can be that seed's Monte-Carlo noise. This measures it.
+
+    Args:
+        cfg: Composed config.
+        configurations: Name to tilt vector, in :class:`TiltSpace` order.
+        solver_seeds: Seeds to trace every configuration under.
+
+    Returns:
+        One row per configuration and seed: ``configuration``, ``solver_seed``,
+        ``seconds`` and the four KPIs.
+
+    Side effect: loads the scene and ray-traces on the GPU.
+    """
+    rows = []
+    with Evaluator(cfg) as evaluator:
+        for solver_seed in solver_seeds:
+            evaluator.solver_seed = int(solver_seed)
+            for name, tilt_deg in configurations.items():
+                result = evaluator.evaluate(tilt_deg)
+                rows.append(
+                    {
+                        "configuration": name,
+                        "solver_seed": int(solver_seed),
+                        "seconds": result.seconds,
+                        **result.kpi.as_dict(),
+                    }
+                )
+    return pd.DataFrame(rows)

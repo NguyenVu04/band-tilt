@@ -62,6 +62,10 @@ seed (common random numbers); nothing is scored by a surrogate.
 - A gain on a lower-weighted KPI can outweigh a small loss on a higher one.
 - Selecting the maximum of many evaluations under one fixed solver seed favours
   candidates that benefit from that seed's Monte-Carlo noise.
+- Both of the above are now measured rather than only stated: notebook 04
+  re-picks every winner under alternative weights (`weight_sensitivity`) and
+  re-traces every winner under other solver seeds (`retraced_gain`); the
+  numbers live in `reports/tables/04_evaluation/`.
 - Runs before 2026-09-13 used a different method and selection rule and are not
   comparable with runs after it.
 

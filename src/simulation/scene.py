@@ -178,6 +178,46 @@ def surface_height(mi_scene: Any, x: np.ndarray, y: np.ndarray, launch_z: float)
     return height.reshape(np.shape(x))
 
 
+def render_top_down(
+    scene: Any,
+    bounds: SceneBounds,
+    title: str,
+    *,
+    fov_deg: float = 45.0,
+    num_samples: int = 128,
+    margin: float = 1.08,
+    **kwargs: Any,
+) -> Any:
+    """Render the whole scene from straight above and title it.
+
+    ``kwargs`` go to ``sionna.rt.Scene.render``, e.g. ``show_devices``.
+
+    Returns the matplotlib figure sionna-rt draws into.
+    """
+    import math
+
+    from sionna.rt import Camera
+
+    centre_x = 0.5 * (bounds.min_x + bounds.max_x)
+    centre_y = 0.5 * (bounds.min_y + bounds.max_y)
+    span = max(bounds.width_m, bounds.depth_m)
+    height = bounds.max_z + 0.5 * span * margin / math.tan(math.radians(0.5 * fov_deg))
+    camera = Camera(
+        position=[centre_x, centre_y, height], look_at=[centre_x, centre_y, bounds.min_z]
+    )
+    figure = scene.render(
+        camera=camera,
+        fov=fov_deg,
+        # Square, so the framing holds whichever axis mitsuba measures the field of view on.
+        resolution=(900, 900),
+        num_samples=num_samples,
+        **kwargs,
+    )
+    figure.axes[0].set_title(title)
+    figure.tight_layout()  # sionna lays the figure out before the title exists
+    return figure
+
+
 def _scene_file(rt: Any, name: str) -> str:
     """Resolve a scene file path, or a bundled scene name, to a scene file.
 
