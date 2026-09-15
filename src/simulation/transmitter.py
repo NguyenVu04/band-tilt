@@ -20,8 +20,9 @@ from src.simulation import seeds
 from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds, SceneSpec
 
-# Nodes on the equilateral triangle, whose side is node_spacing_m.
-_NODE_COUNT = 3
+# Corner nodes of the equilateral triangle, whose side is node_spacing_m; one
+# more node stands at its centroid.
+_CORNER_COUNT = 3
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,8 @@ class LayoutSpec:
     """Where the nodes go, and how their masts are mounted.
 
     Attributes:
-        node_spacing_m: Side of the equilateral triangle the nodes sit on.
+        node_spacing_m: Side of the equilateral triangle the corner nodes sit
+            on; the fourth node stands at its centroid.
         cells_per_node: Cells per node, at evenly spaced azimuths.
         azimuth_offset_deg: Rotation applied to every node's cell fan.
         mast_height_m: Height of the mast above the ground it stands on.
@@ -120,10 +122,11 @@ def load(cfg: DictConfig) -> tuple[Cell, ...]:
 
 
 def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, float]]:
-    """Return each node's ideal ``(x, y)``: the corners of an equilateral triangle.
+    """Return each node's ideal ``(x, y)``: an equilateral triangle and its centroid.
 
-    The triangle's centroid is the scene centre, one corner points along ``+y``,
-    and ``spacing_m`` is its side.
+    The first three are the corners, one pointing along ``+y``, with
+    ``spacing_m`` as the side. The last is the centroid, which is the scene
+    centre.
 
     Raises:
         ValueError: When the triangle does not fit inside the scene.
@@ -132,7 +135,7 @@ def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, f
     max_spacing = min(bounds.width_m, bounds.depth_m * math.sqrt(3.0) / 2.0)
     if spacing_m > max_spacing:
         raise ValueError(
-            f"a {_NODE_COUNT}-node triangle at "
+            "the node triangle at "
             f"simulation.transmitters.layout.node_spacing_m={spacing_m} does not fit the "
             f"{bounds.width_m:.1f} x {bounds.depth_m:.1f} m scene. Lower the spacing to at "
             f"most {max_spacing:.1f} m."
@@ -141,11 +144,12 @@ def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, f
     centre_x = 0.5 * (bounds.min_x + bounds.max_x)
     centre_y = 0.5 * (bounds.min_y + bounds.max_y)
     radius = spacing_m / math.sqrt(3.0)
-    angles = [math.radians(90.0 + index * 360.0 / _NODE_COUNT) for index in range(_NODE_COUNT)]
-    return [
+    angles = [math.radians(90.0 + index * 360.0 / _CORNER_COUNT) for index in range(_CORNER_COUNT)]
+    corners = [
         (centre_x + radius * math.cos(angle), centre_y + radius * math.sin(angle))
         for angle in angles
     ]
+    return [*corners, (centre_x, centre_y)]
 
 
 def generate(
@@ -157,7 +161,7 @@ def generate(
     default_tilt: dict[str, Tilt],
     max_prb: dict[str, int],
 ) -> tuple[Cell, ...]:
-    """Lay nodes out on an equilateral triangle and stand each on open ground.
+    """Lay nodes out on an equilateral triangle and its centroid, each on open ground.
 
     Returns ``spec.cells_per_node`` cells for every node. Nodes whose ideal
     position is built over are snapped to the nearest open-ground tile within

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -14,8 +15,8 @@ class SceneSpec:
     """Which scene to load, and what to compute it with.
 
     Attributes:
-        name: A scene bundled with sionna-rt, resolved against
-            ``sionna.rt.scene``.
+        name: Path to a Mitsuba scene XML file, or else a scene bundled with
+            sionna-rt, resolved against ``sionna.rt.scene``.
         mitsuba_variant: Mitsuba compute variant, selected before sionna-rt is
             imported. Must be a ``mono_polarized`` one.
         merge_shapes: Let sionna-rt merge shapes sharing a radio material.
@@ -178,11 +179,13 @@ def surface_height(mi_scene: Any, x: np.ndarray, y: np.ndarray, launch_z: float)
 
 
 def _scene_file(rt: Any, name: str) -> str:
-    """Resolve a bundled scene name to the scene file sionna-rt ships.
+    """Resolve a scene file path, or a bundled scene name, to a scene file.
 
     Raises:
-        ValueError: When ``name`` is not a bundled scene.
+        ValueError: When ``name`` is neither an existing file nor a bundled scene.
     """
+    if Path(name).is_file():
+        return name
     path = getattr(rt.scene, name, None)
     if not isinstance(path, str):
         available = sorted(
@@ -191,6 +194,7 @@ def _scene_file(rt: Any, name: str) -> str:
             if not attribute.startswith("_") and isinstance(getattr(rt.scene, attribute), str)
         )
         raise ValueError(
-            f"{name!r} is not a scene bundled with sionna-rt. Available: {', '.join(available)}."
+            f"{name!r} is neither a scene file nor a scene bundled with sionna-rt. "
+            f"Bundled: {', '.join(available)}."
         )
     return path

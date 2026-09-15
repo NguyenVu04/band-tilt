@@ -53,7 +53,11 @@ def install(scene: Any, frequency_hz: float) -> dict[str, tuple[float, float]]:
     installed: dict[str, tuple[float, float]] = {}
     for name in sorted(str(key) for key in scene.radio_materials):
         material = scene.get(name)
-        permittivity, conductivity = evaluate(name, frequency_hz)
+        # Scenes exported with ``mat-itu_<type>`` ids register as ``itu_<type>``;
+        # the P.2040 table is keyed by the bare type.
+        permittivity, conductivity = evaluate(
+            str(getattr(material, "itu_type", name)), frequency_hz
+        )
 
         material.frequency_update_callback = None
         material.relative_permittivity = mi.Float(permittivity)

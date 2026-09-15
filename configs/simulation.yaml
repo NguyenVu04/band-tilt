@@ -2,8 +2,8 @@
 # Scenario inputs for the Sionna-RT scene, UE population, and radio maps.
 
 scene:
-  # Bundled Sionna-RT scene name.
-  name: munich
+  # Scene XML path (root-relative), or a bundled Sionna-RT scene name.
+  name: data/external/scene/scene.xml
   # Use a mono-polarized CUDA variant required by Sionna-RT.
   mitsuba_variant: cuda_ad_mono_polarized
   # Keep buildings as separate shapes rather than one merged mesh.
@@ -54,11 +54,13 @@ density:
   # before it may hold a hotspot centre. Keeps centres off near-empty ground.
   min_built_volume_fraction: 0.5
 
-# Co-located multi-band cells on three nodes at the corners of an equilateral triangle.
+# Co-located multi-band cells on four nodes: the corners of an equilateral
+# triangle and its centroid.
 transmitters:
   layout:
-    # Side of the node triangle.
-    node_spacing_m: 600.0
+    # Side of the node triangle. side / sqrt(3) = 500 m corner-to-centroid, the
+    # UMa inter-site distance of 3GPP TR 38.901 Table 7.2-1.
+    node_spacing_m: 866.0
     # Cells per node, at evenly spaced azimuths.
     cells_per_node: 3
     # Rotation applied to every node's cell fan.
@@ -69,7 +71,7 @@ transmitters:
     min_free_fraction: 0.95
     # Required open-ground clearance around each mast.
     clearance_radius_m: 20.0
-    # How far to look for open ground when the ideal triangle corner has none.
+    # How far to look for open ground when a node's ideal position has none.
     # Finding none fails the generator rather than placing a mast on a building.
     snap_radius_m: 250.0
     # Initial per-band tilt for generated cells.
@@ -85,8 +87,8 @@ transmitters:
   # Generated once against the delivered scene and held fixed across scenarios.
   cells:
     - name: n0c0
-      x: -88.11
-      y: 353.44
+      x: 7.38
+      y: 499.99
       z: 25.00
       azimuth_deg: 30.0
       tilt:
@@ -95,8 +97,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n0c1
-      x: -88.11
-      y: 353.44
+      x: 7.38
+      y: 499.99
       z: 25.00
       azimuth_deg: 150.0
       tilt:
@@ -105,8 +107,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n0c2
-      x: -88.11
-      y: 353.44
+      x: 7.38
+      y: 499.99
       z: 25.00
       azimuth_deg: 270.0
       tilt:
@@ -115,8 +117,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c0
-      x: -244.52
-      y: -313.90
+      x: -425.62
+      y: -249.99
       z: 25.00
       azimuth_deg: 30.0
       tilt:
@@ -125,8 +127,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c1
-      x: -244.52
-      y: -313.90
+      x: -425.62
+      y: -249.99
       z: 25.00
       azimuth_deg: 150.0
       tilt:
@@ -135,8 +137,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c2
-      x: -244.52
-      y: -313.90
+      x: -425.62
+      y: -249.99
       z: 25.00
       azimuth_deg: 270.0
       tilt:
@@ -145,8 +147,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c0
-      x: 318.86
-      y: -349.03
+      x: 440.38
+      y: -249.99
       z: 25.00
       azimuth_deg: 30.0
       tilt:
@@ -155,8 +157,8 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c1
-      x: 318.86
-      y: -349.03
+      x: 440.38
+      y: -249.99
       z: 25.00
       azimuth_deg: 150.0
       tilt:
@@ -165,8 +167,38 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c2
-      x: 318.86
-      y: -349.03
+      x: 440.38
+      y: -249.99
+      z: 25.00
+      azimuth_deg: 270.0
+      tilt:
+        b2600: {baseline_deg: 10.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
+      max_prb: {b2600: 216, b1800: 106, b700: 52}
+    - name: n3c0
+      x: 7.38
+      y: 0.00
+      z: 25.00
+      azimuth_deg: 30.0
+      tilt:
+        b2600: {baseline_deg: 10.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
+      max_prb: {b2600: 216, b1800: 106, b700: 52}
+    - name: n3c1
+      x: 7.38
+      y: 0.00
+      z: 25.00
+      azimuth_deg: 150.0
+      tilt:
+        b2600: {baseline_deg: 10.0, bounds_deg: [0.0, 10.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 10.0]}
+        b700: {baseline_deg: 8.0, bounds_deg: [0.0, 10.0]}
+      max_prb: {b2600: 216, b1800: 106, b700: 52}
+    - name: n3c2
+      x: 7.38
+      y: 0.00
       z: 25.00
       azimuth_deg: 270.0
       tilt:

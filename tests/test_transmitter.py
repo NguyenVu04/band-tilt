@@ -11,15 +11,19 @@ from src.simulation.transmitter import node_positions
 BOUNDS = SceneBounds(min_x=0.0, max_x=1000.0, min_y=-200.0, max_y=800.0, min_z=0.0, max_z=50.0)
 
 
-def test_nodes_form_an_equilateral_triangle_centred_on_the_scene():
-    """Every pair of nodes is one spacing apart, around the scene centre."""
+def test_nodes_form_an_equilateral_triangle_and_its_centroid():
+    """Corners are one spacing apart around the scene centre; the last node is that centre."""
     positions = node_positions(BOUNDS, 600.0)
 
-    assert len(positions) == 3
-    for (ax, ay), (bx, by) in itertools.combinations(positions, 2):
+    assert len(positions) == 4
+    corners, centroid = positions[:3], positions[3]
+    for (ax, ay), (bx, by) in itertools.combinations(corners, 2):
         assert math.dist((ax, ay), (bx, by)) == pytest.approx(600.0)
-    assert sum(x for x, _ in positions) / 3 == pytest.approx(500.0)
-    assert sum(y for _, y in positions) / 3 == pytest.approx(300.0)
+    assert sum(x for x, _ in corners) / 3 == pytest.approx(500.0)
+    assert sum(y for _, y in corners) / 3 == pytest.approx(300.0)
+    assert centroid == pytest.approx((500.0, 300.0))
+    for corner in corners:
+        assert math.dist(corner, centroid) == pytest.approx(600.0 / math.sqrt(3.0))
 
 
 def test_largest_fitting_triangle_stays_inside_the_scene():
