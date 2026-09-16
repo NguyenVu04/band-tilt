@@ -26,9 +26,9 @@ overlap_margin_db: 6.0
 # not all zero. Nothing else reads them - the reported rates carry no weights,
 # because nothing sums them.
 weights:
-  hole_desirability: 4.0
-  overlap_desirability: 3.0
-  served_desirability: 2.0
+  hole_desirability: 3.0
+  overlap_desirability: 2.0
+  served_desirability: 1.0
 
 # Reported network-quality measures that no score reads.
 quality:

@@ -2,8 +2,8 @@
 # Scenario inputs for the Sionna-RT scene, UE population, and radio maps.
 
 scene:
-  # A bundled Sionna-RT scene name, or a scene XML path (root-relative).
-  name: munich
+  # A scene XML path (root-relative), or a bundled Sionna-RT scene name.
+  name: data/external/scene/scene.xml
   # Use a mono-polarized CUDA variant required by Sionna-RT.
   mitsuba_variant: cuda_ad_mono_polarized
   # Merge buildings into one mesh per material. Nothing calls Scene.edit, so the
@@ -60,15 +60,15 @@ density:
 transmitters:
   layout:
     # Side of the node triangle. With three nodes and no centroid this is the
-    # node-to-node distance directly: the 500 m UMa inter-site distance (ISD) of
-    # 3GPP TR 38.901 Table 7.2-1, whose h_BS of 25 m is mast_height_m below.
-    node_spacing_m: 500.0
+    # node-to-node distance directly: the 1732 m RMa inter-site distance (ISD) of
+    # 3GPP TR 38.901 Table 7.2-1.
+    node_spacing_m: 1732.0
     # Cells per node, at evenly spaced azimuths.
     cells_per_node: 3
     # Rotation applied to every node's cell fan.
     azimuth_offset_deg: 30.0
     # Mast height above local ground.
-    mast_height_m: 25.0
+    mast_height_m: 20.0
     # Minimum estimated open-ground share for mast placement.
     min_free_fraction: 0.95
     # Required open-ground clearance around each mast.
@@ -76,109 +76,107 @@ transmitters:
     # How far to look for open ground when a node's ideal position has none.
     # Finding none fails the generator rather than placing a mast on a building.
     snap_radius_m: 250.0
-    # Initial per-band tilt for generated cells. 5 deg is the geometric optimum
-    # atan((mast_height_m - ue.height_m) / R) at the cell radius R =
-    # node_spacing_m / sqrt(3); the bound leaves it well inside the box.
+    # Initial per-band tilt for generated cells.
     default_tilt:
-      b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-      b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-      b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+      b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+      b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+      b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
     # Initial per-band PRB limit for generated cells, the N_RB of each band's
     # radio_map bandwidth at 15 kHz SCS (TS 38.101-1 Table 5.3.2-1): 40 MHz is
     # 216, 20 MHz is 106, 10 MHz is 52. Must track both radio_map.bands[].bandwidth
     # and kpi.capacity.bands.scs_hz.
     default_max_prb: {b2600: 216, b1800: 106, b700: 52}
-  # Generated once against the bundled scene and held fixed across scenarios.
+  # Generated once against the delivered scene and held fixed across scenarios.
   cells:
     - name: n0c0
-      x: -4.12
-      y: 107.16
-      z: 25.00
+      x: 29.20
+      y: 1027.34
+      z: 20.00
       azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n0c1
-      x: -4.12
-      y: 107.16
-      z: 25.00
+      x: 29.20
+      y: 1027.34
+      z: 20.00
       azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n0c2
-      x: -4.12
-      y: 107.16
-      z: 25.00
+      x: 29.20
+      y: 1027.34
+      z: 20.00
       azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c0
-      x: -241.19
-      y: -309.00
-      z: 25.00
+      x: -858.62
+      y: -499.98
+      z: 20.00
       azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c1
-      x: -241.19
-      y: -309.00
-      z: 25.00
+      x: -858.62
+      y: -499.98
+      z: 20.00
       azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n1c2
-      x: -241.19
-      y: -309.00
-      z: 25.00
+      x: -858.62
+      y: -499.98
+      z: 20.00
       azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c0
-      x: 315.92
-      y: -350.56
-      z: 25.00
+      x: 873.38
+      y: -499.98
+      z: 20.00
       azimuth_deg: 30.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c1
-      x: 315.92
-      y: -350.56
-      z: 25.00
+      x: 873.38
+      y: -499.98
+      z: 20.00
       azimuth_deg: 150.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
     - name: n2c2
-      x: 315.92
-      y: -350.56
-      z: 25.00
+      x: 873.38
+      y: -499.98
+      z: 20.00
       azimuth_deg: 270.0
       tilt:
-        b2600: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b1800: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
-        b700: {baseline_deg: 5.0, bounds_deg: [0.0, 15.0]}
+        b2600: {baseline_deg: 6.0, bounds_deg: [0.0, 15.0]}
+        b1800: {baseline_deg: 9.0, bounds_deg: [0.0, 15.0]}
+        b700: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
 
 # Radio-map solver settings. Each band is solved separately.
