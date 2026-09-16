@@ -1,21 +1,19 @@
 """KPI 1 - Coverage holes. Highest in ADR 0001's priority order.
 
-Two readings of the same threshold:
+Two readings of ``kpi.hole_dbm``:
 
-- :func:`hole_rate` counts tiles at or below ``kpi.hole_dbm``. Reported, and
-  read by the hard score.
-- :func:`hole_desirability` softens that comparison per tile, in dB, and is
-  what the objective reads. See its docstring for why the hard count cannot
-  steer a search.
+- :func:`hole_rate` counts tiles at or below it. Reported.
+- :func:`hole_desirability` softens that comparison per tile, in dB, and is what
+  the search maximises. See its docstring for why the count cannot steer one.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from omegaconf import DictConfig
+from scipy.special import expit
 
 from src.kpi.capacity import max_rsrp
-from src.kpi.soft import soft_spec, soften
 
 
 def hole_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
@@ -36,9 +34,9 @@ def hole_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
 def hole_desirability(rsrp: np.ndarray, cfg: DictConfig) -> float:
     """Coverage softened per tile in dB, then averaged over the grid.
 
-    ``mean over tiles of sigmoid((R_max - target) / T)``, with the target in dBm
-    and the temperature in dB from ``kpi.soft.hole_rate``. One is a tile
-    comfortably covered, zero a deep hole, a half a tile exactly on the target.
+    ``mean over tiles of sigmoid(R_max - kpi.hole_dbm)``. One is a tile
+    comfortably covered, zero a deep hole, a half a tile exactly on the
+    threshold.
 
     This exists because :func:`hole_rate` cannot steer a search. Its ``<=`` is a
     step: a tile at -119.9 dBm counts fully, one at -120.1 counts nothing, and
@@ -54,13 +52,9 @@ def hole_desirability(rsrp: np.ndarray, cfg: DictConfig) -> float:
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``kpi.soft.hole_rate``.
+        cfg: Composed config; reads ``cfg.kpi.hole_dbm``.
 
     Returns:
         A value in ``[0, 1]``. Maximised.
-
-    Raises:
-        ValueError: When ``kpi.soft.hole_rate`` is unusable; see
-            :func:`src.kpi.soft.soft_spec`.
     """
-    return float(soften(max_rsrp(rsrp), soft_spec(cfg, "hole_rate"), maximise=True).mean())
+    return float(expit(max_rsrp(rsrp) - float(cfg.kpi.hole_dbm)).mean())

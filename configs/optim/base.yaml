@@ -12,15 +12,7 @@ output:
 
 seed: ${seed}
 
-# Which score drives the search and picks the winner (src/optim/objective.py
-# `selection_scores`):
-#   soft - the desirability quality index of ADR 0004, the default.
-#   hard - the raw weighted sum of ADR 0003, kept for the final-evaluation audit.
-# Both are reported whichever is chosen; this decides which one selects.
-objective: soft
-
-# Solutions published for choice, best first. The incumbent and the
-# weighted-score pick are always among them, so this is the total and not an
-# addition to them. It bounds what an operator is asked to read, not what the
+# Solutions published for choice, best first. The incumbent and the quality-index
+# pick are always among them, so this is the total and not an addition to them. It bounds what an operator is asked to read, not what the
 # run computes: every candidate is measured either way.
 n_solutions: 8

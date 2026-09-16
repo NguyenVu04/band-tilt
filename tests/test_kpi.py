@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from omegaconf import OmegaConf
-from scipy.special import expit
 
 from src.kpi import (
     edge_rsrp_dbm,
@@ -32,11 +31,6 @@ def cfg():
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
                 "quality": {"edge_percentile": 5.0},
-                "soft": {
-                    "hole_rate": {"target": -120.0, "temperature": 5.0},
-                    "overlap_rate": {"target": 0.5, "temperature": 0.5},
-                    "served_ratio": {"target": 0.5, "temperature": 0.1},
-                },
                 "capacity": {
                     "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
@@ -205,11 +199,11 @@ def test_served_ratio_rejects_an_empty_mdt(cfg) -> None:
 
 
 def test_served_desirability_averages_per_tile_not_per_report(cfg) -> None:
-    """The point of softening before averaging: a busy tile must not outvote a quiet one.
+    """The point of averaging per tile: a busy tile must not outvote a quiet one.
 
     Tile 0 takes three reports and serves them all; tile 1 takes one and serves
     none. The global share is 3/4, but every tile gets one vote here, so the
-    result is the mean of the two tiles' softened ratios - and lower.
+    result is the mean of the two tiles' ratios - and lower.
     """
     cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 100, "lo": 100}
@@ -221,10 +215,8 @@ def test_served_desirability_averages_per_tile_not_per_report(cfg) -> None:
     )
 
     assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
-    # Per tile: served ratios of 1.0 and 0.0, softened about a target of 0.5.
-    expected = 0.5 * (expit((1.0 - 0.5) / 0.1) + expit((0.0 - 0.5) / 0.1))
-    assert served_desirability(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(expected)
-    assert served_desirability(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) < 0.75
+    # Per tile: served ratios of 1.0 and 0.0, each one vote.
+    assert served_desirability(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.5)
 
 
 def test_served_desirability_ignores_tiles_carrying_no_report(cfg) -> None:
@@ -271,20 +263,61 @@ def test_hole_desirability_scores_a_no_path_tile_zero(cfg) -> None:
     assert hole_desirability(_map([[[np.nan]]]), cfg) == pytest.approx(0.0)
 
 
-def test_overlap_desirability_separates_counts_the_rate_collapses(cfg) -> None:
-    """``overlap_rate`` asks only whether a neighbour exists; the count is the signal.
+def test_overlap_desirability_reads_the_margin_the_rate_steps_over(cfg) -> None:
+    """The whole reason for the change: the rate is a step at the margin.
 
-    Tile 0 is crowded by one neighbour within the margin, tile 1 by two. Both
-    are simply "overlapping" to the rate.
+    Both tiles carry one co-band neighbour, one just inside the 6 dB margin and
+    one just outside. ``overlap_rate`` calls them entirely different tiles; the
+    desirability calls them nearly the same, which is what they are.
     """
-    one = _map([[[-80.0], [-82.0], [-140.0]]])
-    two = _map([[[-80.0], [-82.0], [-83.0]]])
+    inside = _map([[[-80.0], [-85.9]]])
+    outside = _map([[[-80.0], [-86.1]]])
 
-    assert overlap_rate(one, cfg) == overlap_rate(two, cfg) == pytest.approx(1.0)
-    assert overlap_desirability(one, cfg) > overlap_desirability(two, cfg)
+    assert overlap_rate(inside, cfg) == pytest.approx(1.0)
+    assert overlap_rate(outside, cfg) == pytest.approx(0.0)
+    assert overlap_desirability(inside, cfg) == pytest.approx(
+        overlap_desirability(outside, cfg), abs=0.05
+    )
 
 
-def test_overlap_desirability_is_best_where_nothing_crowds(cfg) -> None:
-    """A tile with one dominant server has no neighbours, so it scores near one."""
+def test_overlap_desirability_rises_as_the_neighbour_falls_away(cfg) -> None:
+    """Monotone in the RSRP difference, which the neighbour count is not."""
+    scores = [
+        overlap_desirability(_map([[[-80.0], [-80.0 - gap]]]), cfg) for gap in (4.0, 6.0, 8.0, 12.0)
+    ]
+    assert scores == sorted(scores)
+    assert scores[-1] > 0.99
+
+
+def test_overlap_desirability_is_half_on_the_margin(cfg) -> None:
+    """A neighbour exactly ``overlap_margin_db`` down sits on the curve's midpoint."""
+    assert overlap_desirability(_map([[[-80.0], [-86.0]]]), cfg) == pytest.approx(0.5)
+
+
+def test_overlap_desirability_scores_a_tile_with_no_neighbour_one(cfg) -> None:
+    """Nothing to overlap with is not a half-measure; it is the best case.
+
+    The same convention as :func:`overlap_rate`, which counts an uncovered tile
+    as not overlapping.
+    """
     alone = _map([[[-80.0], [-140.0], [-140.0]]])
-    assert overlap_desirability(alone, cfg) == pytest.approx(0.7311, abs=1e-4)
+    empty = _map([[[-140.0], [-140.0]]])
+
+    assert overlap_desirability(alone, cfg) == pytest.approx(1.0)
+    assert overlap_desirability(empty, cfg) == pytest.approx(1.0)
+
+
+def test_overlap_desirability_averages_over_neighbours_rather_than_counting(cfg) -> None:
+    """Documented consequence of the mean: it reads separation, not crowding.
+
+    Both tiles are crowded by the same 2 dB neighbour. The second also carries a
+    third layer 20 dB down, which is well separated and so raises the average -
+    where :func:`overlap_neighbors` counts it as one more neighbour. The count
+    is what ``overlap_rate`` reports; this KPI is the typical separation.
+    """
+    crowded = _map([[[-80.0], [-82.0], [-140.0]]])
+    crowded_and_shadowed = _map([[[-80.0], [-82.0], [-100.0]]])
+
+    assert overlap_neighbors(crowded, cfg).sum() == 1
+    assert overlap_neighbors(crowded_and_shadowed, cfg).sum() == 1
+    assert overlap_desirability(crowded_and_shadowed, cfg) > overlap_desirability(crowded, cfg)

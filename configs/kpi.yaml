@@ -1,81 +1,34 @@
 # @package kpi
-# Thresholds and weights defining the four KPIs, plus the capacity model behind
-# the serving rule, the served ratio and the PRB demand map.
+# Thresholds and weights defining the KPIs, plus the capacity model behind the
+# serving rule, the served ratio and the PRB demand map.
+#
+# Every threshold below is read twice: once hard, by the rate a deployment
+# reads, and once softly per tile, by the desirability the search maximises
+# (ADR 0005). There is no separate soft threshold to keep in step.
 
 # Strongest signal at or below which a location is a coverage hole. Also the
-# RSRP a cell-band must exceed to serve a UE.
+# RSRP a cell-band must exceed to serve a UE. hole_desirability softens it as
+# sigmoid(R_max - hole_dbm), in dB.
 hole_dbm: -120.0
 
 # Upper bound of weak coverage; the lower bound is hole_dbm.
 weak_dbm: -90.0
 
 # Inclusive margin within which a co-band neighbour overlaps the serving cell.
+# overlap_desirability softens it as sigmoid(delta - overlap_margin_db) on each
+# neighbour's RSRP difference below the server, so a neighbour exactly this far
+# down scores a half instead of falling off a step.
 overlap_margin_db: 6.0
 
-# Weights both scores read. The hard score (src/optim/objective.py `scores`,
-# ADR 0003) sums weight x KPI raw over all four, signed so larger is better. The
-# soft score (`quality_index`, ADR 0004) takes the hole_rate, overlap_rate and
-# served_ratio entries and renormalises them to sum to one, so weak_rate's weight
-# below applies to the audit only. Finite, non-negative, not all zero.
+# Weights of the quality index (src/optim/objective.py `quality_index`): the
+# geometric mean renormalises them to sum to one, so only their ratios matter.
+# They are judgement values in ADR 0001's priority order. Finite, non-negative,
+# not all zero. Nothing else reads them - the reported rates carry no weights,
+# because nothing sums them.
 weights:
-  hole_rate: 4.0
-  overlap_rate: 3.0
-  served_ratio: 2.0
-  weak_rate: 1.0
-
-# Noise floor per KPI, for reporting only: a delta within it is reported as a
-# tie rather than as better or worse. It does not affect which solution wins.
-#
-# The three rates sit at the ray tracer's run-to-run spread under a changed
-# solver seed. served_ratio is UNMEASURED: derive it the same way before
-# reporting against it.
-tolerance:
-  hole_rate: 0.002
-  overlap_rate: 0.001
-  served_ratio: 0.001
-  weak_rate: 0.004
-  # The desirabilities and the cell-edge percentile are UNMEASURED, like
-  # served_ratio above. Derive them from repeated solves of one configuration
-  # under different simulation.seed values before reporting a verdict.
-  edge_rsrp_dbm: 0.5
-  hole_desirability: 0.001
-  overlap_desirability: 0.002
-  served_desirability: 0.003
-
-# Soft thresholds of the objective (ADR 0004). Each replaces the hard comparison
-# inside a KPI with sigmoid(sign * (value - target) / temperature), applied PER
-# TILE and then averaged over the grid. The weighted geometric mean of the three
-# is both the score the search maximises and the published quality index.
-#
-# The units below are therefore the TILE's units, not the rate's: a target is
-# the value at which one tile is half desirable, and a temperature is how far
-# that tile has to move to cross the curve.
-#
-# Softening the aggregate rate instead would leave the hard comparison in place:
-# to hole_rate, a tile 0.1 dB short of coverage and one 40 dB short are the same
-# tile, and no curve applied afterwards can separate them. That is the defect
-# these exist to remove, so the transform belongs here, at measure time.
-#
-# The consequence is that these values are part of every stored measurement.
-# Changing one invalidates archived runs rather than merely re-scoring them: an
-# archived run can still be re-weighted, never re-tempered.
-soft:
-  # dBm and dB, on the tile's best-server RSRP. The target is kpi.hole_dbm, so
-  # the soft and hard definitions of a hole agree about where the edge is and
-  # differ only in how sharply. The temperature spans the fading depth either
-  # side of that edge, so a tile a few dB short still registers as nearly a hole
-  # and one a few dB clear registers as nearly covered.
-  hole_rate: {target: -120.0, temperature: 5.0}
-  # Co-band neighbours, on the tile's overlap count. Half a neighbour puts the
-  # curve's midpoint between zero and one, so the first crowding neighbour is
-  # the expensive one and the fourth adds little - the shape a tilt change
-  # actually has to move.
-  overlap_rate: {target: 0.5, temperature: 0.5}
-  # Share of the tile's UE reports that were served. A tile is nearly always
-  # either fully served or not served at all, so the target is the midpoint
-  # between those two modes, and the temperature is wide enough that the partly
-  # served minority still has a gradient instead of rounding to one mode.
-  served_ratio: {target: 0.5, temperature: 0.25}
+  hole_desirability: 4.0
+  overlap_desirability: 3.0
+  served_desirability: 2.0
 
 # Reported network-quality measures that no score reads.
 quality:

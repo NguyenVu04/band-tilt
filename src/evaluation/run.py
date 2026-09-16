@@ -30,15 +30,31 @@ FIGURES_DIR = Path("reports/figures/04_evaluation")
 TABLES_DIR = Path("reports/tables/04_evaluation")
 
 
-# Alternative weightings for the sensitivity table, keyed by KPI name. They
-# bracket the configured weights; none is tuned. Every scheme carries a
-# weak_rate entry because the hard score still reads one, but the soft score of
-# ADR 0004 does not, so a scheme differing only there re-picks the same winner.
+# Alternative weightings for the sensitivity table, keyed as `kpi.weights` is.
+# They bracket the configured weights; none is tuned. A single-KPI scheme is a
+# corner of the simplex rather than a proposal: it says which winner that KPI
+# would have picked alone.
 WEIGHT_SCHEMES = {
-    "equal": {"hole_rate": 1.0, "overlap_rate": 1.0, "served_ratio": 1.0, "weak_rate": 1.0},
-    "hole_only": {"hole_rate": 1.0, "overlap_rate": 0.0, "served_ratio": 0.0, "weak_rate": 0.0},
-    "overlap_only": {"hole_rate": 0.0, "overlap_rate": 1.0, "served_ratio": 0.0, "weak_rate": 0.0},
-    "served_only": {"hole_rate": 0.0, "overlap_rate": 0.0, "served_ratio": 1.0, "weak_rate": 0.0},
+    "equal": {
+        "hole_desirability": 1.0,
+        "overlap_desirability": 1.0,
+        "served_desirability": 1.0,
+    },
+    "hole_only": {
+        "hole_desirability": 1.0,
+        "overlap_desirability": 0.0,
+        "served_desirability": 0.0,
+    },
+    "overlap_only": {
+        "hole_desirability": 0.0,
+        "overlap_desirability": 1.0,
+        "served_desirability": 0.0,
+    },
+    "served_only": {
+        "hole_desirability": 0.0,
+        "overlap_desirability": 0.0,
+        "served_desirability": 1.0,
+    },
 }
 
 
@@ -88,7 +104,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
 
     summary = compare.seed_summary(runs, cfg)
     add("kpi_scoreboard", summary)
-    add("kpi_improvement_vs_tolerance", plots.kpi_comparison(summary))
+    add("kpi_improvement", plots.kpi_comparison(summary))
     add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
     add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
     add("weight_sensitivity", compare.weight_sensitivity(runs, cfg, WEIGHT_SCHEMES))

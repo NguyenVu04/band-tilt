@@ -283,47 +283,44 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 
 
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean improvement over the incumbent per KPI, in units of that KPI's tolerance.
+    """Mean improvement over the incumbent per KPI, one panel each.
 
-    Dividing by the tolerance puts incomparable KPIs on one axis: height 1 is
-    one noise floor. Positive is better whichever direction the KPI runs. Error
-    bars are the 95 % interval over seeds; the shaded band is a tie.
+    A panel per KPI rather than one shared axis because the KPIs have no common
+    unit: a share moves by thousandths where the cell-edge RSRP moves by dB, and
+    one axis would hide every rate behind the dB. Each panel is signed so
+    positive is better whichever direction its KPI runs, and the error bars are
+    the 95 % interval over seeds.
 
     Args:
         summary: :func:`src.evaluation.compare.seed_summary` output.
     """
     rows = summary[summary["kpi"].isin(KPI_NAMES)]
     methods = list(dict.fromkeys(rows["method"]))
-    positions = np.arange(len(KPI_NAMES))
-    width = 0.8 / max(len(methods), 1)
+    positions = np.arange(len(methods))
 
-    figure, axis = plt.subplots(figsize=(10.0, 5.0), constrained_layout=True)
-    axis.axhspan(-1, 1, color="0.88", zorder=0, label="Within solver noise")
-    axis.axhline(0, color="0.4", lw=1, zorder=1)
-    for index, method in enumerate(methods):
-        mine = rows[rows["method"] == method].set_index("kpi").loc[list(KPI_NAMES)]
-        sign = np.array([1.0 if name in MAXIMISED else -1.0 for name in KPI_NAMES])
-        height = sign * mine["mean_delta"].to_numpy() / mine["tolerance"].to_numpy()
-        half = (mine["ci95_high"] - mine["mean"]).to_numpy() / mine["tolerance"].to_numpy()
+    figure, axes = plt.subplots(2, 4, figsize=(14.0, 7.0), constrained_layout=True)
+    for axis, name in zip(axes.ravel(), KPI_NAMES, strict=True):
+        mine = rows[rows["kpi"] == name].set_index("method").loc[methods]
+        sign = 1.0 if name in MAXIMISED else -1.0
+        half = (mine["ci95_high"] - mine["mean"]).to_numpy()
+        axis.axhline(0, color="0.4", lw=1, zorder=1)
         axis.bar(
-            positions + index * width - 0.4 + width / 2,
-            height,
-            width=width,
+            positions,
+            sign * mine["mean_delta"].to_numpy(),
+            width=0.6,
             yerr=np.where(np.isfinite(half), half, 0.0),
             capsize=3,
-            label=label(method),
-            color=COLOURS.get(method),
+            color=[COLOURS.get(method) for method in methods],
             zorder=2,
         )
-    axis.set_xticks(positions, [label(name) for name in KPI_NAMES])
-    axis.set_ylabel("Improvement over current configuration\n[multiples of tolerance]")
-    axis.set_title("KPI improvement against solver noise")
-    axis.legend()
+        axis.set_xticks(positions, [label(method) for method in methods], fontsize=8)
+        axis.set_title(label(name), fontsize=9)
+    figure.suptitle("KPI improvement over the current configuration (higher is better)")
     return figure
 
 
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Best weighted score so far per evaluation: mean over seeds, with the min–max range.
+    """Best quality index so far per evaluation: mean over seeds, with the min–max range.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
@@ -339,7 +336,7 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
         )
         axis.fill_between(stats.index, stats["min"], stats["max"], color=colour, alpha=0.2)
     axis.set_xlabel("Evaluations")
-    axis.set_ylabel("Best weighted score so far (higher is better)")
+    axis.set_ylabel("Best quality index so far (higher is better)")
     axis.set_title("Search progress")
     axis.legend()
     return figure

@@ -144,8 +144,8 @@ stages:
   # data/processed/cell.parquet: the search reads the committed tilt bounds from
   # the config, and the parquet is that same table in another form.
   #
-  # kpi is a param because the objective IS the KPI definitions and their
-  # tolerances — change a threshold and every previous run becomes incomparable.
+  # kpi is a param because the objective IS the KPI definitions: change a
+  # threshold and every previous run becomes incomparable.
   optimization:
     cmd: python -m src.optim.run
     deps:
@@ -188,7 +188,6 @@ stages:
           - overlap_margin_db
           - capacity
           - weights
-          - tolerance
       - configs/simulation.yaml:
           - scene
           - grid

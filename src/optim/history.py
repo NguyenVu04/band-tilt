@@ -21,8 +21,7 @@ from src.optim.objective import (
     KPI_NAMES,
     KpiVector,
     best_by_score,
-    scores,
-    selection_scores,
+    quality_index,
 )
 from src.optim.space import TiltSpace
 
@@ -80,9 +79,8 @@ def write_solution_options(
 ) -> tuple[Path, Path]:
     """Republish the shortlist as the two tables an operator chooses from.
 
-    The weighted score (``kpi.weights``, ADR 0003) marks one row
-    ``recommended``; the runners-up are published beside it rather than
-    discarded.
+    The quality index (``kpi.weights``) marks one row ``recommended``; the
+    runners-up are published beside it rather than discarded.
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
@@ -147,11 +145,9 @@ class History:
         return [result.kpi for result in self.results]
 
     def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
-        """One row per evaluation: provenance, the four KPIs, every tilt.
+        """One row per evaluation: provenance, every KPI, every tilt.
 
-        With ``cfg``, also ``score``, the score that selects the winner
-        (``optim.objective``), and ``score_hard``, the ADR 0003 weighted sum
-        kept as an audit beside it.
+        With ``cfg``, also ``score``, the quality index that selects the winner.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -171,14 +167,13 @@ class History:
         for name in KPI_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
         if cfg is not None:
-            frame["score"] = selection_scores(self.kpis, cfg)
-            frame["score_hard"] = scores(self.kpis, cfg)
+            frame["score"] = quality_index(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
-        """Index of the highest :func:`selection_scores` over every evaluation.
+        """Index of the highest :func:`quality_index` over every evaluation.
 
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """

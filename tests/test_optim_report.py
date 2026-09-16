@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import KPI_NAMES, KpiVector, selection_scores
+from src.optim.objective import KPI_NAMES, TARGET_NAMES, KpiVector, quality_index
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
@@ -42,17 +42,8 @@ _CONFIG = {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
         "transmitters": {"cells": _CELLS},
     },
-    "kpi": {
-        "tolerance": dict.fromkeys(KPI_NAMES, 0.001),
-        "weights": dict.fromkeys(KPI_NAMES, 1.0),
-        "soft": {
-            "hole_rate": {"target": 0.15, "temperature": 0.05},
-            "overlap_rate": {"target": 0.25, "temperature": 0.05},
-            "served_ratio": {"target": 0.60, "temperature": 0.10},
-        },
-    },
+    "kpi": {"weights": dict.fromkeys(TARGET_NAMES, 1.0)},
     "optim": {
-        "objective": "soft",
         # `rule` rather than `turbo`: deterministic, no model, and it still
         # exercises the whole publish path.
         "method": {"name": "rule", "n_steps": 5, "n_rounds": 2},
@@ -144,8 +135,8 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
 def _kpis(count: int) -> list[KpiVector]:
     """A spread of KPI vectors to rank.
 
-    ``served_desirability`` is drawn in (0, 1) like the rates: it is already a
-    desirability, and the geometric mean is undefined on a negative one.
+    Every desirability is drawn in (0, 1): the geometric mean is undefined on a
+    negative one.
     """
     rng = np.random.default_rng(0)
     kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5, 0.5, 0.5)]
@@ -178,12 +169,12 @@ def test_choose_never_drops_a_required_row_to_fit_the_budget(cfg) -> None:
 def test_choose_fills_the_budget_by_score(cfg) -> None:
     """After the incumbent, nothing left out outscores anything offered.
 
-    Ranked by the score that selects the winner, not by the audit score, or the
-    shortlist would disagree with the recommendation printed beside it.
+    Ranked by the quality index that selects the winner, or the shortlist would
+    disagree with the recommendation printed beside it.
     """
     kpis = _kpis(24)
     picks = choose(kpis, cfg, 6)
-    values = selection_scores(kpis, cfg)
+    values = quality_index(kpis, cfg)
 
     offered = values[picks[1:]]
     left_out = np.delete(values, picks)

@@ -82,5 +82,7 @@ is the thing these records exist to preserve.
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
 | [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
 | [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
+| [0004](0004-soft-threshold-desirability-objective.md) | A soft-threshold desirability objective | Superseded by 0005 | 2026-09-16 | — |
+| [0005](0005-separate-reported-and-targeted-kpis.md) | Separate reported and targeted KPIs | Accepted | 2026-09-16 | — |
 
 0002 is deleted; the number is not reused.

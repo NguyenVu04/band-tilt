@@ -1,23 +1,22 @@
 """KPI 2 - Overlap. How often frequency layers collide.
 
 The overlap rule is CO-BAND: within one band, the strongest transmitter serves
-and the other transmitters on that same band are its neighbours; the counts are
-then summed across bands. Two carriers of one cell are therefore never
-neighbours of each other.
+and the other transmitters on that same band are its neighbours. Two carriers of
+one cell are therefore never neighbours of each other.
 
-:func:`overlap_neighbors` counts them. The two KPIs differ only in what they do
-with that count: :func:`overlap_rate` asks whether it is nonzero, which is what
-the hard score reads, while :func:`overlap_desirability` softens the count
-itself and is what the objective reads.
+Both KPIs read ``kpi.overlap_margin_db``, and differ in how sharply:
+:func:`overlap_rate` reports the share of the grid where a neighbour is inside
+the margin, while :func:`overlap_desirability` softens the margin on the RSRP
+difference itself and is what the search maximises.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from omegaconf import DictConfig
+from scipy.special import expit
 
 from src.kpi.capacity import finite
-from src.kpi.soft import soft_spec, soften
 
 
 def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -61,35 +60,62 @@ def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
     return float((overlap_neighbors(rsrp, cfg) > 0).mean())
 
 
+def _separation(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
+    """Per-band separation desirability at each location.
+
+    Returns:
+        Shape ``[n_band, n_rows, n_cols]``, in ``(0, 1]``. A band with no
+        co-band neighbour - including an uncovered one - has nothing to overlap
+        and scores exactly one.
+    """
+    hole_dbm = float(cfg.kpi.hole_dbm)
+    margin_db = float(cfg.kpi.overlap_margin_db)
+
+    layers = finite(rsrp)
+    serving = layers.max(axis=1, keepdims=True)
+    covered = serving > hole_dbm
+    serves = np.zeros(layers.shape, dtype=bool)
+    np.put_along_axis(serves, layers.argmax(axis=1, keepdims=True), True, axis=1)
+    neighbour = (layers > hole_dbm) & covered & ~serves
+
+    # Both operands are zero-filled before the subtraction: -inf - -inf is NaN
+    # and warns, the hazard `overlap_neighbors` avoids by not subtracting.
+    delta = np.where(covered, serving, 0.0) - np.where(neighbour, layers, 0.0)
+    scored = np.where(neighbour, expit(delta - margin_db), 0.0)
+    count = neighbour.sum(axis=1)
+    return np.where(count > 0, scored.sum(axis=1) / np.maximum(count, 1), 1.0)
+
+
 def overlap_desirability(rsrp: np.ndarray, cfg: DictConfig) -> float:
-    """The neighbour count softened per tile, then averaged over the grid.
+    """The margin softened per co-band neighbour, then averaged over the grid.
 
-    ``mean over tiles of sigmoid((target - N_ov) / T)``, with the target and
-    temperature in neighbours from ``kpi.soft.overlap_rate``. One is a tile with
-    the layers comfortably separated, zero a tile crowded by several.
+    ``sigmoid(delta - kpi.overlap_margin_db)`` on each neighbour's RSRP
+    difference below the serving transmitter, averaged over the neighbours of a
+    band, then over bands and tiles. A neighbour level with the server scores
+    near zero, one a margin down exactly a half, and one well clear near one.
 
-    This softens the ``> 0`` of :func:`overlap_rate`, not the 6 dB margin.
-    :func:`overlap_neighbors` already returns a count, and collapsing it to a
-    yes/no throws away the difference between one crowding neighbour and four -
-    the difference a tilt change actually moves. The margin comparison inside
-    the count stays hard, so a neighbour 6.1 dB down still contributes nothing.
+    This softens the margin itself, where the physics is: the ``>=`` of
+    :func:`overlap_neighbors` makes a neighbour 5.9 dB down a whole neighbour
+    and one 6.1 dB down nothing at all, so the tilt change that moved it
+    registers as a step or as nothing.
 
-    An uncovered tile contributes zero neighbours and so scores as maximally
-    desirable, exactly as it does in :func:`overlap_rate`: it has nothing to
-    overlap with. That is why this KPI is never read alone - a configuration
-    that covers nothing scores perfectly here, and is caught by the hole term.
+    Averaging over the neighbours reads the band's typical separation rather
+    than its worst offender, and is not a count: a further neighbour raises the
+    average, so a tile crowded by one layer can score below a tile crowded by
+    one and shadowed by another. The count is what :func:`overlap_rate`
+    reports.
+
+    An uncovered tile has no neighbour and so scores as maximally desirable,
+    exactly as it does in :func:`overlap_rate`: it has nothing to overlap with.
+    That is why this KPI is never read alone - a configuration that covers
+    nothing scores perfectly here, and is caught by the hole term.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``kpi.hole_dbm``, ``kpi.overlap_margin_db``
-            and ``kpi.soft.overlap_rate``.
+        cfg: Composed config; reads ``kpi.hole_dbm`` and
+            ``kpi.overlap_margin_db``.
 
     Returns:
-        A value in ``[0, 1]``. Maximised.
-
-    Raises:
-        ValueError: When ``kpi.soft.overlap_rate`` is unusable; see
-            :func:`src.kpi.soft.soft_spec`.
+        A value in ``(0, 1]``. Maximised.
     """
-    neighbours = overlap_neighbors(rsrp, cfg)
-    return float(soften(neighbours, soft_spec(cfg, "overlap_rate"), maximise=False).mean())
+    return float(_separation(rsrp, cfg).mean())

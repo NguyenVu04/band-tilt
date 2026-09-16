@@ -1,4 +1,4 @@
-"""The KPI vector, the sign convention, and the two scores that pick a winner."""
+"""The KPI vector, the sign convention, and the score that picks a winner."""
 
 from __future__ import annotations
 
@@ -9,77 +9,28 @@ from omegaconf import OmegaConf
 from src.optim.objective import (
     KPI_NAMES,
     MAXIMISED,
-    OBJECTIVE_NAMES,
-    WEIGHTED_NAMES,
+    REPORT_NAMES,
+    TARGET_NAMES,
     KpiVector,
-    as_maximised,
     best_by_score,
     desirability,
-    normalised_weights,
     quality_index,
-    scores,
-    selection_scores,
-    tolerances,
     weights,
 )
 
-# Deliberately round and unequal, so a test cannot pass by comparing the wrong
-# KPI against the right tolerance. Listed out of priority order on purpose.
-_TOLERANCE = {
-    "hole_rate": 0.01,
-    "overlap_rate": 0.02,
-    "weak_rate": 0.05,
-    "served_ratio": 0.04,
-    "edge_rsrp_dbm": 0.5,
-    "hole_desirability": 0.02,
-    "overlap_desirability": 0.02,
-    "served_desirability": 0.03,
-}
-
-# Unequal and out of order for the same reason.
+# Unequal and out of priority order on purpose, so a test cannot pass by
+# reading the block's own order instead of TARGET_NAMES.
 _WEIGHTS = {
-    "hole_rate": 4.0,
-    "overlap_rate": 3.0,
-    "weak_rate": 1.0,
-    "served_ratio": 2.0,
-}
-
-
-# Per-tile thresholds, in the tile's units. The objective never reads them -
-# they are applied in src.kpi at measure time - so they are here only to keep
-# the fixture a valid config.
-_SOFT = {
-    "hole_rate": {"target": -120.0, "temperature": 5.0},
-    "overlap_rate": {"target": 0.5, "temperature": 0.5},
-    "served_ratio": {"target": 0.5, "temperature": 0.25},
+    "hole_desirability": 4.0,
+    "served_desirability": 2.0,
+    "overlap_desirability": 3.0,
 }
 
 
 @pytest.fixture
 def cfg():
-    """A config selecting the hard score, which most of these tests exercise."""
-    return OmegaConf.create(
-        {
-            "optim": {"objective": "hard"},
-            "kpi": {
-                "tolerance": dict(_TOLERANCE),
-                "weights": dict(_WEIGHTS),
-                "soft": {name: dict(value) for name, value in _SOFT.items()},
-            },
-        }
-    )
-
-
-@pytest.fixture
-def soft_cfg(cfg):
-    """The same config selecting the desirability score.
-
-    A copy, not a mutation: a test taking both fixtures must get two configs.
-    """
-    other = cfg.copy()
-    other.optim = cfg.optim.copy()
-    other.optim.objective = "soft"
-    return other
+    """The only config the objective reads."""
+    return OmegaConf.create({"kpi": {"weights": dict(_WEIGHTS)}})
 
 
 def _kpi(**overrides: float) -> KpiVector:
@@ -98,7 +49,7 @@ def _kpi(**overrides: float) -> KpiVector:
 
 
 def test_priority_order_is_the_adr_order() -> None:
-    """Reordering this changes which configuration wins."""
+    """Reordering this changes which column of every table is which."""
     assert KPI_NAMES == (
         "hole_rate",
         "overlap_rate",
@@ -109,11 +60,15 @@ def test_priority_order_is_the_adr_order() -> None:
         "overlap_desirability",
         "served_desirability",
     )
-    assert WEIGHTED_NAMES == ("hole_rate", "overlap_rate", "served_ratio", "weak_rate")
-    assert OBJECTIVE_NAMES == ("hole_rate", "overlap_rate", "served_ratio")
+    assert KPI_NAMES == REPORT_NAMES + TARGET_NAMES
 
 
-def test_only_the_ue_and_quality_kpis_are_maximised() -> None:
+def test_the_two_families_do_not_overlap() -> None:
+    """The separation of ADR 0005: no KPI is both reported and searched for."""
+    assert not set(REPORT_NAMES) & set(TARGET_NAMES)
+
+
+def test_only_the_ue_and_targeted_kpis_are_maximised() -> None:
     """The usual place a sign error hides."""
     assert MAXIMISED == {
         "served_ratio",
@@ -122,12 +77,6 @@ def test_only_the_ue_and_quality_kpis_are_maximised() -> None:
         "overlap_desirability",
         "served_desirability",
     }
-
-
-def test_as_maximised_flips_only_the_minimised_kpis() -> None:
-    """An orientation, not a normalisation: magnitudes are untouched."""
-    values = as_maximised([_kpi()])
-    assert np.array_equal(values[0], [-0.10, -0.30, 0.20, -0.10, -105.0, 0.50, 0.50, 0.50])
 
 
 def test_as_dict_round_trips_through_from_mapping() -> None:
@@ -144,45 +93,19 @@ def test_from_mapping_names_a_missing_kpi() -> None:
         KpiVector.from_mapping(values)
 
 
-def test_weights_are_read_in_kpi_order(cfg) -> None:
-    """The fixture lists weak before served ratio; the score must not."""
-    assert np.array_equal(weights(cfg), [4.0, 3.0, 2.0, 1.0])
-
-
-def test_the_hard_score_ignores_the_reported_only_kpis(cfg) -> None:
-    """edge_rsrp_dbm is in dBm; letting it into the sum would swamp every rate."""
-    loud = _kpi(edge_rsrp_dbm=-60.0, served_desirability=1.0)
-    assert scores([loud], cfg)[0] == pytest.approx(scores([_kpi()], cfg)[0])
-
-
-def test_the_score_is_the_signed_raw_weighted_sum(cfg) -> None:
-    """Minus on the three minimised KPIs, plus on served ratio, no normalisation."""
-    assert scores([_kpi()], cfg)[0] == pytest.approx(-4 * 0.10 - 3 * 0.30 + 2 * 0.20 - 1 * 0.10)
-
-
-def test_the_highest_score_wins(cfg) -> None:
-    """A served-ratio gain with nothing lost elsewhere raises the score."""
-    assert best_by_score([_kpi(), _kpi(served_ratio=0.30)], cfg) == 1
-
-
-def test_a_heavier_weight_outvotes_a_lighter_gain(cfg) -> None:
-    """+0.02 served ratio (x2) does not pay for +0.02 hole rate (x4)."""
-    candidate = _kpi(hole_rate=0.12, served_ratio=0.22)
-    assert best_by_score([_kpi(), candidate], cfg) == 0
-
-
-def test_an_equal_score_keeps_the_earlier_configuration(cfg) -> None:
-    """The incumbent holds unless a candidate actually scores higher."""
-    assert best_by_score([_kpi(), _kpi()], cfg) == 0
+def test_weights_are_read_in_target_order_and_normalised(cfg) -> None:
+    """The fixture lists served before overlap; the score must not."""
+    assert weights(cfg) == pytest.approx(np.array([4.0, 3.0, 2.0]) / 9.0)
+    assert weights(cfg).sum() == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize(
     ("block", "match"),
     [
         (None, "weights"),
-        ({name: 1.0 for name in WEIGHTED_NAMES if name != "weak_rate"}, "weak_rate"),
-        ({**dict.fromkeys(WEIGHTED_NAMES, 1.0), "overlap_rate": -1.0}, "non-negative"),
-        (dict.fromkeys(WEIGHTED_NAMES, 0.0), "all zero"),
+        ({name: 1.0 for name in TARGET_NAMES if name != "served_desirability"}, "served"),
+        ({**dict.fromkeys(TARGET_NAMES, 1.0), "overlap_desirability": -1.0}, "non-negative"),
+        (dict.fromkeys(TARGET_NAMES, 0.0), "all zero"),
     ],
 )
 def test_unusable_weights_raise(block, match) -> None:
@@ -192,75 +115,61 @@ def test_unusable_weights_raise(block, match) -> None:
         weights(OmegaConf.create({"kpi": kpi}))
 
 
-def test_tolerances_are_read_in_priority_order(cfg) -> None:
-    """Misalignment here would compare each KPI against another's threshold."""
-    # The fixture lists weak before served ratio; KPI_NAMES does not. Reading
-    # the dict's own order instead is exactly the misalignment guarded against.
-    assert np.array_equal(tolerances(cfg), [0.01, 0.02, 0.04, 0.05, 0.5, 0.02, 0.02, 0.03])
+def test_a_reported_rate_carries_no_weight(cfg) -> None:
+    """The reported family is not in `kpi.weights`, so it cannot be weighted in."""
+    assert not set(REPORT_NAMES) & set(cfg.kpi.weights)
 
 
-def test_a_missing_tolerance_block_raises_rather_than_defaulting() -> None:
-    """An exact comparison reports solver noise as a real change."""
-    with pytest.raises(ValueError, match="tolerance"):
-        tolerances(OmegaConf.create({"kpi": {}}))
-
-
-def test_an_incomplete_tolerance_block_names_the_gap() -> None:
-    """Half a tolerance block is more dangerous than none."""
-    partial = {name: 0.01 for name in KPI_NAMES if name != "weak_rate"}
-    with pytest.raises(ValueError, match="weak_rate"):
-        tolerances(OmegaConf.create({"kpi": {"tolerance": partial}}))
-
-
-def test_choosing_from_nothing_raises(cfg) -> None:
-    """An empty run has no winner to report."""
-    with pytest.raises(ValueError, match="no candidates"):
-        best_by_score([], cfg)
-
-
-def test_desirability_reads_the_premeasured_columns(soft_cfg) -> None:
+def test_desirability_reads_the_premeasured_columns(cfg) -> None:
     """The objective applies no threshold: every column was softened in src.kpi."""
     kpi = _kpi(hole_desirability=0.11, overlap_desirability=0.22, served_desirability=0.33)
     assert desirability([kpi])[0] == pytest.approx([0.11, 0.22, 0.33])
 
 
-def test_desirability_ignores_the_hard_rates(soft_cfg) -> None:
-    """The rates keep their hard thresholds and feed the audit score, not this one."""
-    moved = _kpi(hole_rate=0.99, overlap_rate=0.99, served_ratio=0.01)
+def test_the_score_ignores_every_reported_kpi(cfg) -> None:
+    """Moving a rate must not move the objective; they are separate metrics."""
+    moved = _kpi(hole_rate=0.99, overlap_rate=0.99, served_ratio=0.01, edge_rsrp_dbm=-60.0)
     assert desirability([moved])[0] == pytest.approx(desirability([_kpi()])[0])
+    assert quality_index([moved], cfg)[0] == pytest.approx(quality_index([_kpi()], cfg)[0])
 
 
-def test_normalised_weights_sum_to_one_over_the_objective_kpis(soft_cfg) -> None:
-    """Without this the geometric mean is a product that shrinks with each KPI added."""
-    values = normalised_weights(soft_cfg)
-    assert values.size == len(OBJECTIVE_NAMES)
-    assert values.sum() == pytest.approx(1.0)
-    assert values == pytest.approx(np.array([4.0, 3.0, 2.0]) / 9.0)
+def test_the_quality_index_is_the_weighted_geometric_mean(cfg) -> None:
+    """Equal desirabilities give that value back, whatever the weights."""
+    assert quality_index([_kpi()], cfg)[0] == pytest.approx(0.5)
 
 
-def test_the_quality_index_cannot_be_bought_back(soft_cfg) -> None:
+def test_the_quality_index_cannot_be_bought_back(cfg) -> None:
     """Non-compensatory: perfect on two KPIs does not rescue a collapsed third.
 
     The contrast with the arithmetic mean of the same desirabilities is the
     point of the geometric form, so both are asserted here.
     """
     collapsed = _kpi(hole_desirability=1e-6, overlap_desirability=1.0, served_desirability=1.0)
-    index = quality_index([collapsed], soft_cfg)[0]
-    compensated = float(desirability([collapsed])[0] @ normalised_weights(soft_cfg))
+    index = quality_index([collapsed], cfg)[0]
+    compensated = float(desirability([collapsed])[0] @ weights(cfg))
 
     assert index < 0.01
-    assert index < quality_index([_kpi()], soft_cfg)[0]
+    assert index < quality_index([_kpi()], cfg)[0]
     assert compensated > 0.5
 
 
-def test_the_objective_switch_picks_the_score(cfg, soft_cfg) -> None:
-    """One dispatcher, so a method and a report cannot read different scores."""
-    assert selection_scores([_kpi()], cfg) == pytest.approx(scores([_kpi()], cfg))
-    assert selection_scores([_kpi()], soft_cfg) == pytest.approx(quality_index([_kpi()], soft_cfg))
+def test_the_highest_score_wins(cfg) -> None:
+    """A desirability gain with nothing lost elsewhere raises the score."""
+    assert best_by_score([_kpi(), _kpi(served_desirability=0.60)], cfg) == 1
 
 
-def test_an_unknown_objective_raises(cfg) -> None:
-    """A typo must not silently fall back to either score."""
-    cfg.optim.objective = "softish"
-    with pytest.raises(ValueError, match="soft"):
-        selection_scores([_kpi()], cfg)
+def test_a_heavier_weight_outvotes_a_lighter_gain(cfg) -> None:
+    """Coverage is weighted 4 to the served ratio's 2, so an equal swap loses."""
+    candidate = _kpi(hole_desirability=0.40, served_desirability=0.60)
+    assert best_by_score([_kpi(), candidate], cfg) == 0
+
+
+def test_an_equal_score_keeps_the_earlier_configuration(cfg) -> None:
+    """The incumbent holds unless a candidate actually scores higher."""
+    assert best_by_score([_kpi(), _kpi()], cfg) == 0
+
+
+def test_choosing_from_nothing_raises(cfg) -> None:
+    """An empty run has no winner to report."""
+    with pytest.raises(ValueError, match="no candidates"):
+        best_by_score([], cfg)

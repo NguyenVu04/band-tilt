@@ -96,7 +96,7 @@ flowchart TB
 
     sim["src/simulation<br/>scenario · radio map · synthetic MDT"]
     prep["src/data<br/>schema verification · typed tables"]
-    kpi["src/kpi<br/>the four KPIs · PRB demand"]
+    kpi["src/kpi<br/>reported rates · targeted desirabilities · PRB demand"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
     ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
@@ -139,7 +139,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and its weighted score, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and its quality index, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -228,7 +228,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, MDT measurement noise, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, score weights, the per-KPI tie tolerances, and the placeholder `capacity` block (band preference, serving threshold, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, quality-index weights, and the placeholder `capacity` block (band preference, serving threshold, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -312,8 +312,8 @@ config groups, the whole resolved config as `config.yaml`, the Git commit
 | Stage | Metrics | Artifacts |
 |---|---|---|
 | `simulation_*`, `preprocessing` | — | output paths as `output.*` tags, not copied |
-| `optimization` | the winner's four KPIs, candidates measured | the run's parquet tables, `run.json`, the `reports/outputs/` deliverables |
-| `evaluation` | the four KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
+| `optimization` | the winner's KPIs, candidates measured | the run's parquet tables, `run.json`, the `reports/outputs/` deliverables |
+| `evaluation` | the KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
 
 Radio maps and the UE tables stay out of the store — data belongs to DVC. Set `mlflow.enabled=false` to run a stage untracked.
 
@@ -333,12 +333,12 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`,
 the last being the solutions offered for choice.
 
-The solutions offered are the incumbent plus the highest weighted scores
-(`kpi.weights`, ADR 0003). `optim.n_solutions` sets how many, 8 by default,
+The solutions offered are the incumbent plus the highest quality indices
+(`kpi.weights`, ADR 0005). `optim.n_solutions` sets how many, 8 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
-per offered solution, its score, its four KPIs and each one's delta against the
+per offered solution, its score, every KPI and each one's delta against the
 incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
 becomes. The highest score marks one row `recommended` and
 `tilt_change_<method>.csv` carries it. The MARL arm is not
@@ -373,7 +373,7 @@ band-tilt/
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
 | `src/simulation/` — scenario, scene, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
-| `src/kpi/` — the four KPIs (`hole`, `overlap`, `served`, `weak`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
+| `src/kpi/` — the KPIs (`hole`, `overlap`, `served`, `weak`, `quality`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
@@ -411,7 +411,7 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region and traffic logic; the four KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region and traffic logic; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers

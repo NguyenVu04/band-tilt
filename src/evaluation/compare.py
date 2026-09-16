@@ -18,31 +18,31 @@ from src.optim.objective import (
     KpiVector,
     best_by_score,
     evaluate_kpis,
+    quality_index,
     score_frame,
-    scores,
-    tolerances,
 )
 
-# What a delta smaller than its KPI's tolerance is called. Naming it in the
-# table rather than showing a bare signed number is the point: on this problem
-# most deltas are noise, and a reader should not have to know the tolerances to
-# see that.
-TIE = "tie (within solver noise)"
 BETTER = "better"
 WORSE = "worse"
+UNCHANGED = "unchanged"
 
 SCORE = "score"
 
 
 def direction(name: str) -> str:
-    """Whether a KPI, or the weighted score, is maximised or minimised."""
+    """Whether a KPI, or the quality index, is maximised or minimised."""
     return "maximise" if name in MAXIMISED or name == SCORE else "minimise"
 
 
-def _verdict(name: str, delta: float, tolerance: float) -> str:
-    """Better, worse, or a tie when the delta is within the tolerance."""
-    if abs(delta) <= tolerance:
-        return TIE
+def _verdict(name: str, delta: float) -> str:
+    """Better or worse by the sign of the delta, in that KPI's direction.
+
+    An exactly zero delta is ``unchanged``: it means the same measurement, not a
+    small one. Anything else is reported at face value, so a reader judges the
+    size of a move from the delta itself.
+    """
+    if delta == 0.0:
+        return UNCHANGED
     improved = delta > 0 if direction(name) == "maximise" else delta < 0
     return BETTER if improved else WORSE
 
@@ -63,19 +63,15 @@ def _interval(values: np.ndarray) -> tuple[float, float, float, float]:
     return mean, std, mean - half, mean + half
 
 
-def delta_table(before: KpiVector, after: KpiVector, cfg: DictConfig) -> pd.DataFrame:
+def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
     """Before, after and the verdict for each KPI, in priority order.
-
-    The verdict compares the delta against that KPI's tolerance from
-    ``configs/kpi.yaml``.
 
     Returns:
         Columns ``kpi``, ``direction``, ``before``, ``after``, ``delta``,
-        ``tolerance``, ``verdict``, in :data:`KPI_NAMES` order.
+        ``verdict``, in :data:`KPI_NAMES` order.
     """
-    tolerance = tolerances(cfg)
     rows = []
-    for index, name in enumerate(KPI_NAMES):
+    for name in KPI_NAMES:
         start, end = getattr(before, name), getattr(after, name)
         rows.append(
             {
@@ -84,8 +80,7 @@ def delta_table(before: KpiVector, after: KpiVector, cfg: DictConfig) -> pd.Data
                 "before": start,
                 "after": end,
                 "delta": end - start,
-                "tolerance": tolerance[index],
-                "verdict": _verdict(name, end - start, tolerance[index]),
+                "verdict": _verdict(name, end - start),
             }
         )
     return pd.DataFrame(rows)
@@ -95,13 +90,13 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     """Each method's winners, summarised over its seeds, against the incumbent.
 
     Every run measures the same incumbent under the same solver seed, so the
-    first run's stands for all. The verdict reads the mean delta against the
-    KPI's tolerance; the score has no tolerance and so no verdict.
+    first run's stands for all. The verdict reads the sign of the mean delta,
+    and the spread beside it says how far to trust one.
 
     Returns:
         One row per method and KPI, then ``score``: ``method``, ``kpi``,
         ``direction``, ``n_seeds``, ``incumbent``, ``mean``, ``std``,
-        ``ci95_low``, ``ci95_high``, ``mean_delta``, ``tolerance``, ``verdict``.
+        ``ci95_low``, ``ci95_high``, ``mean_delta``, ``verdict``.
 
     Raises:
         ValueError: When there are no runs.
@@ -109,14 +104,13 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     if not runs:
         raise ValueError("no runs to summarise")
     incumbent = runs[0].incumbent_kpi
-    before = {**incumbent.as_dict(), SCORE: float(scores([incumbent], cfg)[0])}
-    tolerance = dict(zip(KPI_NAMES, tolerances(cfg), strict=True))
+    before = {**incumbent.as_dict(), SCORE: float(quality_index([incumbent], cfg)[0])}
 
     rows = []
     for method in dict.fromkeys(run.method for run in runs):
         mine = [run for run in runs if run.method == method]
         values = {name: [getattr(run.best_kpi, name) for run in mine] for name in KPI_NAMES}
-        values[SCORE] = scores([run.best_kpi for run in mine], cfg)
+        values[SCORE] = quality_index([run.best_kpi for run in mine], cfg)
         for name, series in values.items():
             mean, std, low, high = _interval(np.asarray(series))
             delta = mean - before[name]
@@ -132,8 +126,7 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
                     "ci95_low": low,
                     "ci95_high": high,
                     "mean_delta": delta,
-                    "tolerance": tolerance.get(name, np.nan),
-                    "verdict": _verdict(name, delta, tolerance[name]) if name in tolerance else "",
+                    "verdict": _verdict(name, delta),
                 }
             )
     return pd.DataFrame(rows)
@@ -184,24 +177,21 @@ def weight_sensitivity(
 ) -> pd.DataFrame:
     """Re-pick every winner under other weights, from the measurements already taken.
 
-    The configured weights are judgement values (ADR 0003). Re-scoring the
+    The configured weights are judgement values (ADR 0001). Re-scoring the
     stored histories bounds how much the selection depends on them; a search
     steered by other weights could have explored elsewhere, which this cannot
     show.
 
-    Each scheme is scored through :func:`src.optim.objective.score_frame` on a
-    config carrying that scheme's weights, so it re-picks under whichever
-    objective ``optim.objective`` selects rather than assuming the weighted sum.
-    A scheme that only moves a weight the configured objective does not read -
-    ``weak_rate`` under the soft score - is therefore a deliberate no-op rather
-    than a silent one.
+    Re-weighting is honest where re-tempering would not be: the weights are
+    applied at score time, so a stored measurement can carry any of them, while
+    the thresholds are inside the measurement itself.
 
     Args:
         runs: The runs to re-score.
         cfg: Composed config; ``kpi.weights`` is the ``configured`` scheme.
-        schemes: Scheme name to per-KPI weights, keyed by KPI name. Keyed
-            rather than positional because the weighted KPIs are a subset of
-            :data:`KPI_NAMES` and a positional tuple would silently misalign.
+        schemes: Scheme name to weights, keyed by :data:`TARGET_NAMES` entry.
+            Keyed rather than positional because a positional tuple would
+            silently misalign.
 
     Returns:
         One row per scheme and method: ``scheme``, ``method``, ``n_seeds``,
@@ -253,7 +243,7 @@ def paired_method_gain(
         One row: ``method``, ``reference``, ``n_pairs``, ``mean_gain``,
         ``ci95_low``, ``ci95_high``, ``method_better``, ``wilcoxon_p``.
     """
-    best = {(run.method, run.seed): float(scores([run.best_kpi], cfg)[0]) for run in runs}
+    best = {(run.method, run.seed): float(quality_index([run.best_kpi], cfg)[0]) for run in runs}
     paired = sorted(seed for name, seed in best if name == method and (reference, seed) in best)
     gains = np.array([best[(method, seed)] - best[(reference, seed)] for seed in paired])
     mean, _, low, high = _interval(gains)
@@ -280,12 +270,13 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     The methods are matched on evaluations, not on time, so both halves are shown.
 
     Returns:
-        Columns for the run's identity and seed, its budget, its cost, its four
-        KPIs and score, and how many KPIs beat the incumbent past tolerance.
+        Columns for the run's identity and seed, its budget, its cost, every
+        KPI and the score, and how many KPIs moved each way against the
+        incumbent.
     """
     rows = []
     for run in runs:
-        deltas = delta_table(run.incumbent_kpi, run.best_kpi, cfg)
+        deltas = delta_table(run.incumbent_kpi, run.best_kpi)
         wall = run.wall_clock_seconds
         rows.append(
             {
@@ -297,7 +288,7 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
                 "wall_clock_min": wall / 60.0 if wall is not None else np.nan,
                 **{name: getattr(run.best_kpi, name) for name in KPI_NAMES},
-                SCORE: float(scores([run.best_kpi], cfg)[0]),
+                SCORE: float(quality_index([run.best_kpi], cfg)[0]),
                 "kpis_improved": int((deltas["verdict"] == BETTER).sum()),
                 "kpis_worsened": int((deltas["verdict"] == WORSE).sum()),
             }
@@ -306,7 +297,7 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
 
 
 def best_method(runs: list[Run], cfg: DictConfig) -> Run:
-    """The run whose winner has the highest weighted score; a tie keeps the earlier run.
+    """The run whose winner has the highest quality index; a tie keeps the earlier run.
 
     Raises:
         ValueError: When there are no runs.
@@ -326,7 +317,7 @@ def best_run_per_method(runs: list[Run], cfg: DictConfig) -> dict[str, Run]:
 
 
 def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
-    """Best value seen so far, per KPI and for the weighted score, per evaluation and run.
+    """Best value seen so far, per KPI and for the quality index, per evaluation and run.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
     KPI accumulates in its own direction.
@@ -419,18 +410,20 @@ def reproducibility(
 ) -> pd.DataFrame:
     """The KPIs recomputed from each archived map, against what the run recorded.
 
-    A gap past tolerance means the archived map is not the map that was scored.
+    The map is the one the run scored, so the two readings are the same
+    measurement twice and ``abs_gap`` is float round-off. Anything a reader can
+    see at the printed precision means the archived map is not the map that was
+    scored.
 
     Returns:
         One row per configuration and KPI: ``configuration``, ``kpi``,
-        ``recorded``, ``recomputed``, ``abs_gap``, ``tolerance``, ``holds``.
+        ``recorded``, ``recomputed``, ``abs_gap``.
     """
-    tolerance = tolerances(cfg)
     rows = []
     for name, kpi in recorded.items():
         maps = configurations[name]
         again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, mdt, cfg)
-        for index, kpi_name in enumerate(KPI_NAMES):
+        for kpi_name in KPI_NAMES:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
                 {
@@ -439,8 +432,6 @@ def reproducibility(
                     "recorded": getattr(kpi, kpi_name),
                     "recomputed": getattr(again, kpi_name),
                     "abs_gap": gap,
-                    "tolerance": tolerance[index],
-                    "holds": gap <= tolerance[index],
                 }
             )
     return pd.DataFrame(rows)
@@ -579,13 +570,13 @@ def summarise(runs: list[Run], cfg: DictConfig) -> str:
 
     lines = []
     for run in runs:
-        deltas = delta_table(run.incumbent_kpi, run.best_kpi, cfg)
+        deltas = delta_table(run.incumbent_kpi, run.best_kpi)
         improved = int((deltas["verdict"] == BETTER).sum())
         worsened = int((deltas["verdict"] == WORSE).sum())
         if run.best_index == 0:
             verdict = "found nothing that beat the incumbent"
         elif improved == 0 and worsened == 0:
-            verdict = "moved every KPI by less than its tolerance"
+            verdict = "moved no KPI at all"
         else:
             verdict = f"improved {improved} KPI(s), worsened {worsened}"
         lines.append(f"  {run.label} (seed {run.seed}): {run.n_evaluations} evaluations, {verdict}")

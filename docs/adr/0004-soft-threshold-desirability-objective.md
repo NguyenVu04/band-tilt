@@ -4,7 +4,7 @@
 - **Date:** 2026-09-16
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** the objective and winner rule of [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md)
-- **Superseded by:** —
+- **Superseded by:** [ADR 0005](0005-separate-reported-and-targeted-kpis.md), which keeps the desirability formulation and the quality index, and replaces the `kpi.soft` block, the overlap desirability and the hard audit score
 
 ## Context
 

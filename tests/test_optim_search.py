@@ -43,30 +43,13 @@ _CONFIG = {
         "transmitters": {"cells": _CELLS},
     },
     "kpi": {
-        "tolerance": {
-            "hole_rate": 0.001,
-            "overlap_rate": 0.001,
-            "served_ratio": 0.001,
-            "weak_rate": 0.001,
-            "edge_rsrp_dbm": 0.5,
-            "hole_desirability": 0.001,
-            "overlap_desirability": 0.001,
-            "served_desirability": 0.001,
-        },
         "weights": {
-            "hole_rate": 4.0,
-            "overlap_rate": 3.0,
-            "served_ratio": 2.0,
-            "weak_rate": 1.0,
-        },
-        "soft": {
-            "hole_rate": {"target": 0.15, "temperature": 0.05},
-            "overlap_rate": {"target": 0.25, "temperature": 0.05},
-            "served_ratio": {"target": 0.60, "temperature": 0.10},
+            "hole_desirability": 4.0,
+            "overlap_desirability": 3.0,
+            "served_desirability": 2.0,
         },
     },
     "optim": {
-        "objective": "soft",
         "output": {
             "dir": "outputs/optim",
             "deliverable_dir": "reports/outputs",
@@ -339,7 +322,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
-    assert run["config"]["kpi"]["tolerance"]["hole_rate"] == 0.001
+    assert run["config"]["kpi"]["weights"]["hole_desirability"] == 4.0
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

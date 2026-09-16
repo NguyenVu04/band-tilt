@@ -9,7 +9,9 @@
 - **Superseded by:** partly, by
   [ADR 0004](0004-soft-threshold-desirability-objective.md) — TuRBO and the
   matched budgets stand; the weighted score it optimizes and selects by is
-  replaced by a desirability index, and kept only as an audit.
+  replaced by a desirability index, and kept only as an audit — then by
+  [ADR 0005](0005-separate-reported-and-targeted-kpis.md), which deletes that
+  audit score and `kpi.tolerance` with it.
 
 ## Context
 

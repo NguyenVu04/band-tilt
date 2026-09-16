@@ -20,7 +20,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     the cost is ``n_band * n_steps * n_rounds`` rather than the full grid's
     ``n_steps ** n_band``.
 
-    Candidates are compared by the weighted score that picks the final winner,
+    Candidates are compared by the quality index that picks the final winner,
     so this baseline and TuRBO agree on what "better" means and differ only in
     where they look.
 
