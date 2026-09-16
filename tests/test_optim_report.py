@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import KPI_NAMES, KpiVector, scores
+from src.optim.objective import KPI_NAMES, KpiVector, selection_scores
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
@@ -42,8 +42,17 @@ _CONFIG = {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
         "transmitters": {"cells": _CELLS},
     },
-    "kpi": {"tolerance": dict.fromkeys(KPI_NAMES, 0.001), "weights": dict.fromkeys(KPI_NAMES, 1.0)},
+    "kpi": {
+        "tolerance": dict.fromkeys(KPI_NAMES, 0.001),
+        "weights": dict.fromkeys(KPI_NAMES, 1.0),
+        "soft": {
+            "hole_rate": {"target": 0.15, "temperature": 0.05},
+            "overlap_rate": {"target": 0.25, "temperature": 0.05},
+            "served_ratio": {"target": 0.60, "temperature": 0.10},
+        },
+    },
     "optim": {
+        "objective": "soft",
         # `rule` rather than `turbo`: deterministic, no model, and it still
         # exercises the whole publish path.
         "method": {"name": "rule", "n_steps": 5, "n_rounds": 2},
@@ -84,6 +93,10 @@ class StubEvaluator:
                 overlap_rate=float(np.mean(unit) * 0.5),
                 served_ratio=float(1.0 - np.mean((unit - 0.75) ** 2)),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
+                edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
+                hole_desirability=float(1.0 - np.mean((unit - 0.35) ** 2)),
+                overlap_desirability=float(1.0 - np.mean(unit) * 0.5),
+                served_desirability=float(1.0 - np.mean((unit - 0.75) ** 2)),
             ),
             seconds=1.0,
             rsrp=np.zeros((1, 1, 1, 1)) if self.keep_rsrp else None,
@@ -129,11 +142,18 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
 
 
 def _kpis(count: int) -> list[KpiVector]:
-    """A spread of KPI vectors to rank."""
+    """A spread of KPI vectors to rank.
+
+    ``served_desirability`` is drawn in (0, 1) like the rates: it is already a
+    desirability, and the geometric mean is undefined on a negative one.
+    """
     rng = np.random.default_rng(0)
-    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5)]
+    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5, 0.5, 0.5)]
     for _ in range(count - 1):
-        kpis.append(KpiVector(*(float(value) for value in rng.random(4))))
+        rates = [float(value) for value in rng.random(4)]
+        edge = -120.0 + 20.0 * rng.random()
+        soft = [float(value) for value in rng.random(3)]
+        kpis.append(KpiVector(*rates, edge, *soft))
     return kpis
 
 
@@ -156,10 +176,14 @@ def test_choose_never_drops_a_required_row_to_fit_the_budget(cfg) -> None:
 
 
 def test_choose_fills_the_budget_by_score(cfg) -> None:
-    """After the incumbent, nothing left out outscores anything offered."""
+    """After the incumbent, nothing left out outscores anything offered.
+
+    Ranked by the score that selects the winner, not by the audit score, or the
+    shortlist would disagree with the recommendation printed beside it.
+    """
     kpis = _kpis(24)
     picks = choose(kpis, cfg, 6)
-    values = scores(kpis, cfg)
+    values = selection_scores(kpis, cfg)
 
     offered = values[picks[1:]]
     left_out = np.delete(values, picks)

@@ -14,7 +14,6 @@ or a stub in a test — so a search can be exercised without a GPU.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -226,39 +225,3 @@ class Evaluator:
             scenario_id=self.scenario_id,
             centres=self._centres,
         )
-
-
-def retrace(
-    cfg: DictConfig, configurations: dict[str, np.ndarray], solver_seeds: Sequence[int]
-) -> pd.DataFrame:
-    """Re-score each tilt vector under every solver seed.
-
-    Every run selects its winner under one fixed solver seed, so part of a
-    winner's margin can be that seed's Monte-Carlo noise. This measures it.
-
-    Args:
-        cfg: Composed config.
-        configurations: Name to tilt vector, in :class:`TiltSpace` order.
-        solver_seeds: Seeds to trace every configuration under.
-
-    Returns:
-        One row per configuration and seed: ``configuration``, ``solver_seed``,
-        ``seconds`` and the four KPIs.
-
-    Side effect: loads the scene and ray-traces on the GPU.
-    """
-    rows = []
-    with Evaluator(cfg) as evaluator:
-        for solver_seed in solver_seeds:
-            evaluator.solver_seed = int(solver_seed)
-            for name, tilt_deg in configurations.items():
-                result = evaluator.evaluate(tilt_deg)
-                rows.append(
-                    {
-                        "configuration": name,
-                        "solver_seed": int(solver_seed),
-                        "seconds": result.seconds,
-                        **result.kpi.as_dict(),
-                    }
-                )
-    return pd.DataFrame(rows)

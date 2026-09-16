@@ -43,7 +43,7 @@ LABELS = {
     "run": "Run",
     "band": "Band",
     "cell": "Cell",
-    "node": "Site",
+    "node": "Node",
     "configuration": "Configuration",
     "coverage": "Coverage class",
     "direction": "Direction",

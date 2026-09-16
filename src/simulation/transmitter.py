@@ -1,6 +1,6 @@
 """Generate node layouts and build Sionna-RT transmitters.
 
-Layouts use open ground in the delivered scene and remain fixed per scenario.
+Layouts use open ground in the loaded scene and remain fixed per scenario.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from src.simulation import seeds
 from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds, SceneSpec
 
-# Corner nodes of the equilateral triangle, whose side is node_spacing_m; one
-# more node stands at its centroid.
+# The nodes are the corners of an equilateral triangle whose side is
+# node_spacing_m, so the side is also the node-to-node distance.
 _CORNER_COUNT = 3
 
 
@@ -30,8 +30,8 @@ class LayoutSpec:
     """Where the nodes go, and how their masts are mounted.
 
     Attributes:
-        node_spacing_m: Side of the equilateral triangle the corner nodes sit
-            on; the fourth node stands at its centroid.
+        node_spacing_m: Side of the equilateral triangle the nodes sit on,
+            which is also the distance between any two of them.
         cells_per_node: Cells per node, at evenly spaced azimuths.
         azimuth_offset_deg: Rotation applied to every node's cell fan.
         mast_height_m: Height of the mast above the ground it stands on.
@@ -122,11 +122,10 @@ def load(cfg: DictConfig) -> tuple[Cell, ...]:
 
 
 def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, float]]:
-    """Return each node's ideal ``(x, y)``: an equilateral triangle and its centroid.
+    """Return each node's ideal ``(x, y)``: the corners of an equilateral triangle.
 
-    The first three are the corners, one pointing along ``+y``, with
-    ``spacing_m`` as the side. The last is the centroid, which is the scene
-    centre.
+    One corner points along ``+y`` from the scene centre, and ``spacing_m`` is
+    the side, so it is also the distance between any two nodes.
 
     Raises:
         ValueError: When the triangle does not fit inside the scene.
@@ -149,7 +148,7 @@ def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, f
         (centre_x + radius * math.cos(angle), centre_y + radius * math.sin(angle))
         for angle in angles
     ]
-    return [*corners, (centre_x, centre_y)]
+    return corners
 
 
 def generate(
@@ -161,7 +160,7 @@ def generate(
     default_tilt: dict[str, Tilt],
     max_prb: dict[str, int],
 ) -> tuple[Cell, ...]:
-    """Lay nodes out on an equilateral triangle and its centroid, each on open ground.
+    """Lay the nodes out on the corners of an equilateral triangle, each on open ground.
 
     Returns ``spec.cells_per_node`` cells for every node. Nodes whose ideal
     position is built over are snapped to the nearest open-ground tile within

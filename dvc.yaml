@@ -23,10 +23,11 @@
 
 stages:
   # --- Stage 1: the scenario (notebook 00, section 3) ------------------------
-  # Rasters the delivered Sionna-RT scene into the shared grid and draws the
-  # time-varying UE population. The scene is the delivered mesh under
-  # data/external/scene; the cell layout in configs/simulation.yaml was
-  # generated once by `task simulation:layout`, so it is not a file dependency.
+  # Rasters the Sionna-RT scene into the shared grid and draws the time-varying
+  # UE population. The scene ships with sionna-rt and is named by
+  # simulation.scene.name, so it is a param rather than a file dependency; the
+  # cell layout in configs/simulation.yaml was generated once by
+  # `task simulation:layout`, so it is not a file dependency either.
   simulation_scenario:
     cmd: python -m src.simulation.scenario
     deps:
@@ -37,7 +38,6 @@ stages:
       - src/simulation/seeds.py
       - src/simulation/traffic.py
       - src/simulation/scene.py
-      - data/external/scene
     params:
       - configs/simulation.yaml:
           - scene
@@ -70,7 +70,6 @@ stages:
       - src/simulation/scene.py
       - src/simulation/grid.py
       - src/core/cell.py
-      - data/external/scene
       - data/external/scenario.json
     params:
       - configs/simulation.yaml:
@@ -165,7 +164,6 @@ stages:
       - src/simulation/grid.py
       - src/simulation/seeds.py
       - src/core/cell.py
-      - data/external/scene
       - data/external/scenario.json
       - data/processed/mdt.parquet
     params:

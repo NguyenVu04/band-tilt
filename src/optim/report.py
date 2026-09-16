@@ -31,7 +31,7 @@ from src.optim.history import (
     write_solution_options,
     write_tilt_change,
 )
-from src.optim.objective import KPI_NAMES, KpiVector, scores
+from src.optim.objective import KPI_NAMES, KpiVector, selection_scores
 
 
 def choose(
@@ -53,10 +53,10 @@ def choose(
             winner, so the run cannot recommend a solution it did not offer.
 
     Raises:
-        ValueError: When ``kpi.weights`` is unusable; see
-            :func:`src.optim.objective.weights`.
+        ValueError: When the configured score is unusable; see
+            :func:`src.optim.objective.selection_scores`.
     """
-    ranked = np.argsort(-scores(kpis, cfg), kind="stable")
+    ranked = np.argsort(-selection_scores(kpis, cfg), kind="stable")
 
     # dict.fromkeys keeps this order while dropping the repeats it can make: the
     # winner always ranks first, and the incumbent can rank anywhere.
@@ -80,8 +80,15 @@ def solutions(frame: pd.DataFrame, picks: list[int], best_index: int) -> pd.Data
 
 
 def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
-    """The shortlist an operator reads: each solution's score, KPIs and what it moves."""
-    table = published[["solution", "is_incumbent", "recommended", "score", *KPI_NAMES]].copy()
+    """The shortlist an operator reads: each solution's scores, KPIs and what it moves.
+
+    ``score`` is what ranked the shortlist and picked the recommendation;
+    ``score_hard`` is the ADR 0003 weighted sum beside it, so a reader can see
+    the result against the thresholds a deployment would apply without the
+    shortlist being ordered by it.
+    """
+    columns = ["solution", "is_incumbent", "recommended", "score", "score_hard", *KPI_NAMES]
+    table = published[columns].copy()
     for name in KPI_NAMES:
         table[f"delta_{name}"] = table[name] - getattr(incumbent, name)
     return table.reset_index(drop=True)
@@ -158,7 +165,7 @@ def print_summary(
     """Print the measured shortlist and where the run wrote it."""
     print(f"\n{method}: {len(published)} solutions published\n")
 
-    columns = ["solution", "recommended", "score", *KPI_NAMES]
+    columns = ["solution", "recommended", "score", "score_hard", *KPI_NAMES]
     print(published[columns].to_string(index=False, float_format=lambda value: f"{value:.4f}"))
 
     print(f"\nwrote {directory}")

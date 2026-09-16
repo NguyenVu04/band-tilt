@@ -17,6 +17,10 @@ KPI = {
     "overlap_rate": 0.28,
     "served_ratio": 0.009,
     "weak_rate": 0.12,
+    "edge_rsrp_dbm": -108.0,
+    "hole_desirability": 0.40,
+    "overlap_desirability": 0.40,
+    "served_desirability": 0.40,
 }
 
 

@@ -34,8 +34,11 @@ def install(scene: Any, frequency_hz: float) -> dict[str, tuple[float, float]]:
 
     Each material keeps its identity — concrete stays concrete — but its
     frequency-update callback is switched off and its properties are set to the
-    ITU values for ``frequency_hz``, with no scattering. Returns the installed
-    ``(permittivity, conductivity)`` per material.
+    ITU values for ``frequency_hz``. The scattering coefficient is left as the
+    scene set it, so a nonzero one needs ``radio_map.diffuse_reflection`` too:
+    sionna scales the specular field by ``sqrt(1 - S**2)`` whether or not diffuse
+    reflection is enabled, so with it off the ``S**2`` share is lost rather than
+    scattered. Returns the installed ``(permittivity, conductivity)`` per material.
 
     **Call this before setting** ``scene.frequency``. The frequency setter
     invokes ``frequency_update()`` on every registered material, so a material
@@ -62,7 +65,6 @@ def install(scene: Any, frequency_hz: float) -> dict[str, tuple[float, float]]:
         material.frequency_update_callback = None
         material.relative_permittivity = mi.Float(permittivity)
         material.conductivity = mi.Float(conductivity)
-        material.scattering_coefficient = mi.Float(0.0)
         installed[name] = (permittivity, conductivity)
     return installed
 

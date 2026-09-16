@@ -36,7 +36,7 @@ COLOURS = {
 
 
 def _overlay(axis: plt.Axes, cells: pd.DataFrame | None, hotspots: pd.DataFrame | None) -> None:
-    """Mark the sites (crimson triangles) and demand hotspot centres (black crosses)."""
+    """Mark the nodes (crimson triangles) and demand hotspot centres (black crosses)."""
     if cells is not None and len(cells):
         axis.scatter(cells["x"], cells["y"], marker="^", s=45, color="crimson", zorder=3)
     if hotspots is not None and len(hotspots):

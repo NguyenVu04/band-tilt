@@ -6,7 +6,10 @@
   (multi-objective BO on Ax) is removed and lives in Git history.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** partly, by
+  [ADR 0004](0004-soft-threshold-desirability-objective.md) — TuRBO and the
+  matched budgets stand; the weighted score it optimizes and selects by is
+  replaced by a desirability index, and kept only as an audit.
 
 ## Context
 
@@ -62,10 +65,10 @@ seed (common random numbers); nothing is scored by a surrogate.
 - A gain on a lower-weighted KPI can outweigh a small loss on a higher one.
 - Selecting the maximum of many evaluations under one fixed solver seed favours
   candidates that benefit from that seed's Monte-Carlo noise.
-- Both of the above are now measured rather than only stated: notebook 04
-  re-picks every winner under alternative weights (`weight_sensitivity`) and
-  re-traces every winner under other solver seeds (`retraced_gain`); the
-  numbers live in `reports/tables/04_evaluation/`.
+- The first of these is now measured rather than only stated: notebook 04
+  re-picks every winner under alternative weights (`weight_sensitivity`), and
+  the numbers live in `reports/tables/04_evaluation/`. The solver-seed
+  re-trace that measured the second was removed at the maintainer's direction.
 - Runs before 2026-09-13 used a different method and selection rule and are not
   comparable with runs after it.
 

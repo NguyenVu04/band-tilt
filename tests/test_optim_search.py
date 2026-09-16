@@ -48,6 +48,10 @@ _CONFIG = {
             "overlap_rate": 0.001,
             "served_ratio": 0.001,
             "weak_rate": 0.001,
+            "edge_rsrp_dbm": 0.5,
+            "hole_desirability": 0.001,
+            "overlap_desirability": 0.001,
+            "served_desirability": 0.001,
         },
         "weights": {
             "hole_rate": 4.0,
@@ -55,8 +59,14 @@ _CONFIG = {
             "served_ratio": 2.0,
             "weak_rate": 1.0,
         },
+        "soft": {
+            "hole_rate": {"target": 0.15, "temperature": 0.05},
+            "overlap_rate": {"target": 0.25, "temperature": 0.05},
+            "served_ratio": {"target": 0.60, "temperature": 0.10},
+        },
     },
     "optim": {
+        "objective": "soft",
         "output": {
             "dir": "outputs/optim",
             "deliverable_dir": "reports/outputs",
@@ -106,6 +116,10 @@ class StubEvaluator:
                 overlap_rate=float(np.mean(unit) * 0.4),
                 served_ratio=float(1.0 - np.mean((unit - 0.8) ** 2)),
                 weak_rate=float(np.mean((unit - 0.2) ** 2)),
+                edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
+                hole_desirability=float(1.0 - np.mean((unit - 0.3) ** 2)),
+                overlap_desirability=float(1.0 - np.mean(unit) * 0.4),
+                served_desirability=float(1.0 - np.mean((unit - 0.8) ** 2)),
             ),
             seconds=0.0,
         )

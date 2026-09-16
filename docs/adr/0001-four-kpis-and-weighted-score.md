@@ -7,7 +7,10 @@
   Neighbours, Expected RSRP Improvement, Band Priority Score) are in Git history.
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** partly, by
+  [ADR 0004](0004-soft-threshold-desirability-objective.md) — the four
+  definitions below stand, but the objective is now three of them plus a
+  fifth measured KPI. See Amendment.
 
 ## Context
 
@@ -39,6 +42,20 @@ The objective is exactly four KPIs, defined in `src/kpi/` and nowhere else:
 The column order, **Hole > Overlap > Served > Weak**, is the reporting order
 and the order of the default weights. Selection is the weighted score of
 [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md), not a lexicographic rule.
+
+## Amendment (2026-09-16, ADR 0004)
+
+The four definitions above are unchanged and still the only ones. What
+changed is which of them the objective reads:
+
+- **Weak rate leaves the objective**, and stays measured and reported.
+- **The served ratio enters the objective per tile**, softened on each tile
+  and averaged (`served_desirability`); the UE-share figure above remains the
+  reported headline and is what the audit score reads.
+- **A fifth KPI is measured**: `edge_rsrp_dbm`, the 5th-percentile serving
+  RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). Reported only.
+  It is conditional on coverage, so it is read beside the hole rate.
+- Selection is no longer the weighted sum; see ADR 0004.
 
 **The serving rule.** Each UE takes the most preferred band
 (`kpi.capacity.band_preference`) whose layer clears

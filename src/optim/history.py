@@ -22,6 +22,7 @@ from src.optim.objective import (
     KpiVector,
     best_by_score,
     scores,
+    selection_scores,
 )
 from src.optim.space import TiltSpace
 
@@ -148,8 +149,9 @@ class History:
     def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
         """One row per evaluation: provenance, the four KPIs, every tilt.
 
-        With ``cfg``, also ``score``, the weighted score that selects the winner
-        (reads ``kpi.weights``).
+        With ``cfg``, also ``score``, the score that selects the winner
+        (``optim.objective``), and ``score_hard``, the ADR 0003 weighted sum
+        kept as an audit beside it.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -169,13 +171,14 @@ class History:
         for name in KPI_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
         if cfg is not None:
-            frame["score"] = scores(self.kpis, cfg)
+            frame["score"] = selection_scores(self.kpis, cfg)
+            frame["score_hard"] = scores(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
-        """Index of the highest weighted score over every evaluation.
+        """Index of the highest :func:`selection_scores` over every evaluation.
 
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """

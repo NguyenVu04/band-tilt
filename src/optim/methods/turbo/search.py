@@ -6,7 +6,8 @@ to the evaluations since the last restart, and Thompson sampling of a batch from
 candidates inside the region. Written against BoTorch because neither Ax nor
 BoTorch ships it; candidate construction follows BoTorch's TuRBO-1 tutorial.
 
-The model sees one number per evaluation, :func:`src.optim.objective.scores`.
+The model sees one number per evaluation,
+:func:`src.optim.objective.selection_scores`.
 The run still records all four KPIs, so the published shortlist is built
 exactly as for every other method.
 """
@@ -22,7 +23,7 @@ from omegaconf import DictConfig
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
 from src.optim.methods.base import ATTACHED, INCUMBENT, INIT, SEARCH, SOBOL, sobol
-from src.optim.objective import scores
+from src.optim.objective import selection_scores
 
 # Generation-node name of a trust-region proposal.
 TURBO = "TuRBO"
@@ -150,7 +151,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     history.append(incumbent, phase=INCUMBENT, generation_node=ATTACHED)
     # The GP's data since the last restart: unit-cube points and their scores.
     unit_x = [(space.baseline - lower) / span]
-    score_y = [float(scores([incumbent.kpi], cfg)[0])]
+    score_y = [float(selection_scores([incumbent.kpi], cfg)[0])]
 
     def evaluate(points: np.ndarray, phase: str, node: str) -> list[float]:
         new = []
@@ -158,7 +159,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             result = evaluator.evaluate(space.clip(lower + point * span))
             history.append(result, phase=phase, generation_node=node)
             unit_x.append(point)
-            new.append(float(scores([result.kpi], cfg)[0]))
+            new.append(float(selection_scores([result.kpi], cfg)[0]))
         score_y.extend(new)
         return new
 

@@ -36,14 +36,14 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 
 ## Overview
 
-A 5G/6G site commonly serves several frequency bands from the same location.
+A 5G/6G node commonly serves several frequency bands from the same location.
 Those bands should not be configured as interchangeable coverage layers: low
 bands such as 700 MHz propagate farther and penetrate obstacles better, while
 higher bands such as 2600 MHz provide more capacity over a smaller area. A
 mid-band layer connects those roles.
 
 When each band is assigned a static antenna tilt independently, two failures
-become likely. Bands may cover the same near-site area unnecessarily, wasting
+become likely. Bands may cover the same near-node area unnecessarily, wasting
 radio resources and increasing interference, while the cell edge may develop a
 coverage hole where the high-band signal fades before a low-band layer reaches
 it. Manual, band-by-band tuning is slow and can miss these interactions.
@@ -59,7 +59,7 @@ delta_tilt = [delta_tilt_1,1, ..., delta_tilt_1,B, ..., delta_tilt_N,B]
 The optimizer aims to maximize the union coverage of all frequency layers while
 reducing both redundant overlap and uncovered area. A useful solution preserves
 the physical role of each band: low bands provide the coverage floor and reach
-the cell edge, high bands concentrate service near the site, and mid bands bridge
+the cell edge, high bands concentrate service near the node, and mid bands bridge
 the two. The intended network state includes each layer's signal-strength map,
 demand, and band-specific propagation behaviour.
 
@@ -81,7 +81,7 @@ TuRBO-1 Bayesian Optimization on a weighted KPI score and two baselines are
 implemented; Multi-Agent Reinforcement Learning and held-out scenario
 validation remain planned.
 
-The practical goal is to replace repeated manual tilt tuning with site-wide
+The practical goal is to replace repeated manual tilt tuning with network-wide
 coordination that removes avoidable coverage holes, reduces redundant overlap,
 and assigns each frequency layer the role its propagation characteristics suit.
 The project does not model a live-network deployment path, and its results are
@@ -268,7 +268,7 @@ through the task runner and `dvc repro`. Both call the same functions in
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — The synthetic network: sites, traffic, radio map, synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
+| 1 — The synthetic network: nodes, traffic, radio map, synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |

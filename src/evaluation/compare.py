@@ -18,9 +18,9 @@ from src.optim.objective import (
     KpiVector,
     best_by_score,
     evaluate_kpis,
+    score_frame,
     scores,
     tolerances,
-    weights,
 )
 
 # What a delta smaller than its KPI's tolerance is called. Naming it in the
@@ -32,8 +32,6 @@ BETTER = "better"
 WORSE = "worse"
 
 SCORE = "score"
-
-_SIGNS = np.array([1.0 if name in MAXIMISED else -1.0 for name in KPI_NAMES])
 
 
 def direction(name: str) -> str:
@@ -63,11 +61,6 @@ def _interval(values: np.ndarray) -> tuple[float, float, float, float]:
     std = float(values.std(ddof=1))
     half = float(stats.t.ppf(0.975, values.size - 1)) * std / np.sqrt(values.size)
     return mean, std, mean - half, mean + half
-
-
-def _signed(history: pd.DataFrame) -> np.ndarray:
-    """A history's KPI columns oriented so larger is better, ``[n_eval, 4]``."""
-    return history[list(KPI_NAMES)].to_numpy(dtype=float) * _SIGNS
 
 
 def delta_table(before: KpiVector, after: KpiVector, cfg: DictConfig) -> pd.DataFrame:
@@ -154,14 +147,14 @@ def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     already beats the incumbent by nearly as much, the incumbent was weak.
 
     Returns:
-        One row per run, all weighted scores: ``method``, ``seed``,
+        One row per run, all selection scores: ``method``, ``seed``,
         ``incumbent``, ``init_median`` (the Sobol design random search and TuRBO
         share; NaN for the rule sweep), ``candidate_median``, ``candidate_p90``
         and ``winner``, row 0 excluded from the candidates.
     """
     rows = []
     for run in runs:
-        score = _signed(run.history) @ weights(cfg)
+        score = score_frame(run.history, cfg)
         candidates = score[1:] if score.size > 1 else score
         init = score[(run.history["phase"] == "init").to_numpy()]
         rows.append(
@@ -178,8 +171,16 @@ def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _with_weights(cfg: DictConfig, weight: Mapping[str, float]) -> DictConfig:
+    """``cfg`` with ``kpi.weights`` replaced, leaving the original untouched."""
+    scheme_cfg = cfg.copy()
+    scheme_cfg.kpi = cfg.kpi.copy()
+    scheme_cfg.kpi.weights = {name: float(value) for name, value in weight.items()}
+    return scheme_cfg
+
+
 def weight_sensitivity(
-    runs: list[Run], cfg: DictConfig, schemes: Mapping[str, Sequence[float]]
+    runs: list[Run], cfg: DictConfig, schemes: Mapping[str, Mapping[str, float]]
 ) -> pd.DataFrame:
     """Re-pick every winner under other weights, from the measurements already taken.
 
@@ -188,10 +189,19 @@ def weight_sensitivity(
     steered by other weights could have explored elsewhere, which this cannot
     show.
 
+    Each scheme is scored through :func:`src.optim.objective.score_frame` on a
+    config carrying that scheme's weights, so it re-picks under whichever
+    objective ``optim.objective`` selects rather than assuming the weighted sum.
+    A scheme that only moves a weight the configured objective does not read -
+    ``weak_rate`` under the soft score - is therefore a deliberate no-op rather
+    than a silent one.
+
     Args:
         runs: The runs to re-score.
         cfg: Composed config; ``kpi.weights`` is the ``configured`` scheme.
-        schemes: Name to weights in :data:`KPI_NAMES` order.
+        schemes: Scheme name to per-KPI weights, keyed by KPI name. Keyed
+            rather than positional because the weighted KPIs are a subset of
+            :data:`KPI_NAMES` and a positional tuple would silently misalign.
 
     Returns:
         One row per scheme and method: ``scheme``, ``method``, ``n_seeds``,
@@ -199,18 +209,14 @@ def weight_sensitivity(
         (1 is best) and ``same_winner_share``, the share of the method's runs
         whose winner is the one the configured weights picked.
     """
-    configured = weights(cfg)
-    every = {
-        "configured": configured,
-        **{k: np.asarray(v, dtype=float) for k, v in schemes.items()},
-    }
+    every = {"configured": None, **schemes}
     rows = []
     for scheme, weight in every.items():
+        scheme_cfg = cfg if weight is None else _with_weights(cfg, weight)
         results: dict[str, list[tuple[float, bool]]] = {}
         for run in runs:
-            signed = _signed(run.history)
-            rescored = signed @ weight
-            same = int(np.argmax(rescored)) == int(np.argmax(signed @ configured))
+            rescored = score_frame(run.history, scheme_cfg)
+            same = int(np.argmax(rescored)) == int(np.argmax(score_frame(run.history, cfg)))
             results.setdefault(run.method, []).append((float(rescored.max()), same))
         for method, pairs in results.items():
             rows.append(
@@ -266,72 +272,6 @@ def paired_method_gain(
             }
         ]
     )
-
-
-def solver_noise(frame: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
-    """The ray tracer's run-to-run spread per KPI, against the configured tolerance.
-
-    Args:
-        frame: :func:`src.optim.evaluator.retrace` output.
-        cfg: Composed config; reads ``kpi.tolerance``.
-
-    Returns:
-        One row per KPI: ``kpi``, ``tolerance``, ``pooled_std`` (the
-        within-configuration variance pooled over every configuration, so it
-        measures the solver rather than the configurations) and
-        ``tolerance_over_std``.
-    """
-    tolerance = tolerances(cfg)
-    rows = []
-    for index, name in enumerate(KPI_NAMES):
-        pooled = float(np.sqrt(frame.groupby("configuration")[name].var(ddof=1).mean()))
-        rows.append(
-            {
-                "kpi": name,
-                "tolerance": tolerance[index],
-                "pooled_std": pooled,
-                "tolerance_over_std": tolerance[index] / pooled if pooled > 0 else np.nan,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def retraced_gain(
-    frame: pd.DataFrame, cfg: DictConfig, incumbent: str = "incumbent"
-) -> pd.DataFrame:
-    """Each configuration's score gain over the incumbent, re-measured per solver seed.
-
-    Paired by solver seed, so noise common to both configurations cancels. A
-    winner whose gain does not hold under other seeds was selected for noise.
-
-    Args:
-        frame: :func:`src.optim.evaluator.retrace` output, including ``incumbent``.
-        cfg: Composed config; reads ``kpi.weights``.
-        incumbent: The configuration name every gain is measured against.
-
-    Returns:
-        One row per other configuration: ``configuration``, ``n_solver_seeds``,
-        ``mean_gain``, ``ci95_low``, ``ci95_high``, ``positive_share``.
-    """
-    scored = frame.assign(score=_signed(frame) @ weights(cfg))
-    table = scored.pivot(index="solver_seed", columns="configuration", values=SCORE)
-    rows = []
-    for name in table.columns:
-        if name == incumbent:
-            continue
-        gains = (table[name] - table[incumbent]).to_numpy()
-        mean, _, low, high = _interval(gains)
-        rows.append(
-            {
-                "configuration": name,
-                "n_solver_seeds": int(gains.size),
-                "mean_gain": mean,
-                "ci95_low": low,
-                "ci95_high": high,
-                "positive_share": float((gains > 0).mean()),
-            }
-        )
-    return pd.DataFrame(rows)
 
 
 def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
@@ -395,7 +335,7 @@ def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     for run in runs:
         history = run.history
         series = {name: history[name] for name in KPI_NAMES}
-        series[SCORE] = pd.Series(_signed(history) @ weights(cfg))
+        series[SCORE] = pd.Series(score_frame(history, cfg))
         for name, values in series.items():
             running = values.cummax() if direction(name) == "maximise" else values.cummin()
             frames.append(

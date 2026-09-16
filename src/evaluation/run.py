@@ -29,16 +29,16 @@ from src.utils.seed import set_seed
 FIGURES_DIR = Path("reports/figures/04_evaluation")
 TABLES_DIR = Path("reports/tables/04_evaluation")
 
-# Written by notebook 03b from src.optim.evaluator.retrace, beside the run directories.
-SOLVER_NOISE_FILE = "solver_noise.parquet"
 
-# Alternative weightings for the sensitivity table, in KPI_NAMES order (hole,
-# overlap, served, weak). They bracket the configured weights; none is tuned.
+# Alternative weightings for the sensitivity table, keyed by KPI name. They
+# bracket the configured weights; none is tuned. Every scheme carries a
+# weak_rate entry because the hard score still reads one, but the soft score of
+# ADR 0004 does not, so a scheme differing only there re-picks the same winner.
 WEIGHT_SCHEMES = {
-    "equal": (1.0, 1.0, 1.0, 1.0),
-    "coverage_only": (1.0, 0.0, 0.0, 1.0),
-    "hole_only": (1.0, 0.0, 0.0, 0.0),
-    "served_only": (0.0, 0.0, 1.0, 0.0),
+    "equal": {"hole_rate": 1.0, "overlap_rate": 1.0, "served_ratio": 1.0, "weak_rate": 1.0},
+    "hole_only": {"hole_rate": 1.0, "overlap_rate": 0.0, "served_ratio": 0.0, "weak_rate": 0.0},
+    "overlap_only": {"hole_rate": 0.0, "overlap_rate": 1.0, "served_ratio": 0.0, "weak_rate": 0.0},
+    "served_only": {"hole_rate": 0.0, "overlap_rate": 0.0, "served_ratio": 1.0, "weak_rate": 0.0},
 }
 
 
@@ -92,12 +92,6 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
     add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
     add("weight_sensitivity", compare.weight_sensitivity(runs, cfg, WEIGHT_SCHEMES))
-
-    noise_path = Path(cfg.optim.output.dir) / SOLVER_NOISE_FILE
-    if noise_path.is_file():
-        noise = pd.read_parquet(noise_path)
-        add("solver_noise", compare.solver_noise(noise, cfg))
-        add("retraced_gain", compare.retraced_gain(noise, cfg))
 
     mdt = pd.read_parquet(cfg.data.output.mdt_file)
     cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")
