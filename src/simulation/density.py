@@ -27,6 +27,7 @@ class DensitySpec:
         min_built_volume_fraction: Share of the densest neighbourhood's
             building volume a tile must carry before it may hold a hotspot
             centre. Zero admits every eligible tile.
+        min_hotspot_distance_m: Least distance between any two hotspot centres.
     """
 
     hotspot_mass_fraction: float
@@ -35,6 +36,7 @@ class DensitySpec:
     sigma_minor_m: tuple[float, float]
     built_volume_radius_m: float
     min_built_volume_fraction: float
+    min_hotspot_distance_m: float
 
     def __post_init__(self) -> None:
         """Reject a mixture that cannot be normalised.
@@ -43,7 +45,7 @@ class DensitySpec:
             ValueError: When the mass fraction is outside ``[0, 1]``, when
                 hotspots carry mass but none are drawn, when the radius is not
                 positive, or when the built-volume fraction is outside
-                ``[0, 1)``.
+                ``[0, 1)``, or when the hotspot distance is negative.
         """
         if not 0.0 <= self.hotspot_mass_fraction <= 1.0:
             raise ValueError(
@@ -70,6 +72,11 @@ class DensitySpec:
                 "simulation.density.min_built_volume_fraction must be in [0, 1), "
                 f"got {self.min_built_volume_fraction}"
             )
+        if self.min_hotspot_distance_m < 0:
+            raise ValueError(
+                "simulation.density.min_hotspot_distance_m must not be negative, "
+                f"got {self.min_hotspot_distance_m}"
+            )
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> DensitySpec:
@@ -84,6 +91,7 @@ class DensitySpec:
             sigma_minor_m=(minor[0], minor[1]),
             built_volume_radius_m=float(density.built_volume_radius_m),
             min_built_volume_fraction=float(density.min_built_volume_fraction),
+            min_hotspot_distance_m=float(density.min_hotspot_distance_m),
         )
 
 
@@ -191,10 +199,15 @@ def draw_hotspots(
     ``spec.min_built_volume_fraction`` cuts that tail off, so a tile with too
     little surrounding volume cannot be chosen at any weight.
 
+    Centres are drawn one at a time. After each, every tile with any point
+    closer than ``spec.min_hotspot_distance_m`` to it is excluded, so the
+    spacing holds between the jittered centres, not only their tiles.
+
     Raises:
         ValueError: When the grid holds fewer eligible tiles than
-            ``spec.n_hotspots``, or when the built-volume threshold leaves
-            fewer candidates than that.
+            ``spec.n_hotspots``, when the built-volume threshold leaves
+            fewer candidates than that, or when the spacing excludes every
+            candidate before ``spec.n_hotspots`` are placed.
     """
     if spec.n_hotspots == 0:
         return ()
@@ -217,22 +230,34 @@ def draw_hotspots(
     else:
         candidate_weights = _above_threshold(candidate_weights, spec)
 
-    chosen = rng.choice(
-        candidate_weights.size,
-        size=spec.n_hotspots,
-        replace=False,
-        p=candidate_weights / candidate_weights.sum(),
-    )
-    rows, cols = np.divmod(chosen, raster.n_cols)
+    centre_x, centre_y = (axis.ravel() for axis in raster.tile_centres())
+    # A tile centre this close to a point leaves some of the tile inside the
+    # spacing: half the tile diagonal on top of the distance itself.
+    exclusion_m = spec.min_hotspot_distance_m + raster.tile_size_m / math.sqrt(2.0)
 
     hotspots = []
-    for row, col in zip(rows, cols, strict=True):
+    for placed in range(spec.n_hotspots):
+        if not candidate_weights.any():
+            raise ValueError(
+                "simulation.density.min_hotspot_distance_m of "
+                f"{spec.min_hotspot_distance_m} m leaves room for only {placed} of "
+                f"{spec.n_hotspots} hotspots. Lower it, or n_hotspots."
+            )
+        chosen = rng.choice(candidate_weights.size, p=candidate_weights / candidate_weights.sum())
+        row, col = divmod(int(chosen), raster.n_cols)
+        x = raster.origin_x + (col + rng.random()) * raster.tile_size_m
+        y = raster.origin_y + (row + rng.random()) * raster.tile_size_m
+        candidate_weights = np.where(
+            np.hypot(centre_x - x, centre_y - y) < exclusion_m, 0.0, candidate_weights
+        )
+        candidate_weights[chosen] = 0.0
+
         major = rng.uniform(*spec.sigma_major_m)
         minor = min(rng.uniform(*spec.sigma_minor_m), major)
         hotspots.append(
             Hotspot(
-                x=raster.origin_x + (col + rng.random()) * raster.tile_size_m,
-                y=raster.origin_y + (row + rng.random()) * raster.tile_size_m,
+                x=x,
+                y=y,
                 sigma_major_m=major,
                 sigma_minor_m=minor,
                 rotation_rad=rng.uniform(0.0, math.pi),

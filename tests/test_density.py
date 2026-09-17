@@ -34,7 +34,7 @@ def _raster() -> Raster:
     )
 
 
-def _spec(fraction: float, n_hotspots: int = 2) -> DensitySpec:
+def _spec(fraction: float, n_hotspots: int = 2, distance_m: float = 0.0) -> DensitySpec:
     return DensitySpec(
         hotspot_mass_fraction=0.9,
         n_hotspots=n_hotspots,
@@ -42,6 +42,7 @@ def _spec(fraction: float, n_hotspots: int = 2) -> DensitySpec:
         sigma_minor_m=(10.0, 10.0),
         built_volume_radius_m=15.0,
         min_built_volume_fraction=fraction,
+        min_hotspot_distance_m=distance_m,
     )
 
 
@@ -105,3 +106,31 @@ def test_a_fraction_outside_the_unit_interval_is_rejected(fraction: float) -> No
     """One is excluded too: it would admit only the tiles tied with the peak."""
     with pytest.raises(ValueError, match="min_built_volume_fraction"):
         _spec(fraction)
+
+
+def _bare(n: int = 8) -> Raster:
+    return Raster(
+        origin_x=0.0,
+        origin_y=0.0,
+        tile_size_m=10.0,
+        free_fraction=np.ones((n, n)),
+        mean_built_height=np.zeros((n, n)),
+    )
+
+
+def test_hotspot_centres_keep_the_minimum_distance() -> None:
+    """The spacing holds between the jittered centres, over many draws."""
+    raster = _bare(20)
+    for seed in range(100):
+        hotspots = draw_hotspots(raster, _spec(0.0, 4, 60.0), np.random.default_rng(seed))
+        points = np.array([(h.x, h.y) for h in hotspots])
+        gaps = np.hypot(*(points[:, None, :] - points[None, :, :]).transpose(2, 0, 1))
+
+        assert len(hotspots) == 4
+        assert gaps[~np.eye(4, dtype=bool)].min() >= 60.0
+
+
+def test_a_distance_no_grid_can_fit_is_an_error() -> None:
+    """An 80 m grid cannot hold two centres 200 m apart."""
+    with pytest.raises(ValueError, match="min_hotspot_distance_m"):
+        draw_hotspots(_bare(), _spec(0.0, 2, 200.0), np.random.default_rng(0))

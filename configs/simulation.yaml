@@ -42,7 +42,7 @@ time:
 # UE density: uniform open-ground background plus Gaussian hotspots.
 density:
   # Hotspot UE share; remaining UEs use the uniform background.
-  hotspot_mass_fraction: 0.9
+  hotspot_mass_fraction: 0.7
   # How many hotspots. Their centres are drawn afresh per scenario.
   n_hotspots: 4
   # Range the major axis is drawn uniformly from.
@@ -54,6 +54,8 @@ density:
   # Least share of the densest neighbourhood's building volume a tile needs
   # before it may hold a hotspot centre. Keeps centres off near-empty ground.
   min_built_volume_fraction: 0.5
+  # Least distance between any two hotspot centres.
+  min_hotspot_distance_m: 500.0
 
 # Co-located multi-band cells on four nodes: the corners of an equilateral
 # triangle and its centroid.
@@ -66,7 +68,7 @@ transmitters:
     # Cells per node, at evenly spaced azimuths.
     cells_per_node: 3
     # Rotation applied to every node's cell fan.
-    azimuth_offset_deg: -45.0
+    azimuth_offset_deg: 45.0
     # Mast height above local ground.
     mast_height_m: 20.0
     # Minimum estimated open-ground share for mast placement.
@@ -92,7 +94,7 @@ transmitters:
       x: 29.20
       y: 1027.34
       z: 20.00
-      azimuth_deg: 315.0
+      azimuth_deg: 45.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -102,7 +104,7 @@ transmitters:
       x: 29.20
       y: 1027.34
       z: 20.00
-      azimuth_deg: 75.0
+      azimuth_deg: 165.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -112,7 +114,7 @@ transmitters:
       x: 29.20
       y: 1027.34
       z: 20.00
-      azimuth_deg: 195.0
+      azimuth_deg: 285.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -122,7 +124,7 @@ transmitters:
       x: -858.62
       y: -499.98
       z: 20.00
-      azimuth_deg: 315.0
+      azimuth_deg: 45.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -132,7 +134,7 @@ transmitters:
       x: -858.62
       y: -499.98
       z: 20.00
-      azimuth_deg: 75.0
+      azimuth_deg: 165.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -142,7 +144,7 @@ transmitters:
       x: -858.62
       y: -499.98
       z: 20.00
-      azimuth_deg: 195.0
+      azimuth_deg: 285.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -152,7 +154,7 @@ transmitters:
       x: 873.38
       y: -499.98
       z: 20.00
-      azimuth_deg: 315.0
+      azimuth_deg: 45.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -162,7 +164,7 @@ transmitters:
       x: 873.38
       y: -499.98
       z: 20.00
-      azimuth_deg: 75.0
+      azimuth_deg: 165.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -172,7 +174,7 @@ transmitters:
       x: 873.38
       y: -499.98
       z: 20.00
-      azimuth_deg: 195.0
+      azimuth_deg: 285.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -182,7 +184,7 @@ transmitters:
       x: 7.38
       y: 0.00
       z: 20.00
-      azimuth_deg: 315.0
+      azimuth_deg: 45.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -192,7 +194,7 @@ transmitters:
       x: 7.38
       y: 0.00
       z: 20.00
-      azimuth_deg: 75.0
+      azimuth_deg: 165.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
@@ -202,7 +204,7 @@ transmitters:
       x: 7.38
       y: 0.00
       z: 20.00
-      azimuth_deg: 195.0
+      azimuth_deg: 285.0
       tilt:
         b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
         b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
