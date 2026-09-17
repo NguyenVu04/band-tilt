@@ -53,7 +53,8 @@ the five reported KPIs, so a stored history can be re-scored under another
 otherwise the UE passes to its next candidate.
 
 **Layout.** A fourth node stands on the centroid of the corner triangle, and
-the cell fans start at azimuth 0°.
+every node's cell fan is rotated by
+`simulation.transmitters.layout.azimuth_offset_deg` (45°).
 
 **Reported KPIs** are hole rate, overlap rate, served ratio, weak rate and
 cell-edge RSRP. The desirabilities, `kpi.weights` and the weight-sensitivity

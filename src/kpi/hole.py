@@ -1,4 +1,4 @@
-"""KPI 1 - Coverage holes. Highest in ADR 0001's priority order."""
+"""KPI 1 - Coverage holes. First in ADR 0001's reporting order."""
 
 from __future__ import annotations
 

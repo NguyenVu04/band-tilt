@@ -1,4 +1,4 @@
-"""KPI 4 - Weak Rate. Lowest in ADR 0001's priority order."""
+"""KPI 4 - Weak Rate. Last of the rates in ADR 0001's reporting order."""
 
 from __future__ import annotations
 

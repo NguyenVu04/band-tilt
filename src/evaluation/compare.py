@@ -68,7 +68,7 @@ def _interval(values: np.ndarray) -> tuple[float, float, float, float]:
 
 
 def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
-    """Before, after and the verdict for each measure, in priority order.
+    """Before, after and the verdict for each measure, in reporting order.
 
     Returns:
         Columns ``kpi``, ``direction``, ``before``, ``after``, ``delta``,
@@ -505,26 +505,6 @@ def coverage_comparison(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return merged if merged is not None else pd.DataFrame()
 
 
-def summarise(runs: list[Run], cfg: DictConfig) -> str:
-    """One line per run a reader can act on, including when not to act."""
-    if not runs:
-        return "No runs found."
-
-    lines = []
-    for run in runs:
-        deltas = delta_table(run.incumbent_kpi, run.best_kpi)
-        improved = int((deltas["verdict"] == BETTER).sum())
-        worsened = int((deltas["verdict"] == WORSE).sum())
-        if run.best_index == 0:
-            verdict = "found nothing that beat the incumbent"
-        elif improved == 0 and worsened == 0:
-            verdict = "moved no KPI at all"
-        else:
-            verdict = f"improved {improved} KPI(s), worsened {worsened}"
-        lines.append(f"  {run.label} (seed {run.seed}): {run.n_evaluations} evaluations, {verdict}")
-    return "\n".join(lines)
-
-
 def experiment_setup(
     baseline: Mapping[str, np.ndarray], ue: pd.DataFrame, runs: list[Run], cfg: DictConfig
 ) -> pd.DataFrame:
@@ -721,7 +701,9 @@ def band_layer_summary(
     rows = []
     for name, config in configurations.items():
         spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
-        tile_band = maps.serving_band(config.rsrp, spec.band_rank, spec.rsrp_threshold_dbm)
+        tile_band = maps.serving_band(
+            config.rsrp, spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
+        )
         strongest = finite(config.rsrp).max(axis=1)
         served_band = config.served["band"].to_numpy()
         for index, band in enumerate(band_labels):

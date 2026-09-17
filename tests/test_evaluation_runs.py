@@ -45,6 +45,7 @@ def radio_archive(**overrides: object) -> dict[str, np.ndarray]:
         "edge_diffraction": np.array(False),
         "diffraction_lit_region": np.array(True),
         "rr_depth": np.array(-1),
+        "rr_prob": np.array(0.95),
         "power_dbm": np.array(4.85),
     }
     archive.update({key: np.array(value) for key, value in overrides.items()})

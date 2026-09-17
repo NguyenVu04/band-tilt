@@ -31,6 +31,7 @@ _SOLVER_KEYS = (
     "edge_diffraction",
     "diffraction_lit_region",
     "rr_depth",
+    "rr_prob",
     "power_dbm",
 )
 _GRID_KEYS = ("n_rows", "n_cols", "tile_size_m", "origin_x", "origin_y", "ue_height_m")
@@ -88,11 +89,6 @@ class Run:
     def best_kpi(self) -> KpiVector:
         """The winner's measures over every UE."""
         return KpiVector.from_mapping(self.meta["best_kpi_all_ues"])
-
-    @property
-    def search_best_kpi(self) -> KpiVector:
-        """The winner's measures as the search scored them, over the MDT."""
-        return KpiVector.from_mapping(self.meta["best_kpi"])
 
     @property
     def seed(self) -> int:
@@ -218,11 +214,10 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
     Returns one row per check, with ``holds`` and the offenders. Mirrors
     :func:`src.data.schema.verify` so the two read alike.
 
-    ``README.md`` names the ray-tracing settings, the grid resolution and the
-    KPI thresholds as the three things that invalidate stored results rather
-    than adding to them. Plotting two maps that disagree on any of them on one
-    axis would produce a difference that is not attributable to tilt, which is
-    the only thing this project varies.
+    The ray-tracing settings, the grid and the KPI definition each change what
+    a stored result measures. Plotting two maps that disagree on any of them on
+    one axis would produce a difference that is not attributable to tilt, which
+    is the only thing this project varies.
     """
     checks: list[dict[str, Any]] = []
 

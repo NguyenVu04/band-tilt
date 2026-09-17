@@ -24,10 +24,10 @@
 stages:
   # --- Stage 1: the scenario (notebook 00, section 3) ------------------------
   # Rasters the Sionna-RT scene into the shared grid and draws the time-varying
-  # UE population. The scene ships with sionna-rt and is named by
-  # simulation.scene.name, so it is a param rather than a file dependency; the
-  # cell layout in configs/simulation.yaml was generated once by
-  # `task simulation:layout`, so it is not a file dependency either.
+  # UE population. The scene is the file simulation.scene.name points at
+  # (data/external/scene/), so it is a file dependency; the cell layout in
+  # configs/simulation.yaml was generated once by `task simulation:layout`, so
+  # it is a param rather than a file dependency.
   simulation_scenario:
     cmd: python -m src.simulation.scenario
     deps:
@@ -38,6 +38,7 @@ stages:
       - src/simulation/seeds.py
       - src/simulation/traffic.py
       - src/simulation/scene.py
+      - data/external/scene
     params:
       - configs/simulation.yaml:
           - scene
@@ -54,7 +55,7 @@ stages:
   # Rebuilds the same scene, places the cells at their configured per-band
   # tilt, and ray-traces one band at a time. The
   # expensive stage — it needs a CUDA GPU and the Sionna-RT extra
-  # (`task sync:rt`, or a system install with SUMO-style env vars N/A here).
+  # (`task sync:rt`).
   #
   # `data/external/scenario.json` is a dependency even though this stage does
   # not read the UE table: it reads the manifest to confirm the grid and
@@ -70,6 +71,7 @@ stages:
       - src/simulation/scene.py
       - src/simulation/grid.py
       - src/core/cell.py
+      - data/external/scene
       - data/external/scenario.json
     params:
       - configs/simulation.yaml:
@@ -174,12 +176,15 @@ stages:
       - src/simulation/grid.py
       - src/simulation/seeds.py
       - src/core/cell.py
+      - data/external/scene
       - data/external/scenario.json
       - data/processed/ue.parquet
       - data/processed/mdt.parquet
     params:
       - configs/optim/base.yaml:
           - seed
+          # Which solutions are re-traced into evaluation.parquet.
+          - n_solutions
       # Every method file, not just the selected one: DVC resolves params at
       # plan time and cannot know which method the defaults list will pick.
       - configs/optim/method/turbo.yaml:

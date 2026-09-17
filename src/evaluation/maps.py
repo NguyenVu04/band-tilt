@@ -22,9 +22,6 @@ from src.kpi.capacity import finite, max_rsrp
 # is chosen for contrast and carries no meaning.
 RSRP_LIMITS = (-120.0, -60.0)
 
-# Display range for SINR images, chosen for contrast; it carries no meaning.
-SINR_LIMITS = (-20.0, 30.0)
-
 # Coverage classes, worst first. The order is the one a stacked bar or a legend
 # should use, and the integers are what `coverage_class` returns.
 COVERAGE_CLASSES = ("hole", "weak", "good")
@@ -32,39 +29,34 @@ COVERAGE_CLASSES = ("hole", "weak", "good")
 HOLE, WEAK, GOOD = range(3)
 
 
-def best_sinr(sinr: np.ndarray) -> np.ndarray:
-    """Highest SINR at each tile over every cell-band layer, in dB.
-
-    Args:
-        sinr: A radio map's ``sinr_db``, ``[n_band, n_tx, n_rows, n_cols]``,
-            NaN where no path.
-
-    Returns:
-        ``[n_rows, n_cols]`` in dB, ``-inf`` where nothing is received.
-    """
-    return finite(sinr).max(axis=(0, 1))
-
-
-def serving_band(rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float) -> np.ndarray:
+def serving_band(
+    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float
+) -> np.ndarray:
     """Band each tile is served on by the serving rule, before PRB limits.
 
-    The rule of :mod:`src.kpi.capacity` per tile: the most preferred band whose
-    strongest cell clears ``threshold_dbm``, else the band of the strongest layer.
+    The rule of :mod:`src.kpi.capacity` per tile: among bands whose strongest
+    cell is above ``min_rsrp_dbm``, the most preferred one that also clears
+    ``threshold_dbm``, else the strongest of them.
 
     Args:
         rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm, NaN where no path.
         band_rank: Preference per band, 0 most preferred; ``CapacitySpec.band_rank``.
         threshold_dbm: ``CapacitySpec.rsrp_threshold_dbm``.
+        min_rsrp_dbm: ``CapacitySpec.min_rsrp_dbm``; a layer at or below it is
+            never a candidate.
 
     Returns:
-        ``[n_rows, n_cols]`` band index, ``-1`` where no layer has a path.
+        ``[n_rows, n_cols]`` band index, ``-1`` where no layer is above
+        ``min_rsrp_dbm``.
     """
     best = finite(rsrp).max(axis=1)
-    above = best >= threshold_dbm
+    heard = best > min_rsrp_dbm
+    above = heard & (best >= threshold_dbm)
     rank = np.asarray(band_rank)[:, None, None]
     preferred = np.where(above, rank, np.iinfo(np.int64).max).argmin(axis=0)
-    band = np.where(above.any(axis=0), preferred, best.argmax(axis=0))
-    return np.where(np.isfinite(best).any(axis=0), band, -1)
+    strongest = np.where(heard, best, -np.inf).argmax(axis=0)
+    band = np.where(above.any(axis=0), preferred, strongest)
+    return np.where(heard.any(axis=0), band, -1)
 
 
 def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -141,8 +133,8 @@ def underserved(
         counts: The demand raster from :func:`src.kpi.capacity.demand_prb`.
         cfg: Composed config; reads ``cfg.kpi``.
         quantile: Demand quantile, taken over occupied tiles only, above which
-            a tile counts as busy. Over all tiles it would be meaningless here,
-            since about half of them hold no report at all.
+            a tile counts as busy. Over all tiles the empty ones would drag it
+            to zero.
 
     Returns:
         Boolean ``[n_rows, n_cols]``. These are the tiles worth fixing, as

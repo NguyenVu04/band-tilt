@@ -25,12 +25,12 @@ class Artifacts:
     """One scenario's simulation output, read but not yet verified.
 
     Attributes:
-        ue: ``data/external/ue_positions.csv`` as read, before any typing.
+        ue: ``simulation.output.ue_file`` as read, before any typing.
             Every drawn UE, including those no transmitter reaches.
-        mdt: ``data/interim/mdt.csv`` as read: the UE rows served on the
+        mdt: ``simulation.output.mdt_file`` as read: the UE rows served on the
             baseline map, with ``rsrp_dbm``.
-        radio: Every array in ``radio_map.npz``, keyed as written.
-        manifest: The parsed ``scenario.json``.
+        radio: Every array in ``simulation.output.radio_map_file``, keyed as written.
+        manifest: The parsed ``simulation.output.manifest_file``.
     """
 
     ue: pd.DataFrame
@@ -47,15 +47,6 @@ class Artifacts:
     def band_labels(self) -> list[str]:
         """Band names in the radio map's band-axis order."""
         return [str(label) for label in self.radio["band_label"]]
-
-    @property
-    def measurement_columns(self) -> list[str]:
-        """One ``rsrp_<cell>_<band>`` name per cell-band pair, in order.
-
-        Cell-major, band-minor: the dimension order of
-        :class:`src.optim.space.TiltSpace`.
-        """
-        return [f"rsrp_{tx}_{band}" for tx in self.tx_names for band in self.band_labels]
 
     @property
     def shape(self) -> tuple[int, int]:

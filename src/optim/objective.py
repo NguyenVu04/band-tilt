@@ -3,7 +3,7 @@
 The KPI definitions live in :mod:`src.kpi` and are not restated here. What this
 module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
-the objective (docs/adr/0006-radio-load-cvar-objective.md)
+the objective (docs/adr/0006-radio-load-cvar-objective.md):
 
     J = J_radio ** gamma * J_load ** (1 - gamma)
 
@@ -31,7 +31,7 @@ from src.kpi import edge_rsrp_dbm, hole_rate, overlap_rate, served_ratio, weak_r
 from src.kpi.capacity import CapacitySpec, max_rsrp, serve_intervals
 from src.kpi.overlap import overlap_neighbors
 
-# What a deployment reads, in ADR 0001's priority order, highest first.
+# What a deployment reads, in ADR 0001's reporting order.
 KPI_NAMES = (
     "hole_rate",
     "overlap_rate",
@@ -135,10 +135,6 @@ class KpiVector:
     def as_dict(self) -> dict[str, float]:
         """The values keyed by name, as ``run.json`` records them."""
         return {name: float(value) for name, value in asdict(self).items()}
-
-    def as_array(self) -> np.ndarray:
-        """The values in :data:`MEASURE_NAMES` order."""
-        return np.array([getattr(self, name) for name in MEASURE_NAMES], dtype=float)
 
     @classmethod
     def from_mapping(cls, values: dict[str, float]) -> KpiVector:

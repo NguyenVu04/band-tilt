@@ -95,14 +95,14 @@ def test_serving_band_prefers_a_band_above_threshold_else_the_strongest() -> Non
             [[[-60.0, -105.0, np.nan]], [[-70.0, -130.0, np.nan]]],
         ]
     )
-    band = maps.serving_band(rsrp, np.array([0, 1]), -100.0)
+    band = maps.serving_band(rsrp, np.array([0, 1]), -100.0, -120.0)
     assert band.tolist() == [[0, 1, -1]]
 
 
-def test_best_sinr_ignores_layers_with_no_path() -> None:
-    """NaN is no path; a tile with no layer at all is -inf, not NaN."""
-    sinr = np.array([[[[3.0, np.nan]], [[np.nan, np.nan]]], [[[-2.0, np.nan]], [[9.0, np.nan]]]])
-    assert maps.best_sinr(sinr).tolist() == [[9.0, -np.inf]]
+def test_serving_band_never_serves_on_a_layer_at_the_hole_threshold() -> None:
+    """A layer exactly at min_rsrp_dbm is no candidate, as in the serving rule."""
+    rsrp = np.array([[[[-120.0]]], [[[-125.0]]]])
+    assert maps.serving_band(rsrp, np.array([0, 1]), -120.0, -120.0).tolist() == [[-1]]
 
 
 def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:

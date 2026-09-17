@@ -29,9 +29,8 @@ Modules, each with one reason to change:
 Demand-weighted numbers are diagnostics, not objectives
 -------------------------------------------------------
 This package reports coverage weighted by where UEs actually stand, alongside
-the tile-weighted rates. On the committed scenario those disagree sharply — the
-tile-based hole rate is several times the UE-weighted one, because most holes
-fall where nobody is.
+the tile-weighted rates. The two can disagree sharply, because a hole need not
+fall where anyone stands.
 
 That is a reporting view and nothing more. The objective remains exactly the
 one of docs/adr/0006-radio-load-cvar-objective.md; no demand-weighted coverage

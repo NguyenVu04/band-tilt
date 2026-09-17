@@ -5,9 +5,8 @@ traced at the configured fidelity, so every KPI this writes is a measurement
 and the run it produces is complete: a named winner and its shortlist, the
 winner's radio map, and the two tables an operator chooses from.
 
-Every candidate is ray-traced, with no surrogate; ``outputs/fidelity_bench/``
-holds the timing that made that affordable. The search scores the UE-counted
-measures on the MDT. The published shortlist is then re-traced and scored on
+Every candidate is ray-traced, with no surrogate. The search scores the
+UE-counted measures on the MDT. The published shortlist is then re-traced and scored on
 every UE, and that table, not the search history, is what evaluation compares.
 
 Needs a CUDA GPU and the ``rt`` extra.
@@ -118,7 +117,6 @@ def main(cfg: DictConfig) -> None:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0
     """
     history, directory = run(cfg)
-    frame = history.frame()
     best = history.results[history.best_index(cfg)].kpi
     log_stage(
         cfg,
@@ -126,7 +124,7 @@ def main(cfg: DictConfig) -> None:
         groups=["optim", "kpi"],
         metrics={
             **{f"best_{name}": value for name, value in best.as_dict().items()},
-            "n_candidates": len(frame),
+            "n_candidates": len(history),
         },
         artifacts=sorted(directory.glob("*.parquet")) + [directory / "run.json"],
         tags={"method": cfg.optim.method.name, "run_dir": directory},

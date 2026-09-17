@@ -102,8 +102,6 @@ class Evaluator:
     solver_seed: int | None = None
 
     space: TiltSpace = field(init=False)
-    n_calls: int = field(init=False, default=0)
-    total_seconds: float = field(init=False, default=0.0)
 
     def __post_init__(self) -> None:
         """Build the scene and everything else that does not depend on tilt."""
@@ -193,8 +191,6 @@ class Evaluator:
         ue = self._all_ues if all_ues else self._mdt
         kpi = evaluate_kpis(rsrp, sinr, self.band_labels, ue, self.cfg)
 
-        self.n_calls += 1
-        self.total_seconds += seconds
         return EvaluationResult(
             tilt_deg=tilt_deg,
             kpi=kpi,

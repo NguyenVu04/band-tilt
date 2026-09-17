@@ -82,6 +82,9 @@ def write_solution_options(
     The objective (``kpi.objective``) marks one row ``recommended``; the
     runners-up are published beside it rather than discarded.
 
+    The measures are the search history's, so the UE-counted ones are over the
+    MDT, not every UE.
+
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
     ``tilt_options_<method>.csv`` is one row per solution and cell-band, and is

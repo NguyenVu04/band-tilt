@@ -64,7 +64,7 @@ the two. The intended network state includes each layer's signal-strength map,
 demand, and band-specific propagation behaviour.
 
 The repository evaluates this idea entirely in simulation. `src/simulation/`
-loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
+loads a local Sionna-RT scene file, generates a time-varying UE population, ray-traces
 and per-band radio maps, and keeps the UEs served at the committed tilts as
 MDT. The search counts UE-based measures over the MDT; evaluation re-scores the
 published solutions over every UE. The implemented
@@ -81,7 +81,7 @@ per UE under per-cell PRB limits and an admission cap; the served ratio and
 `J_load` count what it admits, and the PRB demand map built from it is a
 diagnostic outside the objective.
 
-Sionna-RT scores every candidate the search proposes, at roughly 8 s each, and
+Sionna-RT scores every candidate the search proposes, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
 TuRBO-1 Bayesian Optimization on that objective and two baselines are
 implemented; Multi-Agent Reinforcement Learning and held-out scenario
@@ -97,7 +97,7 @@ not calibrated against operator measurements.
 
 ```mermaid
 flowchart TB
-    scene["Sionna-RT scene<br/>bundled"]
+    scene["Sionna-RT scene<br/>data/external/scene/"]
     cells["Cell layout<br/>configs/simulation.yaml, generated once"]
 
     sim["src/simulation<br/>scenario · radio map · MDT"]
@@ -142,8 +142,9 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
 | Simulation | UE population, radio-map ray tracing, MDT selection | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
-| KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
-| Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
+| KPI | The five reported KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
+| Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
+| Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
 | Optimization | The shared search space, the KPI vector and the radio-and-load objective, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
@@ -154,7 +155,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
-| [Sionna-RT](https://nvlabs.github.io/sionna/) | The bundled scene, and ray-traced radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
+| [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
+| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.scene.name` points at `data/external/scene/scene.xml` (with its `mesh/` folder). `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py). Random search needs only torch's Sobol engine |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
@@ -171,7 +173,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
 | CUDA GPU | — | needed for `task simulation:scenario` and `task simulation:radio`; Sionna-RT ray tracing is impractically slow without one |
-| Sionna-RT scene | — | bundled with the `rt` extra (`task sync:rt`); nothing supplied externally |
+| Sionna-RT scene | — | `data/external/scene/scene.xml`, not in Git; see [External dependencies](#external-dependencies) |
 
 ### Install
 
@@ -208,11 +210,11 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-162 passed
+166 passed
 ```
 
-`tests/` covers `src/simulation/`'s density, region and traffic logic, the four
-KPIs, and `src/optim/` and `src/evaluation/` — the parts most worth pinning down
+`tests/` covers `src/simulation/`'s density, region, traffic, MDT and node-layout
+logic, the KPIs, and `src/optim/` and `src/evaluation/` — the parts most worth pinning down
 by hand-computed fixtures. It does not yet cover `src/data/` or `src/core/`; see
 [Implementation status](#implementation-status).
 
@@ -257,7 +259,6 @@ Environment variables, from `.env.example`:
 |---|---|---|---|---|---|
 | `MLFLOW_TRACKING_URI` | string | `sqlite:///mlflow.db` | no | no | Where experiment runs are recorded; read by `configs/config.yaml` through `oc.env` |
 | `DVC_REMOTE_URL` | string | — | no | **yes** | Remote for `dvc push` / `dvc pull`; may embed credentials |
-| `DATA_ROOT` | string | `./data` | no | no | Override when the dataset lives outside the repository |
 
 Precedence: command-line Hydra overrides > environment variables > `configs/`
 defaults. `Taskfile.yml` loads `.env` for every task; a plain `python -m` run
@@ -318,7 +319,7 @@ config groups, the whole resolved config as `config.yaml`, the Git commit
 | Stage | Metrics | Artifacts |
 |---|---|---|
 | `simulation_*`, `preprocessing` | — | output paths as `output.*` tags, not copied |
-| `optimization` | the winner's KPIs, candidates measured | the run's parquet tables, `run.json`, the `reports/outputs/` deliverables |
+| `optimization` | the search winner's measures (UE-counted ones over the MDT), candidates measured | the run's parquet tables and `run.json` |
 | `evaluation` | the KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
 
 Radio maps and the UE tables stay out of the store — data belongs to DVC. Set `mlflow.enabled=false` to run a stage untracked.
@@ -329,25 +330,29 @@ One command, `task bo`. Sionna-RT scores every candidate at the configured
 fidelity, so every KPI a run writes is a measurement and the run it leaves is
 complete. It needs a GPU.
 
-Ray tracing one tilt configuration costs about 8 s against a warm kernel cache,
-so the 160-evaluation default budget is roughly 22 minutes. Older documents in
-this repository put it at 30–40 s, which was cold-compilation time; the
-measurement is in
-[`outputs/fidelity_bench/`](outputs/fidelity_bench/).
+The default TuRBO and random-search budget is the incumbent plus 16 + 128
+evaluations, 145 in all. A run records its ray-tracing and wall-clock seconds in
+`run.json`; `task evaluate` tabulates them in
+`reports/tables/04_evaluation/method_cost.csv`.
 
+The search scores the UE-counted measures (served ratio, `J_load`) on the MDT.
 A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history,
-`best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`,
-the last being the solutions offered for choice.
+`best_tilt.parquet`, `best_radio_map.npz`, `run.json`, `solutions.parquet` (the
+solutions offered for choice, as the search scored them) and
+`evaluation.parquet` (the same solutions re-traced and scored on every UE, which
+is what `src/evaluation/` compares).
 
 The solutions offered are the incumbent plus the highest objective scores
-(`kpi.objective`, ADR 0006). `optim.n_solutions` sets how many, 8 by default,
+(`kpi.objective`, ADR 0006). `optim.n_solutions` sets how many, 4 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
 per offered solution, its score, every KPI and objective term and each one's delta against the
 incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
 becomes. The highest score marks one row `recommended` and
-`tilt_change_<method>.csv` carries it. The MARL arm is not
+`tilt_change_<method>.csv` carries it. These values are the search's, so the
+served ratio and `J_load` in them are over the MDT; the all-UE numbers are in
+the run's `evaluation.parquet`, and the two can rank the shortlist differently. The MARL arm is not
 built, so a comparison currently has TuRBO and the two baselines in it and
 nothing else.
 
@@ -380,7 +385,7 @@ band-tilt/
 | `src/simulation/` — scenario, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
 | `src/kpi/` — the KPIs (`hole`, `overlap`, `served`, `weak`, `quality`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
-| `src/utils/` — config loading, seeding, plotting | Implemented |
+| `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
@@ -417,13 +422,13 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region and traffic logic; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region, traffic, MDT and node-layout logic; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
-`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py` and `mdt.py`,
-`src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 162 tests, all passing, none skipped. `src/data/`,
+`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py`, `mdt.py` and
+`transmitter.py` (node positions), `src/kpi/`, `src/optim/`, `src/evaluation/` and
+`src/tracking.py` — 166 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

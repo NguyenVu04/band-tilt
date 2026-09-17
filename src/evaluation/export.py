@@ -19,7 +19,7 @@ TABLES_DIR = Path("reports/tables")
 
 # Columns whose values are keys too, so a band or KPI reads the same in a cell
 # as in a header.
-_KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration", "scheme")
+_KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration")
 
 
 def readable(frame: pd.DataFrame) -> pd.DataFrame:

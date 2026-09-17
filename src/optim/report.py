@@ -7,7 +7,9 @@ reads, and prints the result.
 
 The shortlist is the highest objective scores (``kpi.objective``) beside the
 incumbent, so the recommended row is published with the runners-up it beat
-rather than alone.
+rather than alone. Every measure here is the search's own, so the UE-counted
+ones are over the MDT; :func:`src.optim.run.run` writes the all-UE re-score of
+the same rows to ``evaluation.parquet``.
 
 This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:
 :mod:`src.evaluation` states that it re-solves nothing and imports neither
