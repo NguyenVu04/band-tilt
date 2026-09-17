@@ -17,12 +17,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import (
-    MEASURE_NAMES,
-    KpiVector,
-    best_by_score,
-    score,
-)
+from src.optim.objective import MEASURE_NAMES, KpiVector, best_by_objective
 from src.optim.space import TiltSpace
 
 
@@ -81,9 +76,6 @@ def write_solution_options(
 
     The objective (``kpi.objective``) marks one row ``recommended``; the
     runners-up are published beside it rather than discarded.
-
-    The measures are the search history's, so the UE-counted ones are over the
-    MDT, not every UE.
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
@@ -147,10 +139,8 @@ class History:
         """The KPI vector of every evaluation, in order."""
         return [result.kpi for result in self.results]
 
-    def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
+    def frame(self) -> pd.DataFrame:
         """One row per evaluation: provenance, every measure, every tilt.
-
-        With ``cfg``, also ``score``, the objective that selects the winner.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -169,18 +159,16 @@ class History:
         )
         for name in MEASURE_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
-        if cfg is not None:
-            frame["score"] = score(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
         return frame
 
-    def best_index(self, cfg: DictConfig) -> int:
-        """Index of the highest :func:`~src.optim.objective.score` over every evaluation.
+    def best_index(self) -> int:
+        """Index of the highest ``objective`` over every evaluation.
 
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """
-        return best_by_score(self.kpis, cfg)
+        return best_by_objective(self.kpis)
 
     def tilt_table(self, tilt_deg: np.ndarray) -> pd.DataFrame:
         """The deliverable: current, optimized and delta tilt per cell-band.
@@ -219,7 +207,7 @@ def write_run(
         extra: Merged into the run document, for whatever the caller knows and
             this function does not.
     """
-    frame = history.frame(cfg)
+    frame = history.frame()
     best = history.results[best_index]
     # Row zero is the committed incumbent every delta is measured against; the
     # SearchMethod contract puts it there.

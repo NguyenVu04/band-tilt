@@ -5,11 +5,9 @@ these to publish. Nothing here re-solves anything: the run already holds the
 measurements, so this selects from them, shapes the two tables an operator
 reads, and prints the result.
 
-The shortlist is the highest objective scores (``kpi.objective``) beside the
-incumbent, so the recommended row is published with the runners-up it beat
-rather than alone. Every measure here is the search's own, so the UE-counted
-ones are over the MDT; :func:`src.optim.run.run` writes the all-UE re-score of
-the same rows to ``evaluation.parquet``.
+The shortlist is the highest objectives beside the incumbent, so the
+recommended row is published with the runners-up it beat rather than alone.
+Every measure here is the search's own, over every UE.
 
 This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:
 :mod:`src.evaluation` states that it re-solves nothing and imports neither
@@ -33,32 +31,25 @@ from src.optim.history import (
     write_solution_options,
     write_tilt_change,
 )
-from src.optim.objective import MEASURE_NAMES, KpiVector, score
+from src.optim.objective import MEASURE_NAMES, KpiVector
 
 
-def choose(
-    kpis: list[KpiVector], cfg: DictConfig, n_solutions: int, keep: Sequence[int] = (0,)
-) -> list[int]:
+def choose(kpis: list[KpiVector], n_solutions: int, keep: Sequence[int] = (0,)) -> list[int]:
     """Which rows to publish, best first, as indices into ``kpis``.
 
-    ``keep`` rows come first, then the rest by objective score, highest first, up
+    ``keep`` rows come first, then the rest by ``objective``, highest first, up
     to the budget. A tie keeps the earlier row, as
-    :func:`src.optim.objective.best_by_score` does.
+    :func:`src.optim.objective.best_by_objective` does.
 
     Args:
         kpis: Every evaluation's measured KPI vector.
-        cfg: Composed config; reads ``kpi.objective``.
         n_solutions: How many to offer. Raised to fit ``keep``, which is a
             floor and not a preference.
         keep: Rows that must be in the shortlist. The caller passes the
             incumbent, which every published delta is measured against, and the
             winner, so the run cannot recommend a solution it did not offer.
-
-    Raises:
-        ValueError: When ``kpi.objective`` is unusable; see
-            :meth:`src.optim.objective.ObjectiveSpec.from_config`.
     """
-    ranked = np.argsort(-score(kpis, cfg), kind="stable")
+    ranked = np.argsort(-np.array([kpi.objective for kpi in kpis]), kind="stable")
 
     # dict.fromkeys keeps this order while dropping the repeats it can make: the
     # winner always ranks first, and the incumbent can rank anywhere.
@@ -82,14 +73,13 @@ def solutions(frame: pd.DataFrame, picks: list[int], best_index: int) -> pd.Data
 
 
 def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
-    """The shortlist an operator reads: each solution's score, KPIs and what it moves.
+    """The shortlist an operator reads: each solution's KPIs, objective and what it moves.
 
-    ``score`` is the objective that ranked the shortlist and picked the
-    recommendation. The reported KPIs and objective terms follow it, so the result can be read
-    against the thresholds a deployment would apply without the shortlist being
-    ordered by them.
+    ``objective`` ranked the shortlist and picked the recommendation. The KPIs
+    sit beside it, so the result can be read against the thresholds a
+    deployment would apply without the shortlist being ordered by them.
     """
-    columns = ["solution", "is_incumbent", "recommended", "score", *MEASURE_NAMES]
+    columns = ["solution", "is_incumbent", "recommended", *MEASURE_NAMES]
     table = published[columns].copy()
     for name in MEASURE_NAMES:
         table[f"delta_{name}"] = table[name] - getattr(incumbent, name)
@@ -123,10 +113,10 @@ def publish(
     Returns the locators :func:`src.optim.history.write_run` wrote, keyed by
     name.
     """
-    best_index = history.best_index(cfg)
+    best_index = history.best_index()
     best = history.results[best_index]
-    picks = choose(history.kpis, cfg, int(cfg.optim.n_solutions), keep=(0, best_index))
-    published = solutions(history.frame(cfg), picks, best_index)
+    picks = choose(history.kpis, int(cfg.optim.n_solutions), keep=(0, best_index))
+    published = solutions(history.frame(), picks, best_index)
 
     writer = LocalRunWriter(directory)
     writer.write_frame("solutions", published)
@@ -167,7 +157,7 @@ def print_summary(
     """Print the measured shortlist and where the run wrote it."""
     print(f"\n{method}: {len(published)} solutions published\n")
 
-    columns = ["solution", "recommended", "score", *MEASURE_NAMES]
+    columns = ["solution", "recommended", *MEASURE_NAMES]
     print(published[columns].to_string(index=False, float_format=lambda value: f"{value:.4f}"))
 
     print(f"\nwrote {directory}")

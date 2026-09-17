@@ -8,5 +8,5 @@ output:
   # One row per cell-band pair: the configuration the radio map was solved at,
   # and the baseline every DeltaTilt is measured against.
   cell_file: data/processed/cell.parquet
-  # The MDT subset of the UE table, typed: what the search scores the load on.
+  # The MDT subset of the UE table, typed. Kept for later use; nothing scores on it.
   mdt_file: data/processed/mdt.parquet

@@ -15,10 +15,10 @@ hand-built fixture alike.
 The four rates land in ``[0, 1]``: three are grid shares and minimised,
 :func:`~src.kpi.served.served_ratio` is a UE share and maximised.
 :func:`~src.kpi.quality.edge_rsrp_dbm` is in dBm. None of them is the search
-objective; that is :mod:`src.optim.objective`, docs/adr/0006-radio-load-cvar-objective.md.
+objective; that is :mod:`src.optim.objective`, docs/adr/0006-radio-coverage-objective.md.
 
 :mod:`src.kpi.capacity` sits beside them: the serving-cell rule the served ratio
-and the objective's load term count by, and the PRB demand map.
+counts by, and the PRB demand map.
 """
 
 from src.kpi.hole import hole_rate

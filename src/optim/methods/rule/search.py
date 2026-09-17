@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
 from src.optim.methods.base import INCUMBENT, SWEEP
-from src.optim.objective import best_by_score
+from src.optim.objective import best_by_objective
 
 
 def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
@@ -63,7 +63,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
                 continue
             # Index 0 is the incumbent for this axis, so a sweep that improves
             # on nothing leaves the band where it was.
-            choice = best_by_score([best.kpi] + [result.kpi for _p, result in candidates], cfg)
+            choice = best_by_objective([best.kpi] + [result.kpi for _p, result in candidates])
             if choice > 0:
                 current, best = candidates[choice - 1]
 

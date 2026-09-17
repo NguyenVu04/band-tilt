@@ -5,9 +5,7 @@ Everything here works from artifacts on disk — the run directories under
 this package imports neither Sionna-RT nor ``src.optim.evaluator``, and a
 comparison costs seconds on a machine with no GPU.
 
-Every UE counts here. A run searched on the MDT, but a comparison reads the
-published solutions it re-scored on all UEs (``evaluation.parquet``); only the
-search traces (``convergence``, ``winner_vs_candidates``) are over the MDT.
+Every UE counts here, as it did in the search.
 
 Modules, each with one reason to change:
 
@@ -33,7 +31,7 @@ the tile-weighted rates. The two can disagree sharply, because a hole need not
 fall where anyone stands.
 
 That is a reporting view and nothing more. The objective remains exactly the
-one of docs/adr/0006-radio-load-cvar-objective.md; no demand-weighted coverage
+one of docs/adr/0006-radio-coverage-objective.md; no demand-weighted coverage
 quantity joins it. The thresholds separating hole, weak and good are read from
 ``cfg.kpi``, never restated here, so a diagnostic and its KPI always cut the
 map at the same dBm.

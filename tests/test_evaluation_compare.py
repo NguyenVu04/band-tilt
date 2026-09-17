@@ -66,8 +66,7 @@ def incumbent() -> KpiVector:
         served_ratio=0.009,
         weak_rate=0.12,
         edge_rsrp_dbm=-108.0,
-        j_radio=0.40,
-        j_load=0.40,
+        objective=0.40,
     )
 
 
@@ -111,9 +110,9 @@ def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
 
 
 def test_direction_names_every_kpi() -> None:
-    """The maximised set is the four that read upward; any other is a sign error."""
+    """The maximised set is the three that read upward; any other is a sign error."""
     maximised = [name for name in MEASURE_NAMES if compare.direction(name) == "maximise"]
-    assert maximised == ["served_ratio", "edge_rsrp_dbm", "j_radio", "j_load"]
+    assert maximised == ["served_ratio", "edge_rsrp_dbm", "objective"]
 
 
 def test_coverage_comparison_puts_labels_side_by_side() -> None:
@@ -143,21 +142,8 @@ def test_coverage_comparison_of_nothing_is_empty() -> None:
     assert compare.coverage_comparison({}).empty
 
 
-@pytest.fixture
-def scored_cfg() -> DictConfig:
-    """``gamma = 1`` puts the whole objective on ``j_radio``.
-
-    The score then reduces to that one column, so these tests can assert exact
-    arithmetic.
-    """
-    objective = {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 1.0}
-    return OmegaConf.create(
-        {"kpi": {"hole_dbm": -120.0, "overlap_margin_db": 6.0, "objective": objective}}
-    )
-
-
 def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None = None) -> Run:
-    """A run whose score is ``j_radio`` per evaluation, row 0 the incumbent."""
+    """A run whose ``objective`` per evaluation is ``coverage``, row 0 the incumbent."""
     n = len(coverage)
     history = pd.DataFrame(
         {
@@ -168,8 +154,7 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "served_ratio": [0.0] * n,
             "weak_rate": [0.1] * n,
             "edge_rsrp_dbm": [-108.0] * n,
-            "j_radio": coverage,
-            "j_load": [0.4] * n,
+            "objective": coverage,
         }
     )
     best = int(np.argmax(coverage))
@@ -179,36 +164,31 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
         "best_iteration": best,
         "best_kpi": kpi,
         "incumbent_kpi": incumbent,
-        "best_kpi_all_ues": kpi,
-        "incumbent_kpi_all_ues": incumbent,
         "config": {"optim": {"seed": seed}},
     }
-    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), pd.DataFrame(), meta)
+    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), meta)
 
 
-def test_seed_summary_interval_brackets_the_mean(scored_cfg: DictConfig) -> None:
+def test_seed_summary_interval_brackets_the_mean() -> None:
     """Two seeds give a finite interval centred on the mean winner."""
     runs = [_run("turbo", 0, [0.5, 0.8]), _run("turbo", 1, [0.5, 0.6])]
-    table = compare.seed_summary(runs, scored_cfg).set_index("kpi")
-    assert table.loc["j_radio", "mean"] == pytest.approx(0.7)
-    low, high = table.loc["j_radio", ["ci95_low", "ci95_high"]]
+    table = compare.seed_summary(runs).set_index("kpi")
+    assert table.loc["objective", "mean"] == pytest.approx(0.7)
+    low, high = table.loc["objective", ["ci95_low", "ci95_high"]]
     assert low < 0.7 < high
-    assert table.loc["j_radio", "verdict"] == compare.BETTER
-    assert table.loc["score", "direction"] == "maximise"
-    assert table.loc["score", "verdict"] == compare.BETTER
+    assert table.loc["objective", "direction"] == "maximise"
+    assert table.loc["objective", "verdict"] == compare.BETTER
 
 
-def test_winner_vs_candidates_separates_winner_from_typical(scored_cfg: DictConfig) -> None:
+def test_winner_vs_candidates_separates_winner_from_typical() -> None:
     """The incumbent is excluded from the candidate median."""
-    row = compare.winner_vs_candidates([_run("random", 0, [0.1, 0.9, 0.8, 0.7])], scored_cfg).iloc[
-        0
-    ]
+    row = compare.winner_vs_candidates([_run("random", 0, [0.1, 0.9, 0.8, 0.7])]).iloc[0]
     assert row["incumbent"] == pytest.approx(0.1)
     assert row["candidate_median"] == pytest.approx(0.8)
     assert row["winner"] == pytest.approx(0.9)
 
 
-def test_paired_method_gain_pairs_by_seed(scored_cfg: DictConfig) -> None:
+def test_paired_method_gain_pairs_by_seed() -> None:
     """A seed only one method ran is left out of the pairs."""
     runs = [
         _run("turbo", 0, [0.5, 0.9]),
@@ -217,7 +197,7 @@ def test_paired_method_gain_pairs_by_seed(scored_cfg: DictConfig) -> None:
         _run("random", 1, [0.5, 0.7]),
         _run("turbo", 2, [0.5, 0.9]),
     ]
-    row = compare.paired_method_gain(runs, scored_cfg).iloc[0]
+    row = compare.paired_method_gain(runs).iloc[0]
     assert row["n_pairs"] == 2
     assert row["mean_gain"] == pytest.approx(0.15)
     assert row["method_better"] == 2
@@ -246,11 +226,11 @@ def test_relative_improvement_is_positive_when_better() -> None:
     assert row["served_ratio"] == pytest.approx(20.0)
 
 
-def test_sample_efficiency_is_nan_past_a_runs_length(scored_cfg: DictConfig) -> None:
+def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
     """A three-evaluation run has no value at a budget of four."""
     runs = [_run("turbo", 0, [0.1, 0.5, 0.3, 0.9]), _run("rule", 0, [0.1, 0.4, 0.2])]
     table = compare.sample_efficiency(
-        compare.convergence(runs, scored_cfg), kpis=["score"], budgets=[2]
+        compare.convergence(runs), kpis=["objective"], budgets=[2]
     ).set_index("budget")
     assert table.loc[2, "turbo"] == pytest.approx(0.5)
     assert table.loc[4, "turbo"] == pytest.approx(0.9)

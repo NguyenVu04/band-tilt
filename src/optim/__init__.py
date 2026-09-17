@@ -12,7 +12,7 @@ Modules, each with one reason to change:
     The box an optimizer may move in, and the only place a vector becomes
     :class:`src.core.cell.Cell` objects.
 ``objective``
-    The KPI vector, the sign convention, and the radio-and-load objective
+    The KPI vector, the sign convention, and the coverage objective
     that picks one configuration.
 ``evaluator``
     The expensive path: a tilt vector ray-traced into a radio map. The only

@@ -37,7 +37,7 @@ def cfg():
                     "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
-            "simulation": {"seed": 0, "transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
+            "simulation": {"transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
         }
     )
 
@@ -85,19 +85,16 @@ def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
     assert order.tolist() == [1]
 
 
-def test_admission_order_does_not_follow_row_order(cfg) -> None:
-    """One PRB-limited cell, many identical UEs: the admitted ones are not the first rows."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 60, "lo": 1})
+def test_the_strongest_ue_is_admitted_first_whatever_the_row_order(cfg) -> None:
+    """Room for one 6-PRB UE on 'hi' and no path on 'lo': the -80 dBm UE takes it."""
+    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    n_ue = 40
-    rsrp = np.array([[[-90.0], [np.nan]]] * n_ue)
+    rsrp = np.array([[[-95.0], [np.nan]], [[-90.0], [np.nan]], [[-80.0], [np.nan]]])
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(n_ue, dtype=int), spec)
-    admitted = np.flatnonzero(band >= 0)
-    assert admitted.size == 10
-    assert admitted.tolist() != list(range(10))
-    again, _, _ = capacity.serve_rows(rsrp, sinr, np.zeros(n_ue, dtype=int), spec)
-    assert np.array_equal(band, again)
+    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(3, dtype=int), spec)
+    assert band.tolist() == [-1, -1, 0]
+    flipped, _, _ = capacity.serve_rows(rsrp[::-1], sinr, np.zeros(3, dtype=int), spec)
+    assert flipped.tolist() == [0, -1, -1]
 
 
 def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
@@ -157,9 +154,9 @@ def test_each_cell_band_has_its_own_limit_and_intervals_do_not_share_prbs(cfg) -
     rsrp = np.array([[[-90.0, -95.0]]] * 3)  # [ue, band, tx]
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
     band, tx, per_ue = capacity.serve_rows(rsrp, sinr, np.array([0, 0, 1]), spec)
-    # The two interval-0 UEs are identical, so which one is blocked is the shuffle's call.
-    assert sorted(band[:2].tolist()) == [-1, 0]
-    assert sorted(tx[:2].tolist()) == [-1, 1]
+    # The two interval-0 UEs are identical, so the tie keeps row order.
+    assert band[:2].tolist() == [0, -1]
+    assert tx[:2].tolist() == [1, -1]
     assert (band[2], tx[2]) == (0, 1)
     assert per_ue.tolist() == pytest.approx([6.0, 6.0, 6.0])
 

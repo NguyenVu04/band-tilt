@@ -1,7 +1,6 @@
 # @package kpi
 # Thresholds defining the KPIs, the objective's parameters, and the capacity
-# model behind the serving rule, the served ratio, the load term and the PRB
-# demand map.
+# model behind the serving rule, the served ratio and the PRB demand map.
 
 # Strongest signal at or below which a location is a coverage hole. Also the
 # RSRP a cell-band must exceed to serve a UE, and the objective's coverage
@@ -15,20 +14,15 @@ weak_dbm: -90.0
 # Also the objective's Delta_R.
 overlap_margin_db: 6.0
 
-# J = J_radio^gamma * J_load^(1 - gamma) (src/optim/objective.py, ADR 0006).
+# J = mean_g sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g)
+# (src/optim/objective.py, ADR 0006).
 objective:
   # tau_R: width of the coverage sigmoid on (R_s - T_cov), in dB.
   tau_r_db: 10.0
   # Each co-band overlapping neighbour keeps q_ov = exp(-beta) of the utility.
   beta: 1.0
-  # rho_0: PRB utilisation above which a cell-band counts against J_load.
-  rho_0: 0.8
-  # CVaR level: J_load averages the worst (1 - alpha) share of cell-band intervals.
-  alpha: 0.9
-  # Weight of J_radio against J_load, in [0, 1].
-  gamma: 0.5
 
-# Reported network-quality measures that no score reads.
+# Reported network-quality measures that the objective does not read.
 quality:
   # Percentile of serving RSRP taken as the cell edge, over covered locations
   # only: the 5% point of 3GPP TR 36.814 Annex A.2.1.4.

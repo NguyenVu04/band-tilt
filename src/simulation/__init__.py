@@ -10,7 +10,7 @@ Three stages, run in order, each a ``python -m`` entry point:
     radio map per band.
 ``mdt``
     Serves the UE table on the baseline map and keeps the admitted UEs, with
-    their serving RSRP. The search scores load on MDT; evaluation on all UEs.
+    their serving RSRP. Kept for later use; the search and evaluation count every UE.
     After ``radio`` because serving needs the map.
 
 The population moves over time; the map does not, and does not need to. Tilt

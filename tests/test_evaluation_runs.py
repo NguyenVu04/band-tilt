@@ -18,8 +18,7 @@ KPI = {
     "served_ratio": 0.009,
     "weak_rate": 0.12,
     "edge_rsrp_dbm": -108.0,
-    "j_radio": 0.40,
-    "j_load": 0.40,
+    "objective": 0.40,
 }
 
 
@@ -84,10 +83,6 @@ def make_run(
             "delta_tilt_deg": [2.0, 0.0],
         }
     ).to_parquet(directory / "best_tilt.parquet", index=False)
-    pd.DataFrame(
-        {"iteration": [0], "solution": [0], "is_incumbent": [True], "recommended": [True]}
-        | {name: [KPI[name]] for name in MEASURE_NAMES}
-    ).to_parquet(directory / "evaluation.parquet", index=False)
 
     np.savez_compressed(directory / "best_radio_map.npz", **radio_archive(**radio))
     (directory / "run.json").write_text(
@@ -98,8 +93,6 @@ def make_run(
                 "best_iteration": 0,
                 "best_kpi": KPI,
                 "incumbent_kpi": KPI,
-                "best_kpi_all_ues": KPI,
-                "incumbent_kpi_all_ues": KPI,
                 "scenario_id": str(radio.get("scenario_id", "scn_test")),
                 "wall_clock_seconds": 120.0,
                 # Deliberately a Windows-style path: it must never be resolved.
@@ -111,7 +104,7 @@ def make_run(
                         "weak_dbm": -90.0,
                         "overlap_margin_db": 6.0,
                         "capacity": {"throughput_per_ue_bps": throughput_per_ue_bps},
-                        "objective": {"gamma": 0.5},
+                        "objective": {"beta": 1.0},
                     },
                     "simulation": {
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]}

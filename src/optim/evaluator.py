@@ -6,9 +6,7 @@ built once at construction and reused for every candidate.
 Only the transmitters are rebuilt per evaluation, which is what
 :func:`src.simulation.radio.solve_band` already does.
 
-The UE-counted measures, the served ratio and ``J_load``, are scored on the MDT
-(``data.output.mdt_file``) during the search, and on every UE
-(``data.output.ue_file``) when :mod:`src.optim.run` scores the published solutions.
+The served ratio counts every UE in ``data.output.ue_file``.
 
 :class:`ObjectiveEvaluator` is the seam the search depends on. Anything mapping
 a tilt vector to an :class:`EvaluationResult` satisfies it — the ray tracer here
@@ -41,7 +39,7 @@ class EvaluationResult:
     Attributes:
         tilt_deg: The vector evaluated, in :class:`~src.optim.space.TiltSpace`
             dimension order.
-        kpi: Its measures, the UE-counted ones over the MDT.
+        kpi: Its measures.
         seconds: Wall clock for the ray tracing, summed over bands, measured
             around the point the maps are actually materialised. Excludes
             scoring and anything the caller does, so a run can report
@@ -118,8 +116,7 @@ class Evaluator:
             self.solver_seed = seeds.stream(cfg, "solver")
         self._height_m = float(cfg.simulation.ue.height_m)
         self._power_dbm = float(cfg.simulation.antenna.power_rs)
-        self._mdt = pd.read_parquet(cfg.data.output.mdt_file)
-        self._all_ues = pd.read_parquet(cfg.data.output.ue_file)
+        self._ue = pd.read_parquet(cfg.data.output.ue_file)
         self._centres: np.ndarray | None = None
 
         scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
@@ -152,10 +149,8 @@ class Evaluator:
         """The scenario every evaluation here belongs to."""
         return str(self._manifest["scenario_id"])
 
-    def evaluate(self, tilt_deg: np.ndarray, *, all_ues: bool = False) -> EvaluationResult:
+    def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
         """Ray-trace this tilt vector and score it.
-
-        The UE-counted measures count the MDT, or every UE with ``all_ues``.
 
         Raises:
             RuntimeError: When the evaluator has been closed.
@@ -188,8 +183,7 @@ class Evaluator:
         seconds = time.perf_counter() - started
 
         rsrp, sinr = np.stack(rsrp_maps), np.stack(sinr_maps)
-        ue = self._all_ues if all_ues else self._mdt
-        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, ue, self.cfg)
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg)
 
         return EvaluationResult(
             tilt_deg=tilt_deg,

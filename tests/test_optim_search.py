@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "objective": {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 0.6},
+        "objective": {"tau_r_db": 10.0, "beta": 0.6},
     },
     "optim": {
         "output": {
@@ -98,8 +98,7 @@ class StubEvaluator:
                 served_ratio=float(1.0 - np.mean((unit - 0.8) ** 2)),
                 weak_rate=float(np.mean((unit - 0.2) ** 2)),
                 edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
-                j_radio=float(1.0 - np.mean((unit - 0.3) ** 2)),
-                j_load=float(1.0 - np.mean((unit - 0.8) ** 2)),
+                objective=float(1.0 - np.mean((unit - 0.3) ** 2)),
             ),
             seconds=0.0,
         )
@@ -270,7 +269,7 @@ def test_the_tilt_table_reports_delta_against_the_incumbent(make_cfg, evaluator)
     """The deliverable. Delta is reported, never optimized."""
     cfg = make_cfg("random")
     history = run_search(evaluator, cfg)
-    best = history.results[history.best_index(cfg)]
+    best = history.results[history.best_index()]
     table = history.tilt_table(best.tilt_deg)
     assert len(table) == evaluator.space.n_dim
     assert np.allclose(table["current_tilt_deg"], evaluator.space.baseline)
@@ -286,7 +285,7 @@ def test_the_deliverable_is_republished_per_method_and_overwritten(
     cfg = make_cfg("random")
     cfg.optim.output.deliverable_dir = str(tmp_path / "reports" / "outputs")
     history = run_search(evaluator, cfg)
-    table = history.tilt_table(history.results[history.best_index(cfg)].tilt_deg)
+    table = history.tilt_table(history.results[history.best_index()].tilt_deg)
 
     path = write_tilt_change(table, cfg, "random")
     assert path == Path(cfg.optim.output.deliverable_dir) / "tilt_change_random.csv"
@@ -300,7 +299,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     """A run directory must be readable without the session that produced it."""
     cfg = make_cfg("random")
     history = run_search(evaluator, cfg)
-    best_index = history.best_index(cfg)
+    best_index = history.best_index()
     written = write_run(
         history,
         LocalRunWriter(tmp_path),
@@ -319,7 +318,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
-    assert run["config"]["kpi"]["objective"]["gamma"] == 0.6
+    assert run["config"]["kpi"]["objective"]["beta"] == 0.6
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

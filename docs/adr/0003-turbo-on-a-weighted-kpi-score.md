@@ -7,9 +7,9 @@
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0006](0006-radio-load-cvar-objective.md) — TuRBO, the matched budgets
+  [ADR 0006](0006-radio-coverage-objective.md) — TuRBO, the matched budgets
   and highest-score selection stand; the weighted score it optimizes and
-  selects by is replaced by the radio-and-load objective, and `kpi.weights`
+  selects by is replaced by the coverage objective, and `kpi.weights`
   and the weight-sensitivity table are deleted. The intermediate ADRs 0004 and
   0005 are in Git history.
 

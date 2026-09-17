@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import MEASURE_NAMES, KpiVector, score
+from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "objective": {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 0.5},
+        "objective": {"tau_r_db": 10.0, "beta": 1.0},
     },
     "optim": {
         # `rule` rather than `turbo`: deterministic, no model, and it still
@@ -76,8 +76,8 @@ class StubEvaluator:
         """No scene and no GPU memory to release."""
         return None
 
-    def evaluate(self, tilt_deg: np.ndarray, *, all_ues: bool = False) -> EvaluationResult:
-        """Score one vector, and record that it was solved; ``all_ues`` changes nothing here."""
+    def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
+        """Score one vector, and record that it was solved."""
         tilt_deg = np.asarray(tilt_deg, dtype=float)
         self.seen.append(tilt_deg.copy())
         unit = (tilt_deg - self.space.lower) / (self.space.upper - self.space.lower)
@@ -89,8 +89,7 @@ class StubEvaluator:
                 served_ratio=float(1.0 - np.mean((unit - 0.75) ** 2)),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
                 edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
-                j_radio=float(1.0 - np.mean((unit - 0.35) ** 2)),
-                j_load=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
             ),
             seconds=1.0,
             rsrp=np.zeros((1, 1, 1, 1)) if self.keep_rsrp else None,
@@ -136,48 +135,43 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
 
 
 def _kpis(count: int) -> list[KpiVector]:
-    """A spread of KPI vectors to rank.
-
-    Both objective terms are drawn in (0, 1): the geometric mean is undefined
-    on a negative one.
-    """
+    """A spread of KPI vectors to rank, the first a middling incumbent."""
     rng = np.random.default_rng(0)
-    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5, 0.5)]
+    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5)]
     for _ in range(count - 1):
         rates = [float(value) for value in rng.random(4)]
         edge = -120.0 + 20.0 * rng.random()
-        soft = [float(value) for value in rng.random(2)]
-        kpis.append(KpiVector(*rates, edge, *soft))
+        kpis.append(KpiVector(*rates, edge, float(rng.random())))
     return kpis
 
 
-def test_choose_always_publishes_the_incumbent_first(cfg) -> None:
+def test_choose_always_publishes_the_incumbent_first() -> None:
     """Every published delta is measured against it, so it has to be offered."""
-    assert choose(_kpis(24), cfg, 4)[0] == 0
+    assert choose(_kpis(24), 4)[0] == 0
 
 
-def test_choose_respects_the_budget_and_never_repeats(cfg) -> None:
+def test_choose_respects_the_budget_and_never_repeats() -> None:
     """A required row that also ranks high is offered once."""
-    picks = choose(_kpis(24), cfg, 4, keep=(0, 3))
+    picks = choose(_kpis(24), 4, keep=(0, 3))
     assert len(picks) == 4
     assert len(set(picks)) == len(picks)
 
 
-def test_choose_never_drops_a_required_row_to_fit_the_budget(cfg) -> None:
+def test_choose_never_drops_a_required_row_to_fit_the_budget() -> None:
     """The budget is a preference; the incumbent and the winner are not."""
-    picks = choose(_kpis(24), cfg, 1, keep=(0, 3))
+    picks = choose(_kpis(24), 1, keep=(0, 3))
     assert set(picks) == {0, 3}
 
 
-def test_choose_fills_the_budget_by_score(cfg) -> None:
+def test_choose_fills_the_budget_by_objective() -> None:
     """After the incumbent, nothing left out outscores anything offered.
 
     Ranked by the objective that selects the winner, or the shortlist would
     disagree with the recommendation printed beside it.
     """
     kpis = _kpis(24)
-    picks = choose(kpis, cfg, 6)
-    values = score(kpis, cfg)
+    picks = choose(kpis, 6)
+    values = np.array([kpi.objective for kpi in kpis])
 
     offered = values[picks[1:]]
     left_out = np.delete(values, picks)
@@ -190,7 +184,8 @@ def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
     history, directory = run(cfg)
     loaded = run_store.load(directory)
 
-    assert len(stub.seen) == len(history) + int(loaded.meta["n_solutions_offered"])
+    # save_radio_map is off, so nothing is re-solved.
+    assert len(stub.seen) == len(history)
     assert loaded.meta["best_kpi"] == history.results[loaded.best_index].kpi.as_dict()
     # The two-phase flags are gone: nothing is a prediction any more.
     assert "verified" not in loaded.meta
@@ -247,18 +242,13 @@ def test_the_incumbent_delta_compares_two_measurements(cfg, space, stub) -> None
     )
 
 
-def test_each_published_solution_costs_exactly_one_extra_solve(cfg, stub) -> None:
-    """Scoring on all UEs re-solves the shortlist once; the winner's map comes from that solve."""
+def test_archiving_the_winners_map_costs_exactly_one_extra_solve(cfg, stub) -> None:
+    """The winner is re-solved once for its map, and that solve is not an evaluation."""
     cfg.optim.output.save_radio_map = True
     history, directory = run(cfg)
-    evaluation = pd.read_parquet(directory / "evaluation.parquet")
-    published = pd.read_parquet(directory / "solutions.parquet")
-    best_index = history.best_index(cfg)
+    best_index = history.best_index()
 
-    # The extra solves are not recorded as evaluations.
-    assert len(stub.seen) == len(history) + len(published)
-    assert evaluation["iteration"].tolist() == published["iteration"].tolist()
-    assert evaluation.loc[evaluation["recommended"], "iteration"].item() == best_index
+    assert len(stub.seen) == len(history) + 1
     assert len(stub.archived) == 1
     assert np.allclose(stub.archived[0], history.results[best_index].tilt_deg)
     assert run_store.load(directory).meta["n_evaluations"] == len(history)

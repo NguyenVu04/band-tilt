@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -19,10 +18,8 @@ from src.optim.objective import (
     MAXIMISED,
     MEASURE_NAMES,
     KpiVector,
-    best_by_score,
+    best_by_objective,
     evaluate_kpis,
-    score,
-    score_frame,
 )
 from src.utils.plotting import label as display_name
 
@@ -30,12 +27,10 @@ BETTER = "better"
 WORSE = "worse"
 UNCHANGED = "unchanged"
 
-SCORE = "score"
-
 
 def direction(name: str) -> str:
-    """Whether a measure, or the objective score, is maximised or minimised."""
-    return "maximise" if name in MAXIMISED or name == SCORE else "minimise"
+    """Whether a measure is maximised or minimised."""
+    return "maximise" if name in MAXIMISED else "minimise"
 
 
 def _verdict(name: str, delta: float) -> str:
@@ -90,7 +85,7 @@ def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
+def seed_summary(runs: list[Run]) -> pd.DataFrame:
     """Each method's winners, summarised over its seeds, against the incumbent.
 
     Every run measures the same incumbent under the same solver seed, so the
@@ -98,7 +93,7 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     and the spread beside it says how far to trust one.
 
     Returns:
-        One row per method and KPI, then ``score``: ``method``, ``kpi``,
+        One row per method and measure: ``method``, ``kpi``,
         ``direction``, ``n_seeds``, ``incumbent``, ``mean``, ``std``,
         ``ci95_low``, ``ci95_high``, ``mean_delta``, ``verdict``.
 
@@ -108,13 +103,12 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     if not runs:
         raise ValueError("no runs to summarise")
     incumbent = runs[0].incumbent_kpi
-    before = {**incumbent.as_dict(), SCORE: float(score([incumbent], cfg)[0])}
+    before = incumbent.as_dict()
 
     rows = []
     for method in dict.fromkeys(run.method for run in runs):
         mine = [run for run in runs if run.method == method]
         values = {name: [getattr(run.best_kpi, name) for run in mine] for name in MEASURE_NAMES}
-        values[SCORE] = score([run.best_kpi for run in mine], cfg)
         for name, series in values.items():
             mean, std, low, high = _interval(np.asarray(series))
             delta = mean - before[name]
@@ -136,24 +130,22 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
+def winner_vs_candidates(runs: list[Run]) -> pd.DataFrame:
     """How far each winner stands above what its own search measured.
-
-    Read from the search history, so the UE-counted terms are over the MDT.
 
     A search earns credit for the gap between its winner and a typical
     candidate, not for the gap to the incumbent: when the median candidate
     already beats the incumbent by nearly as much, the incumbent was weak.
 
     Returns:
-        One row per run, all selection scores: ``method``, ``seed``,
+        One row per run, all objectives: ``method``, ``seed``,
         ``incumbent``, ``init_median`` (the Sobol design random search and TuRBO
         share; NaN for the rule sweep), ``candidate_median``, ``candidate_p90``
         and ``winner``, row 0 excluded from the candidates.
     """
     rows = []
     for run in runs:
-        scores = score_frame(run.history, cfg)
+        scores = run.history["objective"].to_numpy()
         candidates = scores[1:] if scores.size > 1 else scores
         init = scores[(run.history["phase"] == "init").to_numpy()]
         rows.append(
@@ -171,9 +163,9 @@ def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
 
 
 def paired_method_gain(
-    runs: list[Run], cfg: DictConfig, method: str = "turbo", reference: str = "random"
+    runs: list[Run], method: str = "turbo", reference: str = "random"
 ) -> pd.DataFrame:
-    """Winner score of ``method`` minus ``reference``, paired by seed.
+    """Winner objective of ``method`` minus ``reference``, paired by seed.
 
     Paired because both methods share each seed's Sobol design. The Wilcoxon
     signed-rank test (``scipy.stats.wilcoxon``) assumes no normality; with few
@@ -184,7 +176,7 @@ def paired_method_gain(
         One row: ``method``, ``reference``, ``n_pairs``, ``mean_gain``,
         ``ci95_low``, ``ci95_high``, ``method_better``, ``wilcoxon_p``.
     """
-    best = {(run.method, run.seed): float(score([run.best_kpi], cfg)[0]) for run in runs}
+    best = {(run.method, run.seed): run.best_kpi.objective for run in runs}
     paired = sorted(seed for name, seed in best if name == method and (reference, seed) in best)
     gains = np.array([best[(method, seed)] - best[(reference, seed)] for seed in paired])
     mean, _, low, high = _interval(gains)
@@ -205,15 +197,14 @@ def paired_method_gain(
     )
 
 
-def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
+def method_table(runs: list[Run]) -> pd.DataFrame:
     """One row per run: what it found, and what it cost to find it.
 
     The methods are matched on evaluations, not on time, so both halves are shown.
 
     Returns:
         Columns for the run's identity and seed, its budget, its cost, every
-        KPI and the score, and how many KPIs moved each way against the
-        incumbent.
+        measure, and how many measures moved each way against the incumbent.
     """
     rows = []
     for run in runs:
@@ -229,7 +220,6 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
                 "wall_clock_min": wall / 60.0 if wall is not None else np.nan,
                 **{name: getattr(run.best_kpi, name) for name in MEASURE_NAMES},
-                SCORE: float(score([run.best_kpi], cfg)[0]),
                 "kpis_improved": int((deltas["verdict"] == BETTER).sum()),
                 "kpis_worsened": int((deltas["verdict"] == WORSE).sum()),
             }
@@ -237,39 +227,36 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def best_method(runs: list[Run], cfg: DictConfig) -> Run:
-    """The run whose winner has the highest objective score; a tie keeps the earlier run.
+def best_method(runs: list[Run]) -> Run:
+    """The run whose winner has the highest objective; a tie keeps the earlier run.
 
     Raises:
         ValueError: When there are no runs.
     """
     if not runs:
         raise ValueError("no runs to choose between")
-    return runs[best_by_score([run.best_kpi for run in runs], cfg)]
+    return runs[best_by_objective([run.best_kpi for run in runs])]
 
 
-def best_run_per_method(runs: list[Run], cfg: DictConfig) -> dict[str, Run]:
+def best_run_per_method(runs: list[Run]) -> dict[str, Run]:
     """Each method's highest-scoring run over its seeds, keyed by method."""
     methods = dict.fromkeys(run.method for run in runs)
     return {
-        method: best_method([run for run in runs if run.method == method], cfg)
-        for method in methods
+        method: best_method([run for run in runs if run.method == method]) for method in methods
     }
 
 
-def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
-    """Best value seen so far, per measure and for the objective score, per evaluation and run.
+def convergence(runs: list[Run]) -> pd.DataFrame:
+    """Best value seen so far, per measure, per evaluation and run.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
-    KPI accumulates in its own direction. A search trace: the UE-counted
-    measures are over the MDT.
+    measure accumulates in its own direction.
     """
     frames = []
     for run in runs:
         history = run.history
-        series = {name: history[name] for name in MEASURE_NAMES}
-        series[SCORE] = pd.Series(score_frame(history, cfg))
-        for name, values in series.items():
+        for name in MEASURE_NAMES:
+            values = history[name]
             running = values.cummax() if direction(name) == "maximise" else values.cummin()
             frames.append(
                 pd.DataFrame(
@@ -553,7 +540,7 @@ def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
         summary: :func:`seed_summary` output.
 
     Returns:
-        One row per method, one column per measure and ``score``. NaN where the
+        One row per method, one column per measure. NaN where the
         incumbent is zero.
     """
     sign = np.where(summary["direction"] == "maximise", 1.0, -1.0)
@@ -569,7 +556,7 @@ def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
 
 def sample_efficiency(
     trace: pd.DataFrame,
-    kpis: Sequence[str] = (SCORE, "hole_rate", "overlap_rate"),
+    kpis: Sequence[str] = ("objective", "hole_rate", "overlap_rate"),
     budgets: Sequence[int] = (10, 25, 50, 100),
 ) -> pd.DataFrame:
     """Best value each method had reached after a fixed number of evaluations, mean over seeds.
@@ -579,7 +566,7 @@ def sample_efficiency(
 
     Args:
         trace: :func:`convergence` output.
-        kpis: Measures to report, or ``score``.
+        kpis: Measures to report.
         budgets: Evaluation counts to read the running best at.
 
     Returns:
@@ -631,19 +618,14 @@ def pareto_front(frame: pd.DataFrame, columns: Sequence[str]) -> np.ndarray:
     return ~(no_worse & better).any(axis=0)
 
 
-def candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
-    """Every configuration each run evaluated, with its score.
-
-    A search trace: the UE-counted measures are over the MDT.
+def candidates(runs: list[Run]) -> pd.DataFrame:
+    """Every configuration each run evaluated.
 
     Returns:
-        Columns ``method``, ``seed``, ``iteration``, ``phase``, every measure
-        and ``score``.
+        Columns ``method``, ``seed``, ``iteration``, ``phase`` and every measure.
     """
     frames = [
-        run.history[["iteration", "phase", *MEASURE_NAMES]].assign(
-            method=run.method, seed=run.seed, score=score_frame(run.history, cfg)
-        )
+        run.history[["iteration", "phase", *MEASURE_NAMES]].assign(method=run.method, seed=run.seed)
         for run in runs
     ]
     frame = pd.concat(frames, ignore_index=True)
@@ -722,41 +704,6 @@ def band_layer_summary(
                     "served_sinr_median_db": float(config.served.loc[mine, "sinr_db"].median())
                     if mine.any()
                     else np.nan,
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def gamma_sensitivity(
-    runs: list[Run], cfg: DictConfig, gammas: Sequence[float] = (0.0, 0.25, 0.5, 0.75, 1.0)
-) -> pd.DataFrame:
-    """Which configuration each run would have picked under another ``kpi.objective.gamma``.
-
-    Only ``gamma`` can vary without re-tracing: the history stores the two
-    objective terms, and every other objective parameter is inside them. The
-    pick is re-made over the run's own history, so the measures are over the MDT.
-
-    Returns:
-        One row per ``gamma`` and run: ``method``, ``seed``, ``gamma``,
-        ``best_iteration``, ``same_best`` (equal to the run's own pick), every
-        measure, and ``score`` of the pick under that ``gamma``.
-    """
-    rows = []
-    for gamma in gammas:
-        varied = copy.deepcopy(cfg)
-        varied.kpi.objective.gamma = float(gamma)
-        for run in runs:
-            scores = score_frame(run.history, varied)
-            best = int(np.argmax(scores))
-            rows.append(
-                {
-                    "method": run.method,
-                    "seed": run.seed,
-                    "gamma": float(gamma),
-                    "best_iteration": best,
-                    "same_best": best == run.best_index,
-                    **{name: float(run.history[name].iloc[best]) for name in MEASURE_NAMES},
-                    SCORE: float(scores[best]),
                 }
             )
     return pd.DataFrame(rows)

@@ -66,19 +66,18 @@ demand, and band-specific propagation behaviour.
 The repository evaluates this idea entirely in simulation. `src/simulation/`
 loads a local Sionna-RT scene file, generates a time-varying UE population, ray-traces
 and per-band radio maps, and keeps the UEs served at the committed tilts as
-MDT. The search counts UE-based measures over the MDT; evaluation re-scores the
-published solutions over every UE. The implemented
+MDT for later use. The search and evaluation both count every UE. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
 from the incumbent configuration. Five reported KPIs - hole rate, overlap rate,
 served ratio (the share of UEs admitted to a cell-band), weak-signal rate and
 cell-edge RSRP - are measured for every candidate through [`src/kpi/`](src/kpi/)
 ([ADR 0001](docs/adr/0001-four-kpis-and-weighted-score.md)). The search maximises
-one objective, `J = J_radio^gamma * J_load^(1 - gamma)`
-([ADR 0006](docs/adr/0006-radio-load-cvar-objective.md)): coverage utility
-discounted by co-band overlap, against the CVaR of PRB utilisation above a
-target. [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band
-per UE under per-cell PRB limits and an admission cap; the served ratio and
-`J_load` count what it admits, and the PRB demand map built from it is a
+one objective, `J = mean_g sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g)`
+([ADR 0006](docs/adr/0006-radio-coverage-objective.md)): coverage utility per
+tile, discounted per overlapping co-band neighbour.
+[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE,
+strongest RSRP first, under per-cell PRB limits and an admission cap; the served
+ratio counts what it admits, and the PRB demand map built from it is a
 diagnostic outside the objective.
 
 Sionna-RT scores every candidate the search proposes, and
@@ -146,7 +145,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and the radio-and-load objective, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and the coverage objective, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -236,8 +235,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (tau_R, beta, rho_0, alpha, gamma), and the placeholder `capacity` block (band preference, serving threshold, admission cap, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the three processed tables (UE, MDT, cell) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (tau_R, beta), and the placeholder `capacity` block (band preference, serving threshold, admission cap, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the three processed tables (UE, MDT kept for later use, cell) |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
@@ -319,7 +318,7 @@ config groups, the whole resolved config as `config.yaml`, the Git commit
 | Stage | Metrics | Artifacts |
 |---|---|---|
 | `simulation_*`, `preprocessing` | — | output paths as `output.*` tags, not copied |
-| `optimization` | the search winner's measures (UE-counted ones over the MDT), candidates measured | the run's parquet tables and `run.json` |
+| `optimization` | the search winner's measures, candidates measured | the run's parquet tables and `run.json` |
 | `evaluation` | the KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
 
 Radio maps and the UE tables stay out of the store — data belongs to DVC. Set `mlflow.enabled=false` to run a stage untracked.
@@ -335,24 +334,20 @@ evaluations, 145 in all. A run records its ray-tracing and wall-clock seconds in
 `run.json`; `task evaluate` tabulates them in
 `reports/tables/04_evaluation/method_cost.csv`.
 
-The search scores the UE-counted measures (served ratio, `J_load`) on the MDT.
+The search counts every UE in `data/processed/ue.parquet`.
 A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history,
-`best_tilt.parquet`, `best_radio_map.npz`, `run.json`, `solutions.parquet` (the
-solutions offered for choice, as the search scored them) and
-`evaluation.parquet` (the same solutions re-traced and scored on every UE, which
-is what `src/evaluation/` compares).
+`best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`
+(the solutions offered for choice). `src/evaluation/` compares those.
 
-The solutions offered are the incumbent plus the highest objective scores
+The solutions offered are the incumbent plus the highest objectives
 (`kpi.objective`, ADR 0006). `optim.n_solutions` sets how many, 4 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
-per offered solution, its score, every KPI and objective term and each one's delta against the
-incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
-becomes. The highest score marks one row `recommended` and
-`tilt_change_<method>.csv` carries it. These values are the search's, so the
-served ratio and `J_load` in them are over the MDT; the all-UE numbers are in
-the run's `evaluation.parquet`, and the two can rank the shortlist differently. The MARL arm is not
+per offered solution, every KPI and the objective, and each one's delta against
+the incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
+becomes. The highest objective marks one row `recommended` and
+`tilt_change_<method>.csv` carries it. The MARL arm is not
 built, so a comparison currently has TuRBO and the two baselines in it and
 nothing else.
 

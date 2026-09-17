@@ -8,7 +8,7 @@
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0006](0006-radio-load-cvar-objective.md) — the four definitions below
+  [ADR 0006](0006-radio-coverage-objective.md) — the four definitions below
   stand and are reported, but the objective is no longer built from them. See
   Amendment. The amendments for the deleted ADRs 0004 and 0005 are in Git
   history.
@@ -37,7 +37,7 @@ The objective is exactly four KPIs, defined in `src/kpi/` and nowhere else:
 |---|---|---|
 | Hole rate | fraction of grid tiles with `R_max <= kpi.hole_dbm` | minimise |
 | Overlap rate | fraction of grid tiles with any co-band neighbour within `kpi.overlap_margin_db` of that band's serving cell | minimise |
-| Served ratio | fraction of MDT UEs admitted by the serving rule (`src/kpi/capacity.py`) to a cell-band whose RSRP is above `kpi.hole_dbm` | **maximise** |
+| Served ratio | fraction of UEs admitted by the serving rule (`src/kpi/capacity.py`) to a cell-band whose RSRP is above `kpi.hole_dbm` | **maximise** |
 | Weak rate | fraction of grid tiles with `hole_dbm < R_max <= kpi.weak_dbm` | minimise |
 
 The column order, **Hole > Overlap > Served > Weak**, is the reporting order
@@ -48,10 +48,9 @@ and the order of the default weights. Selection is the weighted score of
 
 The four definitions above are unchanged. What changed around them:
 
-- **None of them is the objective.** The search maximises
-  `J = J_radio^gamma · J_load^(1 − gamma)` of
-  [ADR 0006](0006-radio-load-cvar-objective.md); the KPIs are measured and
-  reported beside it.
+- **None of them is the objective.** The search maximises the coverage
+  objective of [ADR 0006](0006-radio-coverage-objective.md); the KPIs are
+  measured and reported beside it.
 - **A fifth KPI is measured**: `edge_rsrp_dbm`, the 5th-percentile serving
   RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). It is conditional
   on coverage, so it is read beside the hole rate.
@@ -62,9 +61,9 @@ The four definitions above are unchanged. What changed around them:
 PRBs (`max_prb`), or already loaded past `kpi.capacity.max_admission_utilisation`
 of them, passes the UE to the next candidate. PRBs per UE are
 `throughput_per_ue_bps / (12 · SCS · log2(1 + SINR))`, with the solver's
-full-load co-band SINR. UEs within an interval are admitted in a seeded random
-order, so which UE is blocked does not follow its position in the MDT. A layer
-at or below `kpi.hole_dbm` never serves.
+full-load co-band SINR. UEs within an interval are admitted strongest RSRP
+first, over every layer at the UE, so which UE is blocked does not follow its
+position in the UE table. A layer at or below `kpi.hole_dbm` never serves.
 
 A UE on a hole, and a UE blocked everywhere, both count as not served. The
 three rates are shares of the map; the served ratio is a share of the traffic.

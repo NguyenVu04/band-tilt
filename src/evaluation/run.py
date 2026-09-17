@@ -2,7 +2,7 @@
 
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
 map and the processed tables only, so like the rest of :mod:`src.evaluation` it
-needs no GPU. UEs are served from ``data.output.ue_file``, every UE, not the MDT.
+needs no GPU. UEs are served from ``data.output.ue_file``, every UE.
 """
 
 from __future__ import annotations
@@ -81,14 +81,14 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     tx_names = [str(name) for name in baseline["tx_name"]]
     add("experiment_setup", compare.experiment_setup(baseline, ue, runs, cfg))
 
-    summary = compare.seed_summary(runs, cfg)
+    summary = compare.seed_summary(runs)
     add("kpi_scoreboard", summary)
     add("kpi_relative_improvement", compare.relative_improvement(summary))
     add("kpi_improvement", plots.kpi_comparison(summary))
-    add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
-    add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
+    add("winner_vs_candidates", compare.winner_vs_candidates(runs))
+    add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs))
 
-    searched = compare.candidates(runs, cfg)
+    searched = compare.candidates(runs)
     add("candidates", searched)
     for x, y in (
         ("hole_rate", "overlap_rate"),
@@ -96,10 +96,9 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
         ("overlap_rate", "served_ratio"),
     ):
         add(f"tradeoff_{x}_vs_{y}", plots.tradeoff_scatter(searched, x, y))
-    add("gamma_sensitivity", compare.gamma_sensitivity(runs, cfg))
 
-    best = compare.best_run_per_method(runs, cfg)
-    winner = compare.best_method(runs, cfg)
+    best = compare.best_run_per_method(runs)
+    winner = compare.best_method(runs)
     configurations = {
         "incumbent": compare.configuration(baseline, ue, cfg),
         **{method: compare.configuration(run.radio_map, ue, cfg) for method, run in best.items()},
@@ -197,8 +196,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("tilt_movement", plots.tilt_movement_plot(winner.best_tilt, winner.method))
     add("tilt_delta_heatmap", plots.tilt_delta_heatmap(winner.best_tilt, winner.method))
 
-    add("method_cost", compare.method_table(runs, cfg))
-    trace = compare.convergence(runs, cfg)
+    add("method_cost", compare.method_table(runs))
+    trace = compare.convergence(runs)
     add("convergence", trace)
     add("sample_efficiency", compare.sample_efficiency(trace))
     add("search_progress", plots.convergence_plot(trace))
@@ -210,7 +209,7 @@ def main(cfg: DictConfig) -> None:
     """Compare the runs. Entry point for ``task evaluate``."""
     matplotlib.use("Agg")
     evaluate(cfg)
-    summary = compare.seed_summary(load_runs(cfg), cfg)
+    summary = compare.seed_summary(load_runs(cfg))
     log_stage(
         cfg,
         "evaluation",

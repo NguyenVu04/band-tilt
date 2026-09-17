@@ -283,7 +283,7 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 
 
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean relative improvement over the incumbent per KPI and objective term, one panel each.
+    """Mean relative improvement over the incumbent per measure, one panel each.
 
     Relative, in percent of the incumbent's value, so a rate and the cell-edge
     RSRP read on a comparable scale; see
@@ -321,12 +321,12 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
 
 
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Best objective score so far per evaluation: mean over seeds, with the min–max range.
+    """Best objective so far per evaluation: mean over seeds, with the min–max range.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
     """
-    part = frame[frame["kpi"] == "score"]
+    part = frame[frame["kpi"] == "objective"]
     figure, axis = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
     for method, group in part.groupby("method", sort=False):
         stats = group.groupby("iteration")["value"].agg(["mean", "min", "max"])
@@ -337,7 +337,7 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
         )
         axis.fill_between(stats.index, stats["min"], stats["max"], color=colour, alpha=0.2)
     axis.set_xlabel("Evaluations")
-    axis.set_ylabel("Best objective score so far (higher is better)")
+    axis.set_ylabel("Best objective so far (higher is better)")
     axis.set_title("Search progress")
     axis.legend()
     return figure
@@ -395,10 +395,16 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
     for method, group in searched.groupby("method", sort=False):
         colour = COLOURS.get(str(method))
         axis.scatter(group[x], group[y], s=14, alpha=0.4, color=colour, label=label(method))
-        pick = group.loc[group["score"].idxmax()]
+        pick = group.loc[group["objective"].idxmax()]
         axis.scatter(pick[x], pick[y], marker="*", s=260, color=colour, edgecolor="black", zorder=4)
     axis.scatter(
-        [], [], marker="*", s=260, color="white", edgecolor="black", label="Best score per method"
+        [],
+        [],
+        marker="*",
+        s=260,
+        color="white",
+        edgecolor="black",
+        label="Best objective per method",
     )
     incumbent = frame[frame["iteration"] == 0].iloc[0]
     axis.scatter(

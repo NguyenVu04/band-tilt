@@ -2,8 +2,8 @@
 
 MDT is a subset of the UE population, not a second draw. A UE enters it when
 :func:`src.kpi.capacity.serve_intervals` admits it on the baseline radio map,
-because only a served UE reports measurements. The search scores the load term
-and the served ratio on MDT; evaluation scores every measure on all UEs.
+because only a served UE reports measurements. It is kept for later use: the
+search and evaluation both count every UE.
 
 ``rsrp_dbm`` is the serving cell-band's RSRP at the UE's tile. It is kept for
 reference and plots; no score reads it.

@@ -3,7 +3,8 @@
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
 ``ue.parquet`` is the UE population, typed, with every drawn UE kept; evaluation
-scores on it. ``mdt.parquet`` is the served subset the search scores load on.
+scores on it, as the search does. ``mdt.parquet`` is the served subset, kept for
+later use; nothing scores on it.
 """
 
 from __future__ import annotations

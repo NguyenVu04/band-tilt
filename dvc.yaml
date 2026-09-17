@@ -87,8 +87,9 @@ stages:
 
   # --- Stage 3: the MDT (notebook 00, section 5) -----------------------------
   # Serves the UE table on the baseline radio map and keeps the admitted UEs.
-  # No GPU. kpi is a param because the serving rule reads the capacity model
-  # and the hole threshold; the cells carry max_prb.
+  # No GPU. Kept for later use; no downstream stage but preprocessing reads it.
+  # kpi is a param because the serving rule reads the capacity model and the
+  # hole threshold; the cells carry max_prb.
   simulation_mdt:
     cmd: python -m src.simulation.mdt
     deps:
@@ -103,7 +104,6 @@ stages:
           - capacity
       - configs/simulation.yaml:
           - transmitters
-          - seed
     outs:
       - data/interim/mdt.csv
 
@@ -156,7 +156,7 @@ stages:
   # data/processed/cell.parquet: the search reads the committed tilt bounds from
   # the config, and the parquet is that same table in another form.
   #
-  # kpi is a param because the objective reads the KPI thresholds, the capacity
+  # kpi is a param because the measures read the KPI thresholds, the capacity
   # model and kpi.objective: change any and every previous run becomes incomparable.
   optimization:
     cmd: python -m src.optim.run
@@ -179,11 +179,10 @@ stages:
       - data/external/scene
       - data/external/scenario.json
       - data/processed/ue.parquet
-      - data/processed/mdt.parquet
     params:
       - configs/optim/base.yaml:
           - seed
-          # Which solutions are re-traced into evaluation.parquet.
+          # How many solutions are published.
           - n_solutions
       # Every method file, not just the selected one: DVC resolves params at
       # plan time and cannot know which method the defaults list will pick.

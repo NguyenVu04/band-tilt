@@ -9,9 +9,10 @@ UE's PRBs still fit under ``max_prb``; otherwise the UE passes to the next
 candidate in that same ranking. A layer at or below ``kpi.hole_dbm`` is never a
 candidate.
 
-Within an interval UEs are admitted in a seeded random order. Taking them in
-row order would hand PRBs to whichever UEs the UE table happens to sort first - the
-processed UE table is sorted by tile - so blocking would follow grid position.
+Within an interval UEs are admitted strongest RSRP first, over every layer at
+the UE. Row order breaks only exact ties, which in practice are UEs on one tile:
+they see the same layers and need the same PRBs, so which of them is blocked
+changes no count.
 
 SINR is an input, never computed here: the solver's own, from the radio map
 (:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
@@ -49,7 +50,6 @@ class CapacitySpec:
         throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
         max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
-        seed: Seeds the per-interval admission order.
     """
 
     band_rank: np.ndarray
@@ -59,11 +59,10 @@ class CapacitySpec:
     throughput_per_ue_bps: float
     scs_hz: np.ndarray
     max_prb: np.ndarray
-    seed: int
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
-        """Read ``kpi.capacity``, ``kpi.hole_dbm``, ``simulation.seed`` and the cells.
+        """Read ``kpi.capacity``, ``kpi.hole_dbm`` and the cells.
 
         The cells are taken in config order, which is the radio map's tx axis:
         :func:`src.simulation.radio.solve` writes them in that order and
@@ -106,7 +105,6 @@ class CapacitySpec:
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
             ),
-            seed=int(cfg.simulation.seed),
         )
 
 
@@ -232,9 +230,10 @@ def _candidate_order(
 def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _Serving:
     """Assign one interval's UEs to cell-bands under the PRB limits.
 
-    UEs are taken in the order given; each walks its :func:`_candidate_order`
-    and takes the first cell-band still at or under its admission share of
-    ``max_prb`` and with room for the UE's PRBs.
+    UEs are taken strongest RSRP first, over every layer at the UE, ties in the
+    order given; each walks its :func:`_candidate_order` and takes the first
+    cell-band still at or under its admission share of ``max_prb`` and with room
+    for the UE's PRBs.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
@@ -250,8 +249,9 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
     tx = np.full(n_ue, -1)
     per_ue = np.full(n_ue, np.nan)
     load = np.zeros(n_band * n_tx)
-    # Python loop over UEs; vectorise if this enters the search loop.
-    for ue in range(n_ue):
+    strongest = finite(rsrp).reshape(n_ue, -1).max(axis=1) if n_ue else np.empty(0)
+    # ponytail: Python loop over UEs, run for every candidate; vectorise if serving dominates.
+    for ue in np.argsort(-strongest, kind="stable"):
         ue_need = need[ue].ravel()
         order = _candidate_order(
             rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
@@ -274,10 +274,7 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
 def serve_rows(
     rsrp: np.ndarray, sinr: np.ndarray, t_index: np.ndarray, spec: CapacitySpec
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run :func:`_select_serving` once per interval, in a seeded random UE order.
-
-    The order depends only on ``spec.seed`` and the interval, so every tilt
-    candidate scored against one UE table admits its UEs in the same order.
+    """Run :func:`_select_serving` once per interval.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
@@ -293,8 +290,7 @@ def serve_rows(
     tx = np.full(len(t_index), -1)
     per_ue = np.full(len(t_index), np.nan)
     for value in np.unique(t_index):
-        rng = np.random.default_rng((spec.seed, int(value)))
-        at = rng.permutation(np.flatnonzero(t_index == value))
+        at = np.flatnonzero(t_index == value)
         serving = _select_serving(rsrp[at], sinr[at], spec)
         band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
     return band, tx, per_ue
