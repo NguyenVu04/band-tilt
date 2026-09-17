@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from src.evaluation import runs as run_store
-from src.optim.objective import KPI_NAMES
+from src.optim.objective import MEASURE_NAMES
 
 KPI = {
     "hole_rate": 0.10,
@@ -18,9 +18,8 @@ KPI = {
     "served_ratio": 0.009,
     "weak_rate": 0.12,
     "edge_rsrp_dbm": -108.0,
-    "hole_desirability": 0.40,
-    "overlap_desirability": 0.40,
-    "served_desirability": 0.40,
+    "j_radio": 0.40,
+    "j_load": 0.40,
 }
 
 
@@ -71,7 +70,7 @@ def make_run(
             "iteration": range(n),
             "phase": ["init"] * n,
             "seconds": [30.0] * n,
-            **{name: [KPI[name]] * n for name in KPI_NAMES},
+            **{name: [KPI[name]] * n for name in MEASURE_NAMES},
         }
     )
     history.to_parquet(directory / "history.parquet", index=False)
@@ -105,7 +104,7 @@ def make_run(
                         "weak_dbm": -90.0,
                         "overlap_margin_db": 6.0,
                         "capacity": {"throughput_per_ue_bps": throughput_per_ue_bps},
-                        "weights": dict.fromkeys(KPI_NAMES, 1.0),
+                        "objective": {"gamma": 0.5},
                     },
                     "simulation": {
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]}

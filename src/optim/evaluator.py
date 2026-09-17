@@ -116,7 +116,7 @@ class Evaluator:
             self.solver_seed = seeds.stream(cfg, "solver")
         self._height_m = float(cfg.simulation.ue.height_m)
         self._power_dbm = float(cfg.simulation.antenna.power_rs)
-        self._mdt = pd.read_parquet(cfg.data.output.mdt_file)
+        self._ue = pd.read_parquet(cfg.data.output.ue_file)
         self._centres: np.ndarray | None = None
 
         scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
@@ -183,7 +183,7 @@ class Evaluator:
         seconds = time.perf_counter() - started
 
         rsrp, sinr = np.stack(rsrp_maps), np.stack(sinr_maps)
-        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._mdt, self.cfg)
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg)
 
         self.n_calls += 1
         self.total_seconds += seconds

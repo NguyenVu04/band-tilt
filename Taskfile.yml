@@ -114,17 +114,11 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
 
-  simulation:mdt:
-    desc: 'Stage 3 - sample the radio map at the UEs and add measurement noise'
-    cmds:
-      - uv run python -m {{.PKG}}.simulation.mdt {{.CLI_ARGS}}
-
   simulation:
-    desc: 'Run all three simulation stages in order'
+    desc: 'Run both simulation stages in order'
     cmds:
       - task: simulation:scenario
       - task: simulation:radio
-      - task: simulation:mdt
 
   preprocess:
     desc: 'Verify the simulation output and write the processed tables (notebook 02)'

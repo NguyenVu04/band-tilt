@@ -7,16 +7,7 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import (
-    edge_rsrp_dbm,
-    hole_desirability,
-    hole_rate,
-    overlap_desirability,
-    overlap_rate,
-    served_desirability,
-    served_ratio,
-    weak_rate,
-)
+from src.kpi import edge_rsrp_dbm, hole_rate, served_ratio, weak_rate
 from src.kpi.capacity import _tile_index
 from src.kpi.overlap import overlap_neighbors
 
@@ -34,6 +25,7 @@ def cfg():
                 "capacity": {
                     "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
+                    "max_admission_utilisation": 1.0,
                     # Low enough that no fixture UE is blocked unless it asks to be.
                     "throughput_per_ue_bps": 1.0,
                     "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
@@ -73,8 +65,8 @@ def _sinr(rsrp: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(rsrp), 0.0, np.nan)
 
 
-def _mdt(rows: list[dict[str, float]]) -> pd.DataFrame:
-    """An MDT frame carrying only the columns the KPIs read."""
+def _ue(rows: list[dict[str, float]]) -> pd.DataFrame:
+    """A UE frame carrying only the columns the KPIs read."""
     return pd.DataFrame(rows)
 
 
@@ -153,9 +145,9 @@ def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
 
 
 def test_tile_index_rejects_a_ue_off_the_map() -> None:
-    """A UE outside the grid means the MDT and the map are different scenarios."""
+    """A UE outside the grid means the UE table and the map are different scenarios."""
     with pytest.raises(ValueError, match="different grids"):
-        _tile_index(_mdt([{"tile_row": 0, "tile_col": 5}]), (1, 4))
+        _tile_index(_ue([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
 # --- served ratio ----------------------------------------------------------
@@ -164,20 +156,20 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
 def test_every_covered_ue_with_room_is_served(cfg) -> None:
     """Three UEs on covered tiles, PRBs to spare: all served."""
     rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
-    mdt = _mdt(
+    ue = _ue(
         [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 2
         + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
     )
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(1.0)
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(1.0)
 
 
 def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
     """Tile 1 is heard only at or below -120 dBm, so no layer may serve it."""
     rsrp = _map([[[-80.0, -120.0]], [[-90.0, -140.0]]])
-    mdt = _mdt(
+    ue = _ue(
         [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
     )
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.5)
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(0.5)
 
 
 def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
@@ -186,138 +178,13 @@ def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
     cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
-    mdt = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(2.0 / 3.0)
+    ue = _ue([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
+    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(2.0 / 3.0)
 
 
-def test_served_ratio_rejects_an_empty_mdt(cfg) -> None:
+def test_served_ratio_rejects_an_empty_ue_table(cfg) -> None:
     """No UE, no denominator."""
     rsrp = _map([[[-80.0]], [[-80.0]]])
     empty = pd.DataFrame(columns=["t_index", "tile_row", "tile_col"])
     with pytest.raises(ValueError, match="no UE"):
         served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], empty, cfg)
-
-
-def test_served_desirability_averages_per_tile_not_per_report(cfg) -> None:
-    """The point of averaging per tile: a busy tile must not outvote a quiet one.
-
-    Tile 0 takes three reports and serves them all; tile 1 takes one and serves
-    none. The global share is 3/4, but every tile gets one vote here, so the
-    result is the mean of the two tiles' ratios - and lower.
-    """
-    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
-    cfg.simulation.transmitters.cells[0].max_prb = {"hi": 100, "lo": 100}
-    # Tile 1 is a hole, so its reports cannot be served at all.
-    rsrp = _map([[[-80.0, -130.0]], [[-80.0, -130.0]]])
-    mdt = _mdt(
-        [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3
-        + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
-    )
-
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.75)
-    # Per tile: served ratios of 1.0 and 0.0, each one vote.
-    assert served_desirability(rsrp, _sinr(rsrp), ["hi", "lo"], mdt, cfg) == pytest.approx(0.5)
-
-
-def test_served_desirability_ignores_tiles_carrying_no_report(cfg) -> None:
-    """Empty ground has no served ratio; counting it either way would be a bias."""
-    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
-    narrow = _map([[[-80.0]], [[-80.0]]])
-    wide = _map([[[-80.0, -130.0, -130.0]], [[-80.0, -130.0, -130.0]]])
-    mdt = _mdt([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 2)
-
-    assert served_desirability(narrow, _sinr(narrow), ["hi", "lo"], mdt, cfg) == pytest.approx(
-        served_desirability(wide, _sinr(wide), ["hi", "lo"], mdt, cfg)
-    )
-
-
-def test_served_desirability_rejects_an_empty_mdt(cfg) -> None:
-    """No UE, no tiles to average over."""
-    rsrp = _map([[[-80.0]], [[-80.0]]])
-    empty = pd.DataFrame(columns=["t_index", "tile_row", "tile_col"])
-    with pytest.raises(ValueError, match="no UE"):
-        served_desirability(rsrp, _sinr(rsrp), ["hi", "lo"], empty, cfg)
-
-
-def test_hole_desirability_registers_depth_the_hard_rate_cannot_see(cfg) -> None:
-    """The whole reason it exists: a step threshold is blind below itself.
-
-    Both maps put every tile under the hole threshold, so ``hole_rate`` calls
-    them identical. One is 1 dB short of coverage and the other 40 dB short,
-    which is the difference a tilt change actually moves.
-    """
-    shallow = _map([[[-121.0, -121.0]]])
-    deep = _map([[[-160.0, -160.0]]])
-
-    assert hole_rate(shallow, cfg) == hole_rate(deep, cfg) == pytest.approx(1.0)
-    assert hole_desirability(shallow, cfg) > hole_desirability(deep, cfg)
-
-
-def test_hole_desirability_is_half_on_the_target(cfg) -> None:
-    """The target is where the curve responds most, so it is worth pinning."""
-    assert hole_desirability(_map([[[-120.0]]]), cfg) == pytest.approx(0.5)
-
-
-def test_hole_desirability_scores_a_no_path_tile_zero(cfg) -> None:
-    """``-inf`` must read as the worst possible tile, not drop out of the mean."""
-    assert hole_desirability(_map([[[np.nan]]]), cfg) == pytest.approx(0.0)
-
-
-def test_overlap_desirability_reads_the_margin_the_rate_steps_over(cfg) -> None:
-    """The whole reason for the change: the rate is a step at the margin.
-
-    Both tiles carry one co-band neighbour, one just inside the 6 dB margin and
-    one just outside. ``overlap_rate`` calls them entirely different tiles; the
-    desirability calls them nearly the same, which is what they are.
-    """
-    inside = _map([[[-80.0], [-85.9]]])
-    outside = _map([[[-80.0], [-86.1]]])
-
-    assert overlap_rate(inside, cfg) == pytest.approx(1.0)
-    assert overlap_rate(outside, cfg) == pytest.approx(0.0)
-    assert overlap_desirability(inside, cfg) == pytest.approx(
-        overlap_desirability(outside, cfg), abs=0.05
-    )
-
-
-def test_overlap_desirability_rises_as_the_neighbour_falls_away(cfg) -> None:
-    """Monotone in the RSRP difference, which the neighbour count is not."""
-    scores = [
-        overlap_desirability(_map([[[-80.0], [-80.0 - gap]]]), cfg) for gap in (4.0, 6.0, 8.0, 12.0)
-    ]
-    assert scores == sorted(scores)
-    assert scores[-1] > 0.99
-
-
-def test_overlap_desirability_is_half_on_the_margin(cfg) -> None:
-    """A neighbour exactly ``overlap_margin_db`` down sits on the curve's midpoint."""
-    assert overlap_desirability(_map([[[-80.0], [-86.0]]]), cfg) == pytest.approx(0.5)
-
-
-def test_overlap_desirability_scores_a_tile_with_no_neighbour_one(cfg) -> None:
-    """Nothing to overlap with is not a half-measure; it is the best case.
-
-    The same convention as :func:`overlap_rate`, which counts an uncovered tile
-    as not overlapping.
-    """
-    alone = _map([[[-80.0], [-140.0], [-140.0]]])
-    empty = _map([[[-140.0], [-140.0]]])
-
-    assert overlap_desirability(alone, cfg) == pytest.approx(1.0)
-    assert overlap_desirability(empty, cfg) == pytest.approx(1.0)
-
-
-def test_overlap_desirability_averages_over_neighbours_rather_than_counting(cfg) -> None:
-    """Documented consequence of the mean: it reads separation, not crowding.
-
-    Both tiles are crowded by the same 2 dB neighbour. The second also carries a
-    third layer 20 dB down, which is well separated and so raises the average -
-    where :func:`overlap_neighbors` counts it as one more neighbour. The count
-    is what ``overlap_rate`` reports; this KPI is the typical separation.
-    """
-    crowded = _map([[[-80.0], [-82.0], [-140.0]]])
-    crowded_and_shadowed = _map([[[-80.0], [-82.0], [-100.0]]])
-
-    assert overlap_neighbors(crowded, cfg).sum() == 1
-    assert overlap_neighbors(crowded_and_shadowed, cfg).sum() == 1
-    assert overlap_desirability(crowded_and_shadowed, cfg) > overlap_desirability(crowded, cfg)

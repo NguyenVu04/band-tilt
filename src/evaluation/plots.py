@@ -22,7 +22,7 @@ from omegaconf import DictConfig
 
 from src.evaluation import maps
 from src.kpi.capacity import max_rsrp
-from src.optim.objective import KPI_NAMES, MAXIMISED
+from src.optim.objective import MAXIMISED, MEASURE_NAMES
 from src.utils.plotting import label
 
 # One colour per configuration, identical in every figure so a reader learns
@@ -283,9 +283,9 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 
 
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean improvement over the incumbent per KPI, one panel each.
+    """Mean improvement over the incumbent per KPI and objective term, one panel each.
 
-    A panel per KPI rather than one shared axis because the KPIs have no common
+    A panel per measure rather than one shared axis because they have no common
     unit: a share moves by thousandths where the cell-edge RSRP moves by dB, and
     one axis would hide every rate behind the dB. Each panel is signed so
     positive is better whichever direction its KPI runs, and the error bars are
@@ -294,12 +294,14 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
     Args:
         summary: :func:`src.evaluation.compare.seed_summary` output.
     """
-    rows = summary[summary["kpi"].isin(KPI_NAMES)]
+    rows = summary[summary["kpi"].isin(MEASURE_NAMES)]
     methods = list(dict.fromkeys(rows["method"]))
     positions = np.arange(len(methods))
 
     figure, axes = plt.subplots(2, 4, figsize=(14.0, 7.0), constrained_layout=True)
-    for axis, name in zip(axes.ravel(), KPI_NAMES, strict=True):
+    for axis in axes.ravel()[len(MEASURE_NAMES) :]:
+        axis.set_visible(False)
+    for axis, name in zip(axes.ravel(), MEASURE_NAMES, strict=False):
         mine = rows[rows["kpi"] == name].set_index("method").loc[methods]
         sign = 1.0 if name in MAXIMISED else -1.0
         half = (mine["ci95_high"] - mine["mean"]).to_numpy()
@@ -320,7 +322,7 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
 
 
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Best quality index so far per evaluation: mean over seeds, with the min–max range.
+    """Best objective score so far per evaluation: mean over seeds, with the min–max range.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
@@ -336,7 +338,7 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
         )
         axis.fill_between(stats.index, stats["min"], stats["max"], color=colour, alpha=0.2)
     axis.set_xlabel("Evaluations")
-    axis.set_ylabel("Best quality index so far (higher is better)")
+    axis.set_ylabel("Best objective score so far (higher is better)")
     axis.set_title("Search progress")
     axis.legend()
     return figure

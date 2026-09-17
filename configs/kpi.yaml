@@ -1,34 +1,32 @@
 # @package kpi
-# Thresholds and weights defining the KPIs, plus the capacity model behind the
-# serving rule, the served ratio and the PRB demand map.
-#
-# Every threshold below is read twice: once hard, by the rate a deployment
-# reads, and once softly per tile, by the desirability the search maximises
-# (ADR 0005). There is no separate soft threshold to keep in step.
+# Thresholds defining the KPIs, the objective's parameters, and the capacity
+# model behind the serving rule, the served ratio, the load term and the PRB
+# demand map.
 
 # Strongest signal at or below which a location is a coverage hole. Also the
-# RSRP a cell-band must exceed to serve a UE. hole_desirability softens it as
-# sigmoid(R_max - hole_dbm), in dB.
+# RSRP a cell-band must exceed to serve a UE, and the objective's coverage
+# threshold T_cov.
 hole_dbm: -120.0
 
 # Upper bound of weak coverage; the lower bound is hole_dbm.
 weak_dbm: -90.0
 
 # Inclusive margin within which a co-band neighbour overlaps the serving cell.
-# overlap_desirability softens it as sigmoid(delta - overlap_margin_db) on each
-# neighbour's RSRP difference below the server, so a neighbour exactly this far
-# down scores a half instead of falling off a step.
+# Also the objective's Delta_R.
 overlap_margin_db: 6.0
 
-# Weights of the quality index (src/optim/objective.py `quality_index`): the
-# geometric mean renormalises them to sum to one, so only their ratios matter.
-# They are judgement values in ADR 0001's priority order. Finite, non-negative,
-# not all zero. Nothing else reads them - the reported rates carry no weights,
-# because nothing sums them.
-weights:
-  hole_desirability: 3.0
-  overlap_desirability: 2.0
-  served_desirability: 1.0
+# J = J_radio^gamma * J_load^(1 - gamma) (src/optim/objective.py, ADR 0006).
+objective:
+  # tau_R: width of the coverage sigmoid on (R_s - T_cov), in dB.
+  tau_r_db: 10.0
+  # Each co-band overlapping neighbour keeps q_ov = exp(-beta) of the utility.
+  beta: 1.0
+  # rho_0: PRB utilisation above which a cell-band counts against J_load.
+  rho_0: 0.8
+  # CVaR level: J_load averages the worst (1 - alpha) share of cell-band intervals.
+  alpha: 0.9
+  # Weight of J_radio against J_load, in [0, 1].
+  gamma: 0.5
 
 # Reported network-quality measures that no score reads.
 quality:
@@ -43,6 +41,9 @@ capacity:
   band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one.
   rsrp_threshold_dbm: -120.0
+  # A cell-band admits no further UE once its load exceeds this share of
+  # max_prb; the UE passes to its next candidate.
+  max_admission_utilisation: 0.8
   # Assumed required throughput of each UE; sets PRBs per UE.
   throughput_per_ue_bps: 20000000 # 20 Mbps
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).

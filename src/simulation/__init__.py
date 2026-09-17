@@ -1,6 +1,6 @@
-"""Simulation stages for scenes, UEs, maps, and MDT.
+"""Simulation stages for scenes, UEs, and radio maps.
 
-Three stages, run in order, each a ``python -m`` entry point:
+Two stages, run in order, each a ``python -m`` entry point:
 
 ``scenario``
     Rasters the delivered scene and draws the UE population over it, once per
@@ -8,9 +8,6 @@ Three stages, run in order, each a ``python -m`` entry point:
 ``radio``
     Rebuilds that scenario, places the transmitters, and ray-traces one clean
     radio map per band.
-``mdt``
-    Samples the radio map at the UE positions and adds measurement error,
-    producing what a UE would report.
 
 The population moves over time; the map does not, and does not need to. Tilt
 and geometry are fixed for the whole scenario, so an interval changes only

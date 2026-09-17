@@ -2,8 +2,7 @@
 
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
-``mdt.parquet`` is the synthetic MDT, typed, with each cell-band's RSRP and an
-explicit reported indicator.
+``ue.parquet`` is the UE population, typed, with every drawn UE kept.
 """
 
 from __future__ import annotations
@@ -17,13 +16,13 @@ from omegaconf import DictConfig
 from src.data import schema
 from src.data.load import Artifacts, load_artifacts, save
 from src.simulation import transmitter
-from src.simulation.mdt import POSITION_COLUMNS
 from src.simulation.radio import Band
+from src.simulation.sample import CSV_COLUMNS
 from src.tracking import log_stage
 
-# int16 covers a 74 x 61 grid with room to spare; float32 holds the 3-decimal
-# dBm the MDT was written with. t_s stays float64: at a 604800 s horizon,
-# float32 cannot represent whole seconds exactly.
+# int16 covers the grid with room to spare; float32 holds the millimetre
+# coordinates the UE table is written with. t_s stays float64: at a 604800 s
+# horizon, float32 cannot represent whole seconds exactly.
 _DTYPES = {
     "t_index": "int32",
     "t_s": "float64",
@@ -32,6 +31,7 @@ _DTYPES = {
     "z": "float32",
     "tile_col": "int16",
     "tile_row": "int16",
+    "component": "int16",
 }
 
 
@@ -43,9 +43,7 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
 
     Returns:
         ``n_cell * n_band`` rows carrying the cell's geometry, the band, the
-        baseline tilt and its bounds, the ``max_prb`` limit, and
-        ``rsrp_column`` — the name of the matching column in ``mdt.parquet``,
-        which is what joins the two files.
+        baseline tilt and its bounds, the ``max_prb`` limit and the scenario.
     """
     cells = transmitter.load(cfg)
     bands = {str(entry.name): Band.from_config(entry) for entry in cfg.simulation.radio_map.bands}
@@ -72,7 +70,6 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
                     "tilt_min_deg": low,
                     "tilt_max_deg": high,
                     "max_prb": cell.max_prb_for(label),
-                    "rsrp_column": f"rsrp_{cell.name}_{label}",
                     "scenario_id": artifacts.scenario_id,
                 }
             )
@@ -83,38 +80,26 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
     return frame
 
 
-def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
-    """The MDT, typed, with a reported indicator beside every measurement.
+def build_ue(artifacts: Artifacts) -> pd.DataFrame:
+    """The UE population, typed, with no row dropped.
 
-    An empty ``rsrp_*`` in the interim CSV means the ray tracer found *no
-    path*. Carrying the indicator explicitly stops a later reader mistaking the
-    gap for a zero.
+    A UE no transmitter reaches stays in: the serving rule counts it as not
+    served, which is what the served ratio has to see.
 
     Returns:
-        One row per UE report: the position columns, ``scenario_id``, the
-        ``rsrp_*`` measurements and the ``reported_*`` flags. Sorted so the
-        output does not depend on the order the simulator emitted rows.
+        One row per UE per interval: the UE table's columns and
+        ``scenario_id``. Sorted so the output does not depend on the order the
+        simulator emitted rows.
     """
-    measurement = artifacts.measurement_columns
-    frame = artifacts.mdt.copy()
-
-    reported = frame[measurement].notna()
-    reported.columns = [column.replace("rsrp_", "reported_", 1) for column in measurement]
-
-    frame = frame.astype(_DTYPES)
-    frame[measurement] = frame[measurement].astype("float32")
+    frame = artifacts.ue[list(CSV_COLUMNS)].astype(_DTYPES)
     frame["scenario_id"] = pd.Categorical([artifacts.scenario_id] * len(frame))
-
-    frame = pd.concat(
-        [frame[[*POSITION_COLUMNS, "scenario_id"]], frame[measurement], reported], axis=1
-    )
     return frame.sort_values(
         ["t_index", "tile_row", "tile_col", "x", "y"], kind="stable"
     ).reset_index(drop=True)
 
 
 def run(cfg: DictConfig) -> tuple[Path, Path]:
-    """Load, verify and write both tables. Returns ``(mdt_path, cell_path)``.
+    """Load, verify and write both tables. Returns ``(ue_path, cell_path)``.
 
     Raises:
         FileNotFoundError: When a simulation stage has not been run.
@@ -125,18 +110,16 @@ def run(cfg: DictConfig) -> tuple[Path, Path]:
     checks = schema.verify(artifacts, cfg)
     schema.require(checks)
 
-    mdt = build_mdt(artifacts)
+    ue = build_ue(artifacts)
     cells = build_cells(cfg, artifacts)
-    mdt_path = save(mdt, cfg.data.output.mdt_file)
+    ue_path = save(ue, cfg.data.output.ue_file)
     cell_path = save(cells, cfg.data.output.cell_file)
 
-    flags = [column for column in mdt.columns if column.startswith("reported_")]
     print(f"scenario:  {artifacts.scenario_id}")
     print(f"checks:    {len(checks)} passed")
-    print(f"mdt:       {len(mdt):,} rows x {mdt.shape[1]} columns  ->  {mdt_path}")
-    print(f"reported:  {mdt[flags].to_numpy().mean():.1%} of cell-band pairs")
+    print(f"ue:        {len(ue):,} rows x {ue.shape[1]} columns  ->  {ue_path}")
     print(f"cells:     {len(cells)} cell-band pairs  ->  {cell_path}")
-    return mdt_path, cell_path
+    return ue_path, cell_path
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
@@ -144,7 +127,7 @@ def main(cfg: DictConfig) -> None:
     """Build the processed tables. The script form of ``02_preprocessing.ipynb``.
 
     Example:
-        $ uv run python -m src.data.build data.output.mdt_file=/tmp/mdt.parquet
+        $ uv run python -m src.data.build data.output.ue_file=/tmp/ue.parquet
     """
     log_stage(cfg, "preprocessing", groups=["data"], outputs=run(cfg))
 

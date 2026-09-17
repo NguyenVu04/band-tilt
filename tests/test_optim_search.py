@@ -19,7 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.optim.evaluator import EvaluationResult
 from src.optim.history import History, LocalRunWriter, write_run, write_tilt_change
 from src.optim.methods import run_search
-from src.optim.objective import KPI_NAMES, KpiVector
+from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.space import TiltSpace
 
 _CELLS = [
@@ -43,11 +43,9 @@ _CONFIG = {
         "transmitters": {"cells": _CELLS},
     },
     "kpi": {
-        "weights": {
-            "hole_desirability": 4.0,
-            "overlap_desirability": 3.0,
-            "served_desirability": 2.0,
-        },
+        "hole_dbm": -120.0,
+        "overlap_margin_db": 6.0,
+        "objective": {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 0.6},
     },
     "optim": {
         "output": {
@@ -100,9 +98,8 @@ class StubEvaluator:
                 served_ratio=float(1.0 - np.mean((unit - 0.8) ** 2)),
                 weak_rate=float(np.mean((unit - 0.2) ** 2)),
                 edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
-                hole_desirability=float(1.0 - np.mean((unit - 0.3) ** 2)),
-                overlap_desirability=float(1.0 - np.mean(unit) * 0.4),
-                served_desirability=float(1.0 - np.mean((unit - 0.8) ** 2)),
+                j_radio=float(1.0 - np.mean((unit - 0.3) ** 2)),
+                j_load=float(1.0 - np.mean((unit - 0.8) ** 2)),
             ),
             seconds=0.0,
         )
@@ -264,9 +261,9 @@ def test_history_frame_carries_provenance_kpis_and_every_tilt(make_cfg, evaluato
     frame = run_search(evaluator, make_cfg("random")).frame()
     expected = {"iteration", "phase", "generation_node", "seconds"}
     assert expected <= set(frame.columns)
-    assert set(KPI_NAMES) <= set(frame.columns)
+    assert set(MEASURE_NAMES) <= set(frame.columns)
     assert set(evaluator.space.parameter_names) <= set(frame.columns)
-    assert frame[list(KPI_NAMES)].notna().all().all()
+    assert frame[list(MEASURE_NAMES)].notna().all().all()
 
 
 def test_the_tilt_table_reports_delta_against_the_incumbent(make_cfg, evaluator) -> None:
@@ -322,7 +319,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
-    assert run["config"]["kpi"]["weights"]["hole_desirability"] == 4.0
+    assert run["config"]["kpi"]["objective"]["gamma"] == 0.6
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

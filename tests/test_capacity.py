@@ -32,6 +32,7 @@ def cfg():
                 "capacity": {
                     "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
+                    "max_admission_utilisation": 1.0,
                     "throughput_per_ue_bps": _B_PRB,
                     "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
@@ -111,6 +112,30 @@ def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
     assert serving.load[:, 0].tolist() == pytest.approx([6.0, 6.0])
 
 
+def test_a_cell_band_over_its_admission_share_passes_the_ue_on(cfg) -> None:
+    """At 0.5 of 10 PRBs, 'hi' admits a 3-PRB UE at load 0 and 3, then not at 6.
+
+    The third UE would still fit under ``max_prb`` (9 <= 10), so only the
+    admission share moves it to 'lo'.
+    """
+    cfg.kpi.capacity.max_admission_utilisation = 0.5
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp = np.array([[[-90.0], [-95.0]]] * 3)
+    # log2(1 + SINR) = 1/3: each UE needs 3 PRBs.
+    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 3.0) - 1.0))
+    serving = capacity._select_serving(rsrp, sinr, spec)
+    assert serving.band.tolist() == [0, 0, 1]
+    assert serving.load[:, 0].tolist() == pytest.approx([6.0, 3.0])
+
+
+def test_the_admission_share_is_checked_against_config(cfg) -> None:
+    """Zero would admit nobody; above one would never bind."""
+    for bad in (0.0, 1.5):
+        cfg.kpi.capacity.max_admission_utilisation = bad
+        with pytest.raises(ValueError, match="max_admission_utilisation"):
+            capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+
+
 def test_a_ue_with_no_room_anywhere_is_blocked_but_keeps_its_demand(cfg) -> None:
     """Demand is a requirement: the blocked UE is counted at its first choice."""
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
@@ -155,7 +180,7 @@ def test_prb_by_interval_sums_each_tile_within_each_interval() -> None:
 
 
 def test_prb_by_interval_accepts_the_processed_int16_tiles() -> None:
-    """The processed MDT stores tiles as int16, and row * n_cols overflows it on a large grid."""
+    """The processed UE table stores tiles as int16; row * n_cols overflows it on a large grid."""
     shape = (300, 300)
     _, prb = capacity.prb_by_interval(
         np.array([0]),
@@ -173,8 +198,8 @@ def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     rsrp = np.array([[[[-90.0, np.nan]]], [[[np.nan, np.nan]]]])  # [band, tx, row, col]
     # 0 dB wherever a path exists: 1 bit/s/Hz, so each UE needs exactly one PRB.
     sinr = np.where(np.isfinite(rsrp), 0.0, np.nan)
-    mdt = pd.DataFrame({"t_index": [0, 1, 1, 1], "tile_row": [0] * 4, "tile_col": [0] * 4})
-    peak = capacity.demand_prb(rsrp, sinr, ["hi", "lo"], mdt, cfg)
+    ue = pd.DataFrame({"t_index": [0, 1, 1, 1], "tile_row": [0] * 4, "tile_col": [0] * 4})
+    peak = capacity.demand_prb(rsrp, sinr, ["hi", "lo"], ue, cfg)
     assert peak.shape == (1, 2)
     assert peak[0, 0] == pytest.approx(3.0)
     assert peak[0, 1] == 0.0
@@ -184,7 +209,7 @@ def test_serve_intervals_reports_the_stored_sinr_at_the_serving_layer(cfg) -> No
     """SINR is read from the map passed in, not derived from RSRP."""
     rsrp = np.array([[[[-90.0]]], [[[-80.0]]]])
     sinr = np.array([[[[7.0]]], [[[3.0]]]])
-    mdt = pd.DataFrame({"t_index": [0], "tile_row": [0], "tile_col": [0]})
-    served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], mdt, cfg)
+    ue = pd.DataFrame({"t_index": [0], "tile_row": [0], "tile_col": [0]})
+    served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], ue, cfg)
     assert served["band"].tolist() == [0]
     assert served["sinr_db"].tolist() == [7.0]

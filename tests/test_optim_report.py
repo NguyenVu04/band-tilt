@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import KPI_NAMES, TARGET_NAMES, KpiVector, quality_index
+from src.optim.objective import MEASURE_NAMES, KpiVector, score
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
@@ -42,7 +42,11 @@ _CONFIG = {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
         "transmitters": {"cells": _CELLS},
     },
-    "kpi": {"weights": dict.fromkeys(TARGET_NAMES, 1.0)},
+    "kpi": {
+        "hole_dbm": -120.0,
+        "overlap_margin_db": 6.0,
+        "objective": {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 0.5},
+    },
     "optim": {
         # `rule` rather than `turbo`: deterministic, no model, and it still
         # exercises the whole publish path.
@@ -85,9 +89,8 @@ class StubEvaluator:
                 served_ratio=float(1.0 - np.mean((unit - 0.75) ** 2)),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
                 edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
-                hole_desirability=float(1.0 - np.mean((unit - 0.35) ** 2)),
-                overlap_desirability=float(1.0 - np.mean(unit) * 0.5),
-                served_desirability=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                j_radio=float(1.0 - np.mean((unit - 0.35) ** 2)),
+                j_load=float(1.0 - np.mean((unit - 0.75) ** 2)),
             ),
             seconds=1.0,
             rsrp=np.zeros((1, 1, 1, 1)) if self.keep_rsrp else None,
@@ -135,15 +138,15 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
 def _kpis(count: int) -> list[KpiVector]:
     """A spread of KPI vectors to rank.
 
-    Every desirability is drawn in (0, 1): the geometric mean is undefined on a
-    negative one.
+    Both objective terms are drawn in (0, 1): the geometric mean is undefined
+    on a negative one.
     """
     rng = np.random.default_rng(0)
-    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5, 0.5, 0.5)]
+    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5, 0.5)]
     for _ in range(count - 1):
         rates = [float(value) for value in rng.random(4)]
         edge = -120.0 + 20.0 * rng.random()
-        soft = [float(value) for value in rng.random(3)]
+        soft = [float(value) for value in rng.random(2)]
         kpis.append(KpiVector(*rates, edge, *soft))
     return kpis
 
@@ -169,12 +172,12 @@ def test_choose_never_drops_a_required_row_to_fit_the_budget(cfg) -> None:
 def test_choose_fills_the_budget_by_score(cfg) -> None:
     """After the incumbent, nothing left out outscores anything offered.
 
-    Ranked by the quality index that selects the winner, or the shortlist would
+    Ranked by the objective that selects the winner, or the shortlist would
     disagree with the recommendation printed beside it.
     """
     kpis = _kpis(24)
     picks = choose(kpis, cfg, 6)
-    values = quality_index(kpis, cfg)
+    values = score(kpis, cfg)
 
     offered = values[picks[1:]]
     left_out = np.delete(values, picks)
@@ -204,7 +207,7 @@ def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
     for _, row in published.iterrows():
         tilts = tuple(np.round(row[list(space.parameter_names)].to_numpy(dtype=float), 9))
         assert tilts in solved
-    for name in KPI_NAMES:
+    for name in MEASURE_NAMES:
         assert f"predicted_{name}" not in published
         assert f"error_{name}" not in published
 
@@ -226,7 +229,7 @@ def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
     options = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/tilt_options_rule.csv")
 
     assert shortlist["recommended"].sum() == 1
-    for name in KPI_NAMES:
+    for name in MEASURE_NAMES:
         assert f"delta_{name}" in shortlist
     # One tilt table per offered solution, each covering every cell-band pair.
     assert set(options["solution"]) == set(shortlist["solution"])

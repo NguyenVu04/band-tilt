@@ -1,9 +1,10 @@
 """Optimization over the absolute-tilt space.
 
 One decision vector, one objective, three ways of searching it. Every method
-here proposes a tilt for each cell-band pair, has it scored by the four
-functions in :mod:`src.kpi`, and writes the same artifacts, so a comparison
-between methods is a comparison of search strategies and nothing else.
+here proposes a tilt for each cell-band pair, has it measured by
+:mod:`src.kpi` and scored by :mod:`src.optim.objective`, and writes the same
+artifacts, so a comparison between methods is a comparison of search
+strategies and nothing else.
 
 Modules, each with one reason to change:
 
@@ -11,8 +12,8 @@ Modules, each with one reason to change:
     The box an optimizer may move in, and the only place a vector becomes
     :class:`src.core.cell.Cell` objects.
 ``objective``
-    The KPI vector, the sign convention, and the quality index that picks
-    one configuration.
+    The KPI vector, the sign convention, and the radio-and-load objective
+    that picks one configuration.
 ``evaluator``
     The expensive path: a tilt vector ray-traced into a radio map. The only
     module here that touches Sionna-RT.

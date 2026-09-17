@@ -13,12 +13,12 @@ from scipy import stats
 from src.evaluation.runs import Run
 from src.kpi.capacity import prb_by_interval, serve_intervals
 from src.optim.objective import (
-    KPI_NAMES,
     MAXIMISED,
+    MEASURE_NAMES,
     KpiVector,
     best_by_score,
     evaluate_kpis,
-    quality_index,
+    score,
     score_frame,
 )
 
@@ -30,7 +30,7 @@ SCORE = "score"
 
 
 def direction(name: str) -> str:
-    """Whether a KPI, or the quality index, is maximised or minimised."""
+    """Whether a measure, or the objective score, is maximised or minimised."""
     return "maximise" if name in MAXIMISED or name == SCORE else "minimise"
 
 
@@ -64,14 +64,14 @@ def _interval(values: np.ndarray) -> tuple[float, float, float, float]:
 
 
 def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
-    """Before, after and the verdict for each KPI, in priority order.
+    """Before, after and the verdict for each measure, in priority order.
 
     Returns:
         Columns ``kpi``, ``direction``, ``before``, ``after``, ``delta``,
-        ``verdict``, in :data:`KPI_NAMES` order.
+        ``verdict``, in :data:`MEASURE_NAMES` order.
     """
     rows = []
-    for name in KPI_NAMES:
+    for name in MEASURE_NAMES:
         start, end = getattr(before, name), getattr(after, name)
         rows.append(
             {
@@ -104,13 +104,13 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     if not runs:
         raise ValueError("no runs to summarise")
     incumbent = runs[0].incumbent_kpi
-    before = {**incumbent.as_dict(), SCORE: float(quality_index([incumbent], cfg)[0])}
+    before = {**incumbent.as_dict(), SCORE: float(score([incumbent], cfg)[0])}
 
     rows = []
     for method in dict.fromkeys(run.method for run in runs):
         mine = [run for run in runs if run.method == method]
-        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in KPI_NAMES}
-        values[SCORE] = quality_index([run.best_kpi for run in mine], cfg)
+        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in MEASURE_NAMES}
+        values[SCORE] = score([run.best_kpi for run in mine], cfg)
         for name, series in values.items():
             mean, std, low, high = _interval(np.asarray(series))
             delta = mean - before[name]
@@ -147,86 +147,21 @@ def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     """
     rows = []
     for run in runs:
-        score = score_frame(run.history, cfg)
-        candidates = score[1:] if score.size > 1 else score
-        init = score[(run.history["phase"] == "init").to_numpy()]
+        scores = score_frame(run.history, cfg)
+        candidates = scores[1:] if scores.size > 1 else scores
+        init = scores[(run.history["phase"] == "init").to_numpy()]
         rows.append(
             {
                 "method": run.method,
                 "seed": run.seed,
-                "incumbent": float(score[0]),
+                "incumbent": float(scores[0]),
                 "init_median": float(np.median(init)) if init.size else np.nan,
                 "candidate_median": float(np.median(candidates)),
                 "candidate_p90": float(np.quantile(candidates, 0.9)),
-                "winner": float(score.max()),
+                "winner": float(scores.max()),
             }
         )
     return pd.DataFrame(rows)
-
-
-def _with_weights(cfg: DictConfig, weight: Mapping[str, float]) -> DictConfig:
-    """``cfg`` with ``kpi.weights`` replaced, leaving the original untouched."""
-    scheme_cfg = cfg.copy()
-    scheme_cfg.kpi = cfg.kpi.copy()
-    scheme_cfg.kpi.weights = {name: float(value) for name, value in weight.items()}
-    return scheme_cfg
-
-
-def weight_sensitivity(
-    runs: list[Run], cfg: DictConfig, schemes: Mapping[str, Mapping[str, float]]
-) -> pd.DataFrame:
-    """Re-pick every winner under other weights, from the measurements already taken.
-
-    The configured weights are judgement values (ADR 0001). Re-scoring the
-    stored histories bounds how much the selection depends on them; a search
-    steered by other weights could have explored elsewhere, which this cannot
-    show.
-
-    Re-weighting is honest where re-tempering would not be: the weights are
-    applied at score time, so a stored measurement can carry any of them, while
-    the thresholds are inside the measurement itself.
-
-    Args:
-        runs: The runs to re-score.
-        cfg: Composed config; ``kpi.weights`` is the ``configured`` scheme.
-        schemes: Scheme name to weights, keyed by :data:`TARGET_NAMES` entry.
-            Keyed rather than positional because a positional tuple would
-            silently misalign.
-
-    Returns:
-        One row per scheme and method: ``scheme``, ``method``, ``n_seeds``,
-        ``mean_winner_score`` under that scheme, ``rank`` within the scheme
-        (1 is best) and ``same_winner_share``, the share of the method's runs
-        whose winner is the one the configured weights picked.
-    """
-    every = {"configured": None, **schemes}
-    rows = []
-    for scheme, weight in every.items():
-        scheme_cfg = cfg if weight is None else _with_weights(cfg, weight)
-        results: dict[str, list[tuple[float, bool]]] = {}
-        for run in runs:
-            rescored = score_frame(run.history, scheme_cfg)
-            same = int(np.argmax(rescored)) == int(np.argmax(score_frame(run.history, cfg)))
-            results.setdefault(run.method, []).append((float(rescored.max()), same))
-        for method, pairs in results.items():
-            rows.append(
-                {
-                    "scheme": scheme,
-                    "method": method,
-                    "n_seeds": len(pairs),
-                    "mean_winner_score": float(np.mean([score for score, _ in pairs])),
-                    "same_winner_share": float(np.mean([same for _, same in pairs])),
-                }
-            )
-    frame = pd.DataFrame(rows)
-    frame.insert(
-        4,
-        "rank",
-        frame.groupby("scheme")["mean_winner_score"]
-        .rank(ascending=False, method="min")
-        .astype(int),
-    )
-    return frame
 
 
 def paired_method_gain(
@@ -243,7 +178,7 @@ def paired_method_gain(
         One row: ``method``, ``reference``, ``n_pairs``, ``mean_gain``,
         ``ci95_low``, ``ci95_high``, ``method_better``, ``wilcoxon_p``.
     """
-    best = {(run.method, run.seed): float(quality_index([run.best_kpi], cfg)[0]) for run in runs}
+    best = {(run.method, run.seed): float(score([run.best_kpi], cfg)[0]) for run in runs}
     paired = sorted(seed for name, seed in best if name == method and (reference, seed) in best)
     gains = np.array([best[(method, seed)] - best[(reference, seed)] for seed in paired])
     mean, _, low, high = _interval(gains)
@@ -287,8 +222,8 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
                 "best_iteration": run.best_index,
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
                 "wall_clock_min": wall / 60.0 if wall is not None else np.nan,
-                **{name: getattr(run.best_kpi, name) for name in KPI_NAMES},
-                SCORE: float(quality_index([run.best_kpi], cfg)[0]),
+                **{name: getattr(run.best_kpi, name) for name in MEASURE_NAMES},
+                SCORE: float(score([run.best_kpi], cfg)[0]),
                 "kpis_improved": int((deltas["verdict"] == BETTER).sum()),
                 "kpis_worsened": int((deltas["verdict"] == WORSE).sum()),
             }
@@ -297,7 +232,7 @@ def method_table(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
 
 
 def best_method(runs: list[Run], cfg: DictConfig) -> Run:
-    """The run whose winner has the highest quality index; a tie keeps the earlier run.
+    """The run whose winner has the highest objective score; a tie keeps the earlier run.
 
     Raises:
         ValueError: When there are no runs.
@@ -317,7 +252,7 @@ def best_run_per_method(runs: list[Run], cfg: DictConfig) -> dict[str, Run]:
 
 
 def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
-    """Best value seen so far, per KPI and for the quality index, per evaluation and run.
+    """Best value seen so far, per measure and for the objective score, per evaluation and run.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
     KPI accumulates in its own direction.
@@ -325,7 +260,7 @@ def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     frames = []
     for run in runs:
         history = run.history
-        series = {name: history[name] for name in KPI_NAMES}
+        series = {name: history[name] for name in MEASURE_NAMES}
         series[SCORE] = pd.Series(score_frame(history, cfg))
         for name, values in series.items():
             running = values.cummax() if direction(name) == "maximise" else values.cummin()
@@ -369,7 +304,7 @@ def tilt_movement(run: Run) -> pd.DataFrame:
 
 @dataclass(frozen=True)
 class Configuration:
-    """One configuration's radio map, and how the MDT is served on it.
+    """One configuration's radio map, and how the UEs are served on it.
 
     Attributes:
         rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm.
@@ -385,12 +320,12 @@ class Configuration:
 
 
 def configuration(
-    archive: Mapping[str, np.ndarray], mdt: pd.DataFrame, cfg: DictConfig
+    archive: Mapping[str, np.ndarray], ue: pd.DataFrame, cfg: DictConfig
 ) -> Configuration:
-    """Serve the MDT on one archived radio map."""
+    """Serve the UEs on one archived radio map."""
     rsrp = archive["rsrp_dbm"].astype(float)
     sinr = archive["sinr_db"].astype(float)
-    served = serve_intervals(rsrp, sinr, [str(b) for b in archive["band_label"]], mdt, cfg)
+    served = serve_intervals(rsrp, sinr, [str(b) for b in archive["band_label"]], ue, cfg)
     _, prb = prb_by_interval(
         served["t_index"].to_numpy(),
         served["tile_row"].to_numpy(),
@@ -405,7 +340,7 @@ def reproducibility(
     recorded: Mapping[str, KpiVector],
     configurations: Mapping[str, Configuration],
     band_labels: Sequence[str],
-    mdt: pd.DataFrame,
+    ue: pd.DataFrame,
     cfg: DictConfig,
 ) -> pd.DataFrame:
     """The KPIs recomputed from each archived map, against what the run recorded.
@@ -422,8 +357,8 @@ def reproducibility(
     rows = []
     for name, kpi in recorded.items():
         maps = configurations[name]
-        again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, mdt, cfg)
-        for kpi_name in KPI_NAMES:
+        again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, ue, cfg)
+        for kpi_name in MEASURE_NAMES:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
                 {

@@ -21,41 +21,13 @@ from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import CapacitySpec, max_rsrp
-from src.optim.objective import KPI_NAMES
+from src.optim.objective import MEASURE_NAMES
 from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
 from src.utils.seed import set_seed
 
 FIGURES_DIR = Path("reports/figures/04_evaluation")
 TABLES_DIR = Path("reports/tables/04_evaluation")
-
-
-# Alternative weightings for the sensitivity table, keyed as `kpi.weights` is.
-# They bracket the configured weights; none is tuned. A single-KPI scheme is a
-# corner of the simplex rather than a proposal: it says which winner that KPI
-# would have picked alone.
-WEIGHT_SCHEMES = {
-    "equal": {
-        "hole_desirability": 1.0,
-        "overlap_desirability": 1.0,
-        "served_desirability": 1.0,
-    },
-    "hole_only": {
-        "hole_desirability": 1.0,
-        "overlap_desirability": 0.0,
-        "served_desirability": 0.0,
-    },
-    "overlap_only": {
-        "hole_desirability": 0.0,
-        "overlap_desirability": 1.0,
-        "served_desirability": 0.0,
-    },
-    "served_only": {
-        "hole_desirability": 0.0,
-        "overlap_desirability": 0.0,
-        "served_desirability": 1.0,
-    },
-}
 
 
 def load_runs(cfg: DictConfig) -> list[run_store.Run]:
@@ -107,9 +79,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("kpi_improvement", plots.kpi_comparison(summary))
     add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
     add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
-    add("weight_sensitivity", compare.weight_sensitivity(runs, cfg, WEIGHT_SCHEMES))
 
-    mdt = pd.read_parquet(cfg.data.output.mdt_file)
+    ue = pd.read_parquet(cfg.data.output.ue_file)
     cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")
     band_labels = [str(band) for band in baseline["band_label"]]
     tx_names = [str(name) for name in baseline["tx_name"]]
@@ -117,8 +88,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     best = compare.best_run_per_method(runs, cfg)
     winner = compare.best_method(runs, cfg)
     configurations = {
-        "incumbent": compare.configuration(baseline, mdt, cfg),
-        **{method: compare.configuration(run.radio_map, mdt, cfg) for method, run in best.items()},
+        "incumbent": compare.configuration(baseline, ue, cfg),
+        **{method: compare.configuration(run.radio_map, ue, cfg) for method, run in best.items()},
     }
     add(
         "kpi_reproducibility",
@@ -126,7 +97,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
             {"incumbent": runs[0].incumbent_kpi, **{m: run.best_kpi for m, run in best.items()}},
             configurations,
             band_labels,
-            mdt,
+            ue,
             cfg,
         ),
     )
@@ -207,7 +178,7 @@ def main(cfg: DictConfig) -> None:
         metrics={
             f"{row.method}_{row.kpi}_mean": row.mean
             for row in summary.itertuples()
-            if row.kpi in KPI_NAMES
+            if row.kpi in MEASURE_NAMES
         },
         artifacts=[FIGURES_DIR, TABLES_DIR],
     )

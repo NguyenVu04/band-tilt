@@ -18,10 +18,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.optim.evaluator import EvaluationResult
 from src.optim.objective import (
-    KPI_NAMES,
+    MEASURE_NAMES,
     KpiVector,
     best_by_score,
-    quality_index,
+    score,
 )
 from src.optim.space import TiltSpace
 
@@ -79,7 +79,7 @@ def write_solution_options(
 ) -> tuple[Path, Path]:
     """Republish the shortlist as the two tables an operator chooses from.
 
-    The quality index (``kpi.weights``) marks one row ``recommended``; the
+    The objective (``kpi.objective``) marks one row ``recommended``; the
     runners-up are published beside it rather than discarded.
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
@@ -145,9 +145,9 @@ class History:
         return [result.kpi for result in self.results]
 
     def frame(self, cfg: DictConfig | None = None) -> pd.DataFrame:
-        """One row per evaluation: provenance, every KPI, every tilt.
+        """One row per evaluation: provenance, every measure, every tilt.
 
-        With ``cfg``, also ``score``, the quality index that selects the winner.
+        With ``cfg``, also ``score``, the objective that selects the winner.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -164,16 +164,16 @@ class History:
                 "seconds": [result.seconds for result in self.results],
             }
         )
-        for name in KPI_NAMES:
+        for name in MEASURE_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
         if cfg is not None:
-            frame["score"] = quality_index(self.kpis, cfg)
+            frame["score"] = score(self.kpis, cfg)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
         return frame
 
     def best_index(self, cfg: DictConfig) -> int:
-        """Index of the highest :func:`quality_index` over every evaluation.
+        """Index of the highest :func:`~src.optim.objective.score` over every evaluation.
 
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """

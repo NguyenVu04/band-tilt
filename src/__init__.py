@@ -3,7 +3,7 @@
 Layout
 ------
 - ``src.core``        the shared domain types: cell and per-band tilt
-- ``src.simulation``  scene, UE population, ray-traced radio maps, synthetic MDT
+- ``src.simulation``  scene, UE population, ray-traced radio maps
 - ``src.data``        verify the simulation output and write the typed tables
 - ``src.kpi``         the four KPIs — the only definition of the objective
 - ``src.optim``       TuRBO and the baselines, and the run it publishes

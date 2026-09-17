@@ -73,7 +73,7 @@ class Run:
 
     @property
     def best_index(self) -> int:
-        """Row of ``history`` with the highest quality index."""
+        """Row of ``history`` with the highest objective score."""
         return int(self.meta["best_iteration"])
 
     @property
@@ -292,9 +292,9 @@ def require(checks: pd.DataFrame) -> None:
 def _kpi_definition(run: Run) -> dict[str, Any]:
     """Everything the objective reads, from the run's own config snapshot.
 
-    The thresholds, the capacity model and the weights, plus each cell's PRB
-    limit: the served ratio depends on all of them, so two runs that differ on
-    any one did not optimize the same objective.
+    The thresholds, the capacity model and the objective parameters, plus each
+    cell's PRB limit: the served ratio and the objective depend on all of them,
+    so two runs that differ on any one did not optimize the same objective.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
@@ -302,6 +302,6 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     return {
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
-        "weights": kpi.get("weights"),
+        "objective": kpi.get("objective"),
         "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
     }

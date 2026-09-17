@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import compare
 from src.evaluation.runs import Run
-from src.optim.objective import KPI_NAMES, KpiVector
+from src.optim.objective import MEASURE_NAMES, KpiVector
 
 
 def _served() -> pd.DataFrame:
@@ -66,16 +66,15 @@ def incumbent() -> KpiVector:
         served_ratio=0.009,
         weak_rate=0.12,
         edge_rsrp_dbm=-108.0,
-        hole_desirability=0.40,
-        overlap_desirability=0.40,
-        served_desirability=0.40,
+        j_radio=0.40,
+        j_load=0.40,
     )
 
 
 def test_delta_table_is_in_priority_order(incumbent: KpiVector) -> None:
     """Reading top to bottom is reading the order the winner was decided in."""
     table = compare.delta_table(incumbent, incumbent)
-    assert table["kpi"].tolist() == list(KPI_NAMES)
+    assert table["kpi"].tolist() == list(MEASURE_NAMES)
 
 
 def test_identical_configurations_are_unchanged_everywhere(incumbent: KpiVector) -> None:
@@ -112,15 +111,9 @@ def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
 
 
 def test_direction_names_every_kpi() -> None:
-    """The maximised set is the three that read upward; any other is a sign error."""
-    maximised = [name for name in KPI_NAMES if compare.direction(name) == "maximise"]
-    assert maximised == [
-        "served_ratio",
-        "edge_rsrp_dbm",
-        "hole_desirability",
-        "overlap_desirability",
-        "served_desirability",
-    ]
+    """The maximised set is the four that read upward; any other is a sign error."""
+    maximised = [name for name in MEASURE_NAMES if compare.direction(name) == "maximise"]
+    assert maximised == ["served_ratio", "edge_rsrp_dbm", "j_radio", "j_load"]
 
 
 def test_coverage_comparison_puts_labels_side_by_side() -> None:
@@ -150,25 +143,21 @@ def test_coverage_comparison_of_nothing_is_empty() -> None:
     assert compare.coverage_comparison({}).empty
 
 
-WEIGHTS = {
-    "hole_desirability": 1.0,
-    "overlap_desirability": 0.0,
-    "served_desirability": 0.0,
-}
-
-
 @pytest.fixture
 def scored_cfg() -> DictConfig:
-    """Weights putting the whole quality index on ``hole_desirability``.
+    """``gamma = 1`` puts the whole objective on ``j_radio``.
 
-    A corner of the simplex, so the geometric mean reduces to that one column
-    and these tests can assert exact arithmetic.
+    The score then reduces to that one column, so these tests can assert exact
+    arithmetic.
     """
-    return OmegaConf.create({"kpi": {"weights": dict(WEIGHTS)}})
+    objective = {"tau_r_db": 10.0, "beta": 1.0, "rho_0": 0.8, "alpha": 0.9, "gamma": 1.0}
+    return OmegaConf.create(
+        {"kpi": {"hole_dbm": -120.0, "overlap_margin_db": 6.0, "objective": objective}}
+    )
 
 
 def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None = None) -> Run:
-    """A run whose score is ``hole_desirability`` per evaluation, row 0 the incumbent."""
+    """A run whose score is ``j_radio`` per evaluation, row 0 the incumbent."""
     n = len(coverage)
     history = pd.DataFrame(
         {
@@ -179,14 +168,13 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "served_ratio": [0.0] * n,
             "weak_rate": [0.1] * n,
             "edge_rsrp_dbm": [-108.0] * n,
-            "hole_desirability": coverage,
-            "overlap_desirability": [0.4] * n,
-            "served_desirability": [0.4] * n,
+            "j_radio": coverage,
+            "j_load": [0.4] * n,
         }
     )
     best = int(np.argmax(coverage))
-    kpi = {name: float(history.loc[best, name]) for name in KPI_NAMES}
-    incumbent = {name: float(history.loc[0, name]) for name in KPI_NAMES}
+    kpi = {name: float(history.loc[best, name]) for name in MEASURE_NAMES}
+    incumbent = {name: float(history.loc[0, name]) for name in MEASURE_NAMES}
     meta = {
         "best_iteration": best,
         "best_kpi": kpi,
@@ -200,10 +188,10 @@ def test_seed_summary_interval_brackets_the_mean(scored_cfg: DictConfig) -> None
     """Two seeds give a finite interval centred on the mean winner."""
     runs = [_run("turbo", 0, [0.5, 0.8]), _run("turbo", 1, [0.5, 0.6])]
     table = compare.seed_summary(runs, scored_cfg).set_index("kpi")
-    assert table.loc["hole_desirability", "mean"] == pytest.approx(0.7)
-    low, high = table.loc["hole_desirability", ["ci95_low", "ci95_high"]]
+    assert table.loc["j_radio", "mean"] == pytest.approx(0.7)
+    low, high = table.loc["j_radio", ["ci95_low", "ci95_high"]]
     assert low < 0.7 < high
-    assert table.loc["hole_desirability", "verdict"] == compare.BETTER
+    assert table.loc["j_radio", "verdict"] == compare.BETTER
     assert table.loc["score", "direction"] == "maximise"
     assert table.loc["score", "verdict"] == compare.BETTER
 
@@ -216,23 +204,6 @@ def test_winner_vs_candidates_separates_winner_from_typical(scored_cfg: DictConf
     assert row["incumbent"] == pytest.approx(0.1)
     assert row["candidate_median"] == pytest.approx(0.8)
     assert row["winner"] == pytest.approx(0.9)
-
-
-def test_weight_sensitivity_detects_a_changed_winner(scored_cfg: DictConfig) -> None:
-    """Weighting only the served term (constant here) ties everything, so row 0 wins."""
-    table = compare.weight_sensitivity(
-        [_run("turbo", 0, [0.5, 0.8])],
-        scored_cfg,
-        {
-            "served_only": {
-                "hole_desirability": 0.0,
-                "overlap_desirability": 0.0,
-                "served_desirability": 1.0,
-            }
-        },
-    ).set_index("scheme")
-    assert table.loc["configured", "same_winner_share"] == pytest.approx(1.0)
-    assert table.loc["served_only", "same_winner_share"] == pytest.approx(0.0)
 
 
 def test_paired_method_gain_pairs_by_seed(scored_cfg: DictConfig) -> None:

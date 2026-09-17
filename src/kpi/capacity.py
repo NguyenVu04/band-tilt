@@ -3,13 +3,15 @@
 The one serving rule in the project, read by the served ratio and the demand
 map: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
-the strongest cell-band; a cell-band out of PRBs (``max_prb`` on the cell) passes
-the UE to the next candidate in that same ranking. A layer at or below
-``kpi.hole_dbm`` is never a candidate.
+the strongest cell-band. A cell-band admits a UE only while its load is at most
+``kpi.capacity.max_admission_utilisation`` of ``max_prb`` (on the cell) and the
+UE's PRBs still fit under ``max_prb``; otherwise the UE passes to the next
+candidate in that same ranking. A layer at or below ``kpi.hole_dbm`` is never a
+candidate.
 
 Within an interval UEs are admitted in a seeded random order. Taking them in
-row order would hand PRBs to whichever UEs the MDT happens to sort first - the
-processed MDT is sorted by tile - so blocking would follow grid position.
+row order would hand PRBs to whichever UEs the UE table happens to sort first - the
+processed UE table is sorted by tile - so blocking would follow grid position.
 
 SINR is an input, never computed here: the solver's own, from the radio map
 (:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
@@ -41,6 +43,8 @@ class CapacitySpec:
     Attributes:
         band_rank: Preference per band, 0 most preferred, shape ``[n_band]``.
         rsrp_threshold_dbm: Below this a band is skipped for the next one.
+        max_admission_utilisation: Share of ``max_prb`` above which a cell-band
+            admits no further UE.
         min_rsrp_dbm: A layer at or below this is never a candidate.
         throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
@@ -50,6 +54,7 @@ class CapacitySpec:
 
     band_rank: np.ndarray
     rsrp_threshold_dbm: float
+    max_admission_utilisation: float
     min_rsrp_dbm: float
     throughput_per_ue_bps: float
     scs_hz: np.ndarray
@@ -66,10 +71,16 @@ class CapacitySpec:
 
         Raises:
             ValueError: When a band is absent from ``band_preference`` or has no
-                capacity entry, or the config holds other than ``n_tx`` cells.
+                capacity entry, the config holds other than ``n_tx`` cells, or
+                ``max_admission_utilisation`` is outside ``(0, 1]``.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
         capacity = cfg.kpi.capacity
+        admission = float(capacity.max_admission_utilisation)
+        if not 0.0 < admission <= 1.0:
+            raise ValueError(
+                f"kpi.capacity.max_admission_utilisation must be in (0, 1], got {admission}"
+            )
         preference = [str(label) for label in capacity.band_preference]
         missing = [
             label for label in band_labels if label not in preference or label not in capacity.bands
@@ -88,6 +99,7 @@ class CapacitySpec:
         return cls(
             band_rank=np.array([preference.index(label) for label in band_labels]),
             rsrp_threshold_dbm=float(capacity.rsrp_threshold_dbm),
+            max_admission_utilisation=admission,
             min_rsrp_dbm=float(cfg.kpi.hole_dbm),
             throughput_per_ue_bps=float(capacity.throughput_per_ue_bps),
             scs_hz=np.array([float(capacity.bands[label].scs_hz) for label in band_labels]),
@@ -140,11 +152,11 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
     return finite(rsrp).max(axis=(0, 1))
 
 
-def _tile_index(mdt: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
-    """The MDT's ``(row, col)`` tile indices, checked against the map's grid.
+def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """The UE table's ``(row, col)`` tile indices, checked against the map's grid.
 
     Args:
-        mdt: Synthetic MDT, one row per UE per interval, carrying ``tile_row``
+        ue: The UE table, one row per UE per interval, carrying ``tile_row``
             and ``tile_col``.
         shape: The radio map's ``(n_rows, n_cols)``.
 
@@ -153,15 +165,15 @@ def _tile_index(mdt: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, 
         ``[n_rows, n_cols]`` raster.
 
     Raises:
-        ValueError: When a UE falls outside the map's grid, which means the MDT
+        ValueError: When a UE falls outside the map's grid, which means the UE table
             and the radio map were built on different grids.
     """
     n_rows, n_cols = shape
-    row = mdt["tile_row"].to_numpy()
-    col = mdt["tile_col"].to_numpy()
+    row = ue["tile_row"].to_numpy()
+    col = ue["tile_col"].to_numpy()
     if row.min() < 0 or row.max() >= n_rows or col.min() < 0 or col.max() >= n_cols:
         raise ValueError(
-            f"MDT tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
+            f"UE tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
             f"outside the radio map's {n_rows} x {n_cols} grid. The two were built on "
             "different grids."
         )
@@ -221,7 +233,8 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
     """Assign one interval's UEs to cell-bands under the PRB limits.
 
     UEs are taken in the order given; each walks its :func:`_candidate_order`
-    and takes the first cell-band with room for it.
+    and takes the first cell-band still at or under its admission share of
+    ``max_prb`` and with room for the UE's PRBs.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
@@ -246,7 +259,8 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
         order = order[np.isfinite(ue_need[order])]
         if order.size == 0:
             continue
-        fits = order[load[order] + ue_need[order] <= limit[order]]
+        open_ = load[order] <= spec.max_admission_utilisation * limit[order]
+        fits = order[open_ & (load[order] + ue_need[order] <= limit[order])]
         if fits.size == 0:
             per_ue[ue] = ue_need[order[0]]
             continue
@@ -263,7 +277,7 @@ def serve_rows(
     """Run :func:`_select_serving` once per interval, in a seeded random UE order.
 
     The order depends only on ``spec.seed`` and the interval, so every tilt
-    candidate scored against one MDT admits its UEs in the same order.
+    candidate scored against one UE table admits its UEs in the same order.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
@@ -290,31 +304,31 @@ def serve_intervals(
     rsrp: np.ndarray,
     sinr: np.ndarray,
     band_labels: Sequence[str],
-    mdt: pd.DataFrame,
+    ue: pd.DataFrame,
     cfg: DictConfig,
 ) -> pd.DataFrame:
-    """Serve every MDT row from the radio map, via :func:`serve_rows`.
+    """Serve every UE row from the radio map, via :func:`serve_rows`.
 
     Args:
         rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``, read at
             each UE's tile, so the result follows the tilts.
         sinr: The solver's SINR in dB, same shape and axes as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
-        mdt: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
+        ue: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
         cfg: Composed config; see :meth:`CapacitySpec.from_config`.
 
     Returns:
-        One row per MDT row, index aligned: ``t_index``, ``tile_row``,
+        One row per UE row, index aligned: ``t_index``, ``tile_row``,
         ``tile_col``, ``band``, ``tx``, ``sinr_db`` (at the serving cell-band,
         NaN when blocked), ``prb_per_ue``.
 
     Raises:
-        ValueError: When the MDT is off the map's grid or the config does not
+        ValueError: When the UE table is off the map's grid or the config does not
             cover the map's bands and cells.
     """
     spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
-    row, col = _tile_index(mdt, rsrp.shape[-2:])
-    t_index = mdt["t_index"].to_numpy()
+    row, col = _tile_index(ue, rsrp.shape[-2:])
+    t_index = ue["t_index"].to_numpy()
 
     band, tx, per_ue = serve_rows(
         rsrp[:, :, row, col].transpose(2, 0, 1),
@@ -322,7 +336,7 @@ def serve_intervals(
         t_index,
         spec,
     )
-    out = pd.DataFrame({"t_index": t_index, "tile_row": row, "tile_col": col}, index=mdt.index)
+    out = pd.DataFrame({"t_index": t_index, "tile_row": row, "tile_col": col}, index=ue.index)
     out["band"], out["tx"], out["prb_per_ue"] = band, tx, per_ue
     served = band >= 0
     out["sinr_db"] = np.nan
@@ -348,7 +362,7 @@ def prb_by_interval(
     n_rows, n_cols = shape
     size = n_rows * n_cols
     t_values, t_pos = np.unique(t_index, return_inverse=True)
-    # int64 first: the processed MDT stores tiles as int16, and row * n_cols overflows it.
+    # int64 first: the processed UE table stores tiles as int16, and row * n_cols overflows it.
     flat = t_pos * size + np.asarray(row, dtype=np.int64) * n_cols + np.asarray(col, dtype=np.int64)
     prb = np.bincount(flat, weights=np.nan_to_num(prb_per_ue), minlength=len(t_values) * size)
     return t_values, prb.reshape(len(t_values), n_rows, n_cols)
@@ -358,7 +372,7 @@ def demand_prb(
     rsrp: np.ndarray,
     sinr: np.ndarray,
     band_labels: Sequence[str],
-    mdt: pd.DataFrame,
+    ue: pd.DataFrame,
     cfg: DictConfig,
 ) -> np.ndarray:
     """PRBs required per tile in its busiest interval, ``[n_rows, n_cols]``.
@@ -369,7 +383,7 @@ def demand_prb(
     Raises:
         ValueError: As :func:`serve_intervals`.
     """
-    served = serve_intervals(rsrp, sinr, band_labels, mdt, cfg)
+    served = serve_intervals(rsrp, sinr, band_labels, ue, cfg)
     _, prb = prb_by_interval(
         served["t_index"].to_numpy(),
         served["tile_row"].to_numpy(),

@@ -7,11 +7,11 @@
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0004](0004-soft-threshold-desirability-objective.md) — TuRBO and the
-  matched budgets stand; the weighted score it optimizes and selects by is
-  replaced by a desirability index, and kept only as an audit — then by
-  [ADR 0005](0005-separate-reported-and-targeted-kpis.md), which deletes that
-  audit score and `kpi.tolerance` with it.
+  [ADR 0006](0006-radio-load-cvar-objective.md) — TuRBO, the matched budgets
+  and highest-score selection stand; the weighted score it optimizes and
+  selects by is replaced by the radio-and-load objective, and `kpi.weights`
+  and the weight-sensitivity table are deleted. The intermediate ADRs 0004 and
+  0005 are in Git history.
 
 ## Context
 
@@ -67,10 +67,6 @@ seed (common random numbers); nothing is scored by a surrogate.
 - A gain on a lower-weighted KPI can outweigh a small loss on a higher one.
 - Selecting the maximum of many evaluations under one fixed solver seed favours
   candidates that benefit from that seed's Monte-Carlo noise.
-- The first of these is now measured rather than only stated: notebook 04
-  re-picks every winner under alternative weights (`weight_sensitivity`), and
-  the numbers live in `reports/tables/04_evaluation/`. The solver-seed
-  re-trace that measured the second was removed at the maintainer's direction.
 - Runs before 2026-09-13 used a different method and selection rule and are not
   comparable with runs after it.
 

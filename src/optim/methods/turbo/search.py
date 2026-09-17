@@ -1,4 +1,4 @@
-"""TuRBO-1 over the tilt box, maximising the KPI quality index.
+"""TuRBO-1 over the tilt box, maximising the radio-and-load objective.
 
 Eriksson et al. (2019), *Scalable Global Optimization via Local Bayesian
 Optimization* (NeurIPS): one trust region centred on the best point, a GP fitted
@@ -7,9 +7,9 @@ candidates inside the region. Written against BoTorch because neither Ax nor
 BoTorch ships it; candidate construction follows BoTorch's TuRBO-1 tutorial.
 
 The model sees one number per evaluation,
-:func:`src.optim.objective.quality_index`. The run still records every KPI,
-reported and targeted alike, so the published shortlist is built exactly as
-for every other method.
+:func:`src.optim.objective.score`. The run still records every KPI and both
+objective terms, so the published shortlist is built exactly as for every
+other method.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from omegaconf import DictConfig
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
 from src.optim.methods.base import ATTACHED, INCUMBENT, INIT, SEARCH, SOBOL, sobol
-from src.optim.objective import quality_index
+from src.optim.objective import score
 
 # Generation-node name of a trust-region proposal.
 TURBO = "TuRBO"
@@ -121,13 +121,13 @@ class TrustRegion:
 
 
 def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
-    """Run TuRBO-1 on the quality index for ``n_init + n_iter`` evaluations.
+    """Run TuRBO-1 on the objective for ``n_init + n_iter`` evaluations.
 
     Args:
         evaluator: Scores a tilt vector.
         cfg: Composed config; reads ``cfg.optim.method.budget``,
             ``cfg.optim.method.trust_region``, ``cfg.optim.seed`` and
-            ``cfg.kpi.weights``.
+            ``cfg.kpi.objective``.
 
     Returns:
         The history, whose first row is always the committed incumbent. Rows are
@@ -151,7 +151,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     history.append(incumbent, phase=INCUMBENT, generation_node=ATTACHED)
     # The GP's data since the last restart: unit-cube points and their scores.
     unit_x = [(space.baseline - lower) / span]
-    score_y = [float(quality_index([incumbent.kpi], cfg)[0])]
+    score_y = [float(score([incumbent.kpi], cfg)[0])]
 
     def evaluate(points: np.ndarray, phase: str, node: str) -> list[float]:
         new = []
@@ -159,7 +159,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             result = evaluator.evaluate(space.clip(lower + point * span))
             history.append(result, phase=phase, generation_node=node)
             unit_x.append(point)
-            new.append(float(quality_index([result.kpi], cfg)[0]))
+            new.append(float(score([result.kpi], cfg)[0]))
         score_y.extend(new)
         return new
 

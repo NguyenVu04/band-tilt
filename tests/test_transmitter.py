@@ -11,11 +11,12 @@ from src.simulation.transmitter import node_positions
 BOUNDS = SceneBounds(min_x=0.0, max_x=1000.0, min_y=-200.0, max_y=800.0, min_z=0.0, max_z=50.0)
 
 
-def test_nodes_form_an_equilateral_triangle():
-    """Three corners, one spacing apart, centred on the scene."""
-    corners = node_positions(BOUNDS, 600.0)
+def test_nodes_form_an_equilateral_triangle_around_a_centre_node():
+    """Three corners, one spacing apart, then a fourth node on the scene centre."""
+    *corners, centre = node_positions(BOUNDS, 600.0)
 
     assert len(corners) == 3
+    assert centre == pytest.approx((500.0, 300.0))
     for (ax, ay), (bx, by) in itertools.combinations(corners, 2):
         assert math.dist((ax, ay), (bx, by)) == pytest.approx(600.0)
     assert sum(x for x, _ in corners) / 3 == pytest.approx(500.0)

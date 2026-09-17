@@ -12,7 +12,7 @@ output:
 
 seed: ${seed}
 
-# Solutions published for choice, best first. The incumbent and the quality-index
+# Solutions published for choice, best first. The incumbent and the objective
 # pick are always among them, so this is the total and not an addition to them. It bounds what an operator is asked to read, not what the
 # run computes: every candidate is measured either way.
 n_solutions: 8

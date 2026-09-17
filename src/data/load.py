@@ -1,4 +1,4 @@
-"""Read the four simulation artifacts, and write processed tables as Parquet."""
+"""Read the three simulation artifacts, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ _STAGES = {
     "ue_file": "scenario",
     "manifest_file": "scenario",
     "radio_map_file": "radio",
-    "mdt_file": "mdt",
 }
 
 
@@ -25,14 +24,12 @@ class Artifacts:
     """One scenario's simulation output, read but not yet verified.
 
     Attributes:
-        mdt: ``data/interim/mdt.csv`` as read, before any typing.
-        ue: The UE population the MDT was sampled from. Longer than ``mdt``,
-            which drops UEs no transmitter reaches.
+        ue: ``data/external/ue_positions.csv`` as read, before any typing.
+            Every drawn UE, including those no transmitter reaches.
         radio: Every array in ``radio_map.npz``, keyed as written.
         manifest: The parsed ``scenario.json``.
     """
 
-    mdt: pd.DataFrame
     ue: pd.DataFrame
     radio: dict[str, np.ndarray]
     manifest: dict[str, Any]
@@ -49,10 +46,10 @@ class Artifacts:
 
     @property
     def measurement_columns(self) -> list[str]:
-        """The ``rsrp_*`` column names the MDT is expected to carry, in order.
+        """One ``rsrp_<cell>_<band>`` name per cell-band pair, in order.
 
-        Cell-major, band-minor, matching how ``src.simulation.mdt.build``
-        flattens the sampled array.
+        Cell-major, band-minor: the dimension order of
+        :class:`src.optim.space.TiltSpace`.
         """
         return [f"rsrp_{tx}_{band}" for tx in self.tx_names for band in self.band_labels]
 
@@ -86,7 +83,6 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
         radio = {key: archive[key] for key in archive.files}
 
     return Artifacts(
-        mdt=pd.read_csv(paths["mdt_file"]),
         ue=pd.read_csv(paths["ue_file"]),
         radio=radio,
         manifest=json.loads(paths["manifest_file"].read_text(encoding="utf-8")),
@@ -96,9 +92,8 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
 def save(frame: pd.DataFrame, path: str | Path) -> Path:
     """Write ``frame`` to Parquet, creating the directory. Returns the path.
 
-    Parquet rather than CSV because it round-trips dtypes. The reported
-    indicators stay boolean and the RSRP columns stay float32 with a real NaN,
-    which a CSV reader would have to guess at.
+    Parquet rather than CSV because it round-trips dtypes: the int16 tiles and
+    the categorical columns, which a CSV reader would have to guess at.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

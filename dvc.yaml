@@ -3,7 +3,7 @@
 # The stages mirror the Taskfile targets and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Five stages are active: the three `simulation_*` stages (notebook 00),
+# Four stages are active: the two `simulation_*` stages (notebook 00),
 # `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
 # MARL and held-out validation still have no code in src/, so there is nothing
 # to define a stage against. Add those when the modules land instead of
@@ -83,23 +83,7 @@ stages:
     outs:
       - data/interim/radio_map.npz
 
-  # --- Stage 3: the MDT (notebook 00, section 5) ------------------------------
-  # Samples the clean radio map at every UE position and adds receiver noise.
-  simulation_mdt:
-    cmd: python -m src.simulation.mdt
-    deps:
-      - src/simulation/mdt.py
-      - src/simulation/seeds.py
-      - data/external/ue_positions.csv
-      - data/interim/radio_map.npz
-    params:
-      - configs/simulation.yaml:
-          - mdt
-          - seed
-    outs:
-      - data/interim/mdt.csv
-
-  # --- Stage 4: preprocessing (notebook 02) -----------------------------------
+  # --- Stage 3: preprocessing (notebook 02) -----------------------------------
   # Verifies the simulation output against the contract named in each check
   # (configs/simulation.yaml or the scenario manifest), then writes the typed,
   # verified tables everything downstream reads. Nothing here learns from the
@@ -116,13 +100,12 @@ stages:
       - src/data/load.py
       - src/data/schema.py
       - src/simulation/transmitter.py
-      - src/simulation/mdt.py
       - src/simulation/radio.py
+      - src/simulation/sample.py
       - src/core/cell.py
       - data/external/ue_positions.csv
       - data/external/scenario.json
       - data/interim/radio_map.npz
-      - data/interim/mdt.csv
     params:
       - configs/simulation.yaml:
           - scene
@@ -132,7 +115,7 @@ stages:
           - antenna
           - ue
     outs:
-      - data/processed/mdt.parquet
+      - data/processed/ue.parquet
       - data/processed/cell.parquet
 
   # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
@@ -144,8 +127,8 @@ stages:
   # data/processed/cell.parquet: the search reads the committed tilt bounds from
   # the config, and the parquet is that same table in another form.
   #
-  # kpi is a param because the objective IS the KPI definitions: change a
-  # threshold and every previous run becomes incomparable.
+  # kpi is a param because the objective reads the KPI thresholds, the capacity
+  # model and kpi.objective: change any and every previous run becomes incomparable.
   optimization:
     cmd: python -m src.optim.run
     deps:
@@ -165,7 +148,7 @@ stages:
       - src/simulation/seeds.py
       - src/core/cell.py
       - data/external/scenario.json
-      - data/processed/mdt.parquet
+      - data/processed/ue.parquet
     params:
       - configs/optim/base.yaml:
           - seed
@@ -187,7 +170,7 @@ stages:
           - weak_dbm
           - overlap_margin_db
           - capacity
-          - weights
+          - objective
       - configs/simulation.yaml:
           - scene
           - grid

@@ -54,8 +54,7 @@ class Cell:
 
     Attributes:
         name: Unique across the layout, and ``n<node>c<cell>`` for a generated
-            one; becomes the transmitter name and the stem of the MDT column
-            names.
+            one; becomes the transmitter name.
         x: Position east, in scene metres.
         y: Position north, in scene metres.
         z: Mast height above the scene's ground plane.

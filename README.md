@@ -65,19 +65,23 @@ demand, and band-specific propagation behaviour.
 
 The repository evaluates this idea entirely in simulation. `src/simulation/`
 loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
-per-band radio maps, and samples them to produce synthetic MDT. The implemented
+and per-band radio maps; KPIs are counted over every UE. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Four shared KPIs - hole rate, overlap rate,
-served ratio (the share of UEs admitted to a cell-band), and weak-signal rate -
-score every candidate through [`src/kpi/`](src/kpi/); their definitions are documented in
-[ADR 0001](docs/adr/0001-four-kpis-and-weighted-score.md).
-[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE
-under per-cell PRB limits; the served ratio counts the UEs it admits, and the PRB
-demand map built from it is a diagnostic outside the objective.
+from the incumbent configuration. Five reported KPIs - hole rate, overlap rate,
+served ratio (the share of UEs admitted to a cell-band), weak-signal rate and
+cell-edge RSRP - are measured for every candidate through [`src/kpi/`](src/kpi/)
+([ADR 0001](docs/adr/0001-four-kpis-and-weighted-score.md)). The search maximises
+one objective, `J = J_radio^gamma * J_load^(1 - gamma)`
+([ADR 0006](docs/adr/0006-radio-load-cvar-objective.md)): coverage utility
+discounted by co-band overlap, against the CVaR of PRB utilisation above a
+target. [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band
+per UE under per-cell PRB limits and an admission cap; the served ratio and
+`J_load` count what it admits, and the PRB demand map built from it is a
+diagnostic outside the objective.
 
 Sionna-RT scores every candidate the search proposes, at roughly 8 s each, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
-TuRBO-1 Bayesian Optimization on a weighted KPI score and two baselines are
+TuRBO-1 Bayesian Optimization on that objective and two baselines are
 implemented; Multi-Agent Reinforcement Learning and held-out scenario
 validation remain planned.
 
@@ -94,9 +98,9 @@ flowchart TB
     scene["Sionna-RT scene<br/>bundled"]
     cells["Cell layout<br/>configs/simulation.yaml, generated once"]
 
-    sim["src/simulation<br/>scenario · radio map · synthetic MDT"]
+    sim["src/simulation<br/>scenario · radio map"]
     prep["src/data<br/>schema verification · typed tables"]
-    kpi["src/kpi<br/>reported rates · targeted desirabilities · PRB demand"]
+    kpi["src/kpi<br/>reported KPIs · serving rule · PRB demand"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
     ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
@@ -134,12 +138,12 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Component | Responsibility | Location |
 |---|---|---|
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
-| Simulation | UE population, radio-map ray tracing, synthetic MDT | [`src/simulation/`](src/simulation/) |
+| Simulation | UE population, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and its quality index, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and the radio-and-load objective, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -164,7 +168,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Python | `>=3.11,<3.14` | capped: hydra-core 1.3.x cannot build its argparse parser on 3.14 |
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
-| CUDA GPU | — | needed for `task simulation:radio` and `task simulation:mdt`; Sionna-RT ray tracing is impractically slow without one |
+| CUDA GPU | — | needed for `task simulation:scenario` and `task simulation:radio`; Sionna-RT ray tracing is impractically slow without one |
 | Sionna-RT scene | — | bundled with the `rt` extra (`task sync:rt`); nothing supplied externally |
 
 ### Install
@@ -227,8 +231,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 
 | Group | File | Holds |
 |---|---|---|
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, MDT measurement noise, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, quality-index weights, and the placeholder `capacity` block (band preference, serving threshold, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (tau_R, beta, rho_0, alpha, gamma), and the placeholder `capacity` block (band preference, serving threshold, admission cap, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -268,7 +272,7 @@ through the task runner and `dvc repro`. Both call the same functions in
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — The synthetic network: nodes, traffic, radio map, synthetic MDT | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
+| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio`) |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |
@@ -333,12 +337,12 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`,
 the last being the solutions offered for choice.
 
-The solutions offered are the incumbent plus the highest quality indices
-(`kpi.weights`, ADR 0005). `optim.n_solutions` sets how many, 8 by default,
+The solutions offered are the incumbent plus the highest objective scores
+(`kpi.objective`, ADR 0006). `optim.n_solutions` sets how many, 8 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
-per offered solution, its score, every KPI and each one's delta against the
+per offered solution, its score, every KPI and objective term and each one's delta against the
 incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
 becomes. The highest score marks one row `recommended` and
 `tilt_change_<method>.csv` carries it. The MARL arm is not
@@ -355,7 +359,7 @@ cell clones the repository and installs what Colab does not ship.
 ```
 band-tilt/
 ├── configs/       Hydra config groups — every tunable
-├── data/          gitignored; scenario, radio map and MDT artifacts (DVC not yet initialised — see External dependencies)
+├── data/          gitignored; scenario, radio map and UE artifacts (DVC not yet initialised — see External dependencies)
 ├── docs/adr/      architecture decision records
 ├── notebooks/     one per pipeline phase, 00 through 04
 ├── outputs/       gitignored; one directory per optimization run
@@ -371,7 +375,7 @@ band-tilt/
 | Area | State |
 |---|---|
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
-| `src/simulation/` — scenario, scene, materials, transmitters, radio map, MDT | Implemented; runs end to end for one scenario (`task simulation`) |
+| `src/simulation/` — scenario, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) |
 | `src/kpi/` — the KPIs (`hole`, `overlap`, `served`, `weak`, `quality`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — config loading, seeding, plotting | Implemented |

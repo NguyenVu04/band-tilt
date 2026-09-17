@@ -1,5 +1,5 @@
 # @package optim.method
-# TuRBO-1 on the weighted KPI score (configs/kpi.yaml `weights`, ADR 0003).
+# TuRBO-1 on the objective (configs/kpi.yaml `objective`, ADR 0006).
 # Budget matched to random.yaml, so the two differ only in where they look.
 
 name: turbo

@@ -72,6 +72,10 @@ describe the current system and 0002 (superseded by 0003) was deleted. This
 departs from the rule above; the earlier text, including every revision note,
 is in Git history. Each rewritten record says so in its header.
 
+On 2026-09-17, again at the maintainer's direction, 0004 and 0005 were deleted
+when 0006 replaced the objective they defined, and the headers of 0001 and 0003
+were amended to point at 0006.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -82,7 +86,6 @@ is the thing these records exist to preserve.
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
 | [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
 | [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
-| [0004](0004-soft-threshold-desirability-objective.md) | A soft-threshold desirability objective | Superseded by 0005 | 2026-09-16 | — |
-| [0005](0005-separate-reported-and-targeted-kpis.md) | Separate reported and targeted KPIs | Accepted | 2026-09-16 | — |
+| [0006](0006-radio-load-cvar-objective.md) | A radio-and-load CVaR objective | Accepted | 2026-09-17 | — |
 
-0002 is deleted; the number is not reused.
+0002, 0004 and 0005 are deleted; the numbers are not reused.

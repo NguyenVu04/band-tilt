@@ -16,13 +16,14 @@ from omegaconf import DictConfig
 
 from src.data.load import Artifacts
 from src.simulation import transmitter
-from src.simulation.mdt import POSITION_COLUMNS
+from src.simulation.sample import CSV_COLUMNS
 
 _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
 _MAP = "radio_map.npz"
+_UE = "ue_positions.csv"
 
-# The MDT is written with float_format="%.3f", so t_s round-trips to the
+# The UE table writes t_s with three decimals, so it round-trips to the
 # millisecond and no closer.
 _T_S_TOL = 1e-3
 
@@ -49,13 +50,11 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     def record(name: str, source: str, holds: bool, violations: int = 0) -> None:
         checks.append((name, source, bool(holds), int(violations)))
 
-    mdt = artifacts.mdt
+    ue = artifacts.ue
     grid = artifacts.manifest["grid"]
     n_rows, n_cols = artifacts.shape
     max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
     max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
-    position = [column for column in mdt.columns if not column.startswith("rsrp_")]
-    measurement = [column for column in mdt.columns if column.startswith("rsrp_")]
 
     # --- structure: do the three files describe the same run? ---------------
     cells = transmitter.load(cfg)
@@ -87,12 +86,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         _CONFIG,
         float(artifacts.radio["ue_height_m"]) == float(cfg.simulation.ue.height_m),
     )
-    record("mdt position columns are the declared set", _CONFIG, position == list(POSITION_COLUMNS))
-    record(
-        "mdt measurement columns are cell x band, in order",
-        _MAP,
-        measurement == artifacts.measurement_columns,
-    )
+    record("ue columns are the declared set", _CONFIG, list(ue.columns) == list(CSV_COLUMNS))
     record(
         "npz sinr_db has the shape of rsrp_dbm",
         _MAP,
@@ -101,42 +95,42 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     )
 
     # --- rows: bounds whose source is the config or the manifest ------------
-    values = mdt[measurement].to_numpy()
-    finite = np.isfinite(values)
-
     record(
         "z equals the configured UE height",
         _CONFIG,
-        *_count(mdt["z"].to_numpy() != float(cfg.simulation.ue.height_m)),
+        *_count(ue["z"].to_numpy() != float(cfg.simulation.ue.height_m)),
     )
     record(
         "0 <= tile_row < n_rows",
         _MANIFEST,
-        *_count((mdt["tile_row"] < 0) | (mdt["tile_row"] >= n_rows)),
+        *_count((ue["tile_row"] < 0) | (ue["tile_row"] >= n_rows)),
     )
     record(
         "0 <= tile_col < n_cols",
         _MANIFEST,
-        *_count((mdt["tile_col"] < 0) | (mdt["tile_col"] >= n_cols)),
+        *_count((ue["tile_col"] < 0) | (ue["tile_col"] >= n_cols)),
     )
     record(
         "x, y inside the grid extent",
         _MANIFEST,
         *_count(
-            (mdt["x"] < grid["origin_x"])
-            | (mdt["x"] > max_x)
-            | (mdt["y"] < grid["origin_y"])
-            | (mdt["y"] > max_y)
+            (ue["x"] < grid["origin_x"])
+            | (ue["x"] > max_x)
+            | (ue["y"] < grid["origin_y"])
+            | (ue["y"] > max_y)
         ),
     )
     record(
-        "reported RSRP does not exceed the transmit RS power",
+        "radio-map RSRP does not exceed the transmit RS power",
         _CONFIG,
-        *_count(finite & (values > float(cfg.simulation.antenna.power_rs))),
+        *_count(
+            np.nan_to_num(artifacts.radio["rsrp_dbm"], nan=-np.inf)
+            > float(cfg.simulation.antenna.power_rs)
+        ),
     )
 
     schedule = np.asarray(artifacts.manifest["time"]["t_s"], dtype=np.float64)
-    t_index = mdt["t_index"].to_numpy()
+    t_index = ue["t_index"].to_numpy()
     in_range = (t_index >= 0) & (t_index < len(schedule))
     record("t_index lies inside the schedule", _MANIFEST, *_count(~in_range))
     record(
@@ -145,22 +139,15 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         *_count(
             in_range
             & ~np.isclose(
-                mdt["t_s"].to_numpy(),
+                ue["t_s"].to_numpy(),
                 schedule[np.clip(t_index, 0, len(schedule) - 1)],
                 atol=_T_S_TOL,
             )
         ),
     )
 
-    # Section 11 names (t_index, x, y) as the join key back to the UE table, so
-    # a duplicate there would make the join ambiguous, not merely redundant.
-    record("no duplicate rows", _MAP, *_count(mdt.duplicated().to_numpy()))
-    record(
-        "no duplicate (t_index, x, y) join keys",
-        _MAP,
-        *_count(mdt.duplicated(subset=["t_index", "x", "y"]).to_numpy()),
-    )
-    record("every row reports at least one measurement", _MAP, *_count(~finite.any(axis=1)))
+    # Positions are continuous draws, so a repeated row is a writer fault.
+    record("no duplicate rows", _UE, *_count(ue.duplicated().to_numpy()))
 
     # --- the cell table the map was solved at -------------------------------
     tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)

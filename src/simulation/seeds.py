@@ -9,7 +9,6 @@ _OFFSET = {
     "scene": 0,  # the grid raster
     "density": 1,  # hotspot centres and per-tile weights
     "sample": 2,  # UE positions
-    "mdt": 4,  # measurement error
     "traffic": 5,  # per-interval counts and mixture masses
     "solver": 6,  # the ray tracer's own Monte-Carlo stream
 }

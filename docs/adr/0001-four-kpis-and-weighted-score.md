@@ -8,10 +8,10 @@
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0004](0004-soft-threshold-desirability-objective.md) and
-  [ADR 0005](0005-separate-reported-and-targeted-kpis.md) — the four
-  definitions below stand, but the objective is now three of them plus a
-  fifth measured KPI. See Amendment.
+  [ADR 0006](0006-radio-load-cvar-objective.md) — the four definitions below
+  stand and are reported, but the objective is no longer built from them. See
+  Amendment. The amendments for the deleted ADRs 0004 and 0005 are in Git
+  history.
 
 ## Context
 
@@ -44,33 +44,23 @@ The column order, **Hole > Overlap > Served > Weak**, is the reporting order
 and the order of the default weights. Selection is the weighted score of
 [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md), not a lexicographic rule.
 
-## Amendment (2026-09-16, ADR 0004)
+## Amendment (2026-09-17, ADR 0006)
 
-The four definitions above are unchanged and still the only ones. What
-changed is which of them the objective reads:
+The four definitions above are unchanged. What changed around them:
 
-- **Weak rate leaves the objective**, and stays measured and reported.
-- **The served ratio enters the objective per tile**, softened on each tile
-  and averaged (`served_desirability`); the UE-share figure above remains the
-  reported headline and is what the audit score reads.
+- **None of them is the objective.** The search maximises
+  `J = J_radio^gamma · J_load^(1 − gamma)` of
+  [ADR 0006](0006-radio-load-cvar-objective.md); the KPIs are measured and
+  reported beside it.
 - **A fifth KPI is measured**: `edge_rsrp_dbm`, the 5th-percentile serving
-  RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). Reported only.
-  It is conditional on coverage, so it is read beside the hole rate.
-- Selection is no longer the weighted sum; see ADR 0004.
-
-## Amendment (2026-09-16, ADR 0005)
-
-The four definitions above are still unchanged. What changed is that the
-reported rates and the searched-for desirabilities are now separate metrics
-(`REPORT_NAMES` and `TARGET_NAMES`), each desirability softens the same
-threshold its rate steps on, and the overlap desirability softens the 6 dB
-margin on the RSRP difference rather than the neighbour count. The weighted sum
-kept as an audit by ADR 0004 is deleted, and so is `kpi.tolerance`.
+  RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). It is conditional
+  on coverage, so it is read beside the hole rate.
 
 **The serving rule.** Each UE takes the most preferred band
 (`kpi.capacity.band_preference`) whose layer clears
 `kpi.capacity.rsrp_threshold_dbm`, else the strongest layer; a cell-band out of
-PRBs (`max_prb`) passes the UE to the next candidate. PRBs per UE are
+PRBs (`max_prb`), or already loaded past `kpi.capacity.max_admission_utilisation`
+of them, passes the UE to the next candidate. PRBs per UE are
 `throughput_per_ue_bps / (12 · SCS · log2(1 + SINR))`, with the solver's
 full-load co-band SINR. UEs within an interval are admitted in a seeded random
 order, so which UE is blocked does not follow its position in the MDT. A layer
@@ -78,9 +68,6 @@ at or below `kpi.hole_dbm` never serves.
 
 A UE on a hole, and a UE blocked everywhere, both count as not served. The
 three rates are shares of the map; the served ratio is a share of the traffic.
-
-Each KPI carries a **tolerance** in `configs/kpi.yaml`, used only to report a
-delta as better, worse or a tie.
 
 **Accessibility is excluded** as a KPI: synthetic MDT carries RSRP and position,
 not connection outcomes, and Sionna-RT models propagation, not random access.
@@ -97,9 +84,6 @@ not connection outcomes, and Sionna-RT models propagation, not random access.
 
 - **Every `kpi.capacity` value is a placeholder.** The served ratio is only as
   good as the per-UE throughput, PRB limits, SCS and band preference behind it.
-- `kpi.tolerance.served_ratio` is unmeasured; the other tolerances sit at the
-  ray tracer's run-to-run spread under a changed solver seed. (ADR 0005 deletes
-  the block: the unmeasured entries were never derived.)
 - The objective mixes two notions of where the map matters: three KPIs weight
   every tile equally, the served ratio weights UE reports. It also overlaps hole
   rate, since a UE on a hole is unserved.

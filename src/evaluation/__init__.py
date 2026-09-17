@@ -30,8 +30,8 @@ tile-based hole rate is several times the UE-weighted one, because most holes
 fall where nobody is.
 
 That is a reporting view and nothing more. The objective remains exactly the
-four KPIs of docs/adr/0001-four-kpis-and-weighted-score.md; no demand-weighted
-coverage quantity joins them. The thresholds separating hole, weak and good are read from
+one of docs/adr/0006-radio-load-cvar-objective.md; no demand-weighted coverage
+quantity joins it. The thresholds separating hole, weak and good are read from
 ``cfg.kpi``, never restated here, so a diagnostic and its KPI always cut the
 map at the same dBm.
 """

@@ -37,8 +37,8 @@ class Band:
     tilt would force every cell of a band to point alike.
 
     Attributes:
-        name: Identifies the band in the cell tilt table and in the MDT
-            column names. The one place the band's identity is spelled.
+        name: Identifies the band in the cell tilt table and the radio map.
+            The one place the band's identity is spelled.
         frequency_hz: Carrier frequency.
         bandwidth_hz: Transmission bandwidth; with temperature it fixes the
             thermal noise power.

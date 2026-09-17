@@ -112,6 +112,7 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     cfg.kpi.capacity = {
         "band_preference": ["b"],
         "rsrp_threshold_dbm": -110.0,
+        "max_admission_utilisation": 1.0,
         "throughput_per_ue_bps": 1e6,
         "bands": {"b": {"scs_hz": 15000}},
     }
@@ -133,8 +134,8 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     }
     rsrp = np.full((1, 1, 3, 4), -90.0)
     sinr = np.full(rsrp.shape, 20.0)
-    mdt = pd.DataFrame({"t_index": [0, 0, 0], "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
-    counts = capacity.demand_prb(rsrp, sinr, ["b"], mdt, cfg)
+    ue = pd.DataFrame({"t_index": [0, 0, 0], "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]})
+    counts = capacity.demand_prb(rsrp, sinr, ["b"], ue, cfg)
 
     per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(20.0, 180_000.0))
     assert counts.shape == (3, 4)
