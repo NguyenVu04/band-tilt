@@ -119,6 +119,23 @@ LABELS = {
     "mean_abs_delta_deg": "Mean absolute tilt change [°]",
     "max_abs_delta_deg": "Largest tilt change [°]",
     "mean_delta_deg": "Mean tilt change [°]",
+    "parameter": "Parameter",
+    "setting": "Setting",
+    "phase": "Phase",
+    "budget": "Evaluations",
+    "gamma": "gamma",
+    "same_best": "Same pick as the run",
+    "mean_neighbours_covered": "Mean overlap neighbours, covered tiles",
+    "mean_neighbours_all": "Mean overlap neighbours, all tiles",
+    "share_0_neighbours": "Share with 0 neighbours",
+    "share_1_neighbours": "Share with 1 neighbour",
+    "share_2_neighbours": "Share with 2 neighbours",
+    "share_3plus_neighbours": "Share with 3+ neighbours",
+    "coverage_share": "Share of area covered by the band",
+    "mean_band_rsrp_dbm": "Mean band RSRP where covered [dBm]",
+    "serving_tile_share": "Share of area served on the band",
+    "served_share": "Share of UE reports served on the band",
+    "served_sinr_median_db": "Served SINR on the band, median [dB]",
 }
 
 

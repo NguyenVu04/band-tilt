@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -10,8 +11,10 @@ import pandas as pd
 from omegaconf import DictConfig
 from scipy import stats
 
+from src.evaluation import maps
 from src.evaluation.runs import Run
-from src.kpi.capacity import prb_by_interval, serve_intervals
+from src.kpi.capacity import CapacitySpec, finite, max_rsrp, prb_by_interval, serve_intervals
+from src.kpi.overlap import overlap_neighbors
 from src.optim.objective import (
     MAXIMISED,
     MEASURE_NAMES,
@@ -21,6 +24,7 @@ from src.optim.objective import (
     score,
     score_frame,
 )
+from src.utils.plotting import label as display_name
 
 BETTER = "better"
 WORSE = "worse"
@@ -519,3 +523,258 @@ def summarise(runs: list[Run], cfg: DictConfig) -> str:
             verdict = f"improved {improved} KPI(s), worsened {worsened}"
         lines.append(f"  {run.label} (seed {run.seed}): {run.n_evaluations} evaluations, {verdict}")
     return "\n".join(lines)
+
+
+def experiment_setup(
+    baseline: Mapping[str, np.ndarray], ue: pd.DataFrame, runs: list[Run], cfg: DictConfig
+) -> pd.DataFrame:
+    """The network, search space and budget the comparison ran on.
+
+    Returns:
+        Columns ``parameter`` and ``setting``, the setting as text.
+    """
+    n_rows, n_cols = maps.grid_shape(baseline)
+    tile = float(baseline["tile_size_m"])
+    tilt = runs[0].best_tilt
+    current = sorted(tilt["current_tilt_deg"].unique())
+    rows = [
+        ("Scenario", baseline["scenario_id"]),
+        ("Cells", len(baseline["tx_name"])),
+        ("Frequency bands", ", ".join(display_name(str(band)) for band in baseline["band_label"])),
+        ("Decision variables (cell-band tilts)", len(tilt)),
+        ("Evaluation area [m]", f"{n_cols * tile:g} x {n_rows * tile:g}"),
+        ("Grid resolution [m]", f"{tile:g}"),
+        ("Grid tiles", n_rows * n_cols),
+        ("UE reports", len(ue)),
+        ("Measurement intervals", ue["t_index"].nunique()),
+        ("Tilt bounds [°]", f"{tilt['tilt_min_deg'].min():g} to {tilt['tilt_max_deg'].max():g}"),
+        ("Current tilts [°]", ", ".join(f"{value:g}" for value in current)),
+        ("Hole threshold [dBm]", f"{float(cfg.kpi.hole_dbm):g}"),
+        ("Weak coverage upper bound [dBm]", f"{float(cfg.kpi.weak_dbm):g}"),
+        ("Overlap margin [dB]", f"{float(cfg.kpi.overlap_margin_db):g}"),
+    ]
+    for run in runs:
+        settings = {k: v for k, v in run.meta["config"]["optim"]["method"].items() if k != "name"}
+        rows.append(
+            (
+                f"{display_name(run.method)}, seed {run.seed}",
+                f"{run.n_evaluations} evaluations; {settings}",
+            )
+        )
+    return pd.DataFrame(
+        [(name, str(value)) for name, value in rows], columns=["parameter", "setting"]
+    )
+
+
+def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
+    """Percentage change of each method's mean winner against the incumbent, positive is better.
+
+    Args:
+        summary: :func:`seed_summary` output.
+
+    Returns:
+        One row per method, one column per measure and ``score``. NaN where the
+        incumbent is zero.
+    """
+    sign = np.where(summary["direction"] == "maximise", 1.0, -1.0)
+    base = summary["incumbent"].abs().replace(0.0, np.nan)
+    frame = summary.assign(improvement=sign * (summary["mean"] - summary["incumbent"]) / base * 100)
+    wide = frame.pivot(index="method", columns="kpi", values="improvement")
+    wide = wide.reindex(
+        index=list(dict.fromkeys(summary["method"])), columns=list(dict.fromkeys(summary["kpi"]))
+    )
+    wide.columns.name = None
+    return wide.reset_index()
+
+
+def sample_efficiency(
+    trace: pd.DataFrame,
+    kpis: Sequence[str] = (SCORE, "hole_rate", "overlap_rate"),
+    budgets: Sequence[int] = (10, 25, 50, 100),
+) -> pd.DataFrame:
+    """Best value each method had reached after a fixed number of evaluations, mean over seeds.
+
+    The incumbent is the first evaluation. The longest run's length is added to
+    ``budgets``; a budget beyond a run's length is NaN for that run.
+
+    Args:
+        trace: :func:`convergence` output.
+        kpis: Measures to report, or ``score``.
+        budgets: Evaluation counts to read the running best at.
+
+    Returns:
+        Columns ``kpi``, ``budget``, then one per method.
+    """
+    lengths = trace.groupby(["method", "seed"])["iteration"].max() + 1
+    budgets = sorted({*budgets, int(lengths.max())})
+    rows = []
+    for (method, seed, kpi), group in trace[trace["kpi"].isin(kpis)].groupby(
+        ["method", "seed", "kpi"], sort=False
+    ):
+        values = group.set_index("iteration")["value"]
+        for budget in budgets:
+            reached = budget <= lengths[(method, seed)]
+            rows.append(
+                {
+                    "kpi": kpi,
+                    "budget": budget,
+                    "method": method,
+                    "value": float(values.loc[budget - 1]) if reached else np.nan,
+                }
+            )
+    frame = pd.DataFrame(rows)
+    wide = frame.groupby(["kpi", "budget", "method"], sort=False)["value"].mean().unstack("method")
+    wide = wide.reindex(columns=list(dict.fromkeys(frame["method"])))
+    wide = wide.reindex(pd.MultiIndex.from_product([list(kpis), budgets], names=["kpi", "budget"]))
+    wide.columns.name = None
+    return wide.reset_index()
+
+
+def pareto_front(frame: pd.DataFrame, columns: Sequence[str]) -> np.ndarray:
+    """Which rows no other row dominates, each column read in its own direction.
+
+    A row dominates another when it is no worse on every column and strictly
+    better on at least one, so identical rows do not dominate each other.
+
+    Returns:
+        Boolean mask over the rows.
+    """
+    # ponytail: O(n^2) pairwise comparison; fine for a few thousand candidates, sort-based if more.
+    values = np.column_stack(
+        [
+            frame[column].to_numpy(float) * (-1.0 if direction(column) == "maximise" else 1.0)
+            for column in columns
+        ]
+    )
+    no_worse = (values[:, None, :] <= values[None, :, :]).all(axis=2)
+    better = (values[:, None, :] < values[None, :, :]).any(axis=2)
+    return ~(no_worse & better).any(axis=0)
+
+
+def candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
+    """Every configuration each run evaluated, with its score.
+
+    A search trace: the UE-counted measures are over the MDT.
+
+    Returns:
+        Columns ``method``, ``seed``, ``iteration``, ``phase``, every measure
+        and ``score``.
+    """
+    frames = [
+        run.history[["iteration", "phase", *MEASURE_NAMES]].assign(
+            method=run.method, seed=run.seed, score=score_frame(run.history, cfg)
+        )
+        for run in runs
+    ]
+    frame = pd.concat(frames, ignore_index=True)
+    leading = ["method", "seed"]
+    return frame[leading + [column for column in frame.columns if column not in leading]]
+
+
+def overlap_neighbour_summary(
+    configurations: Mapping[str, Configuration], cfg: DictConfig
+) -> pd.DataFrame:
+    """How many co-band neighbours overlap the serving cell, per configuration.
+
+    Covered tiles are those whose strongest layer is above ``kpi.hole_dbm``. An
+    uncovered tile has no neighbours by definition, so the covered mean is the
+    one to compare.
+
+    Returns:
+        One row per configuration: ``mean_neighbours_covered``,
+        ``mean_neighbours_all``, and the share of covered tiles with 0, 1, 2,
+        and 3 or more overlapping neighbours.
+    """
+    rows = []
+    for name, config in configurations.items():
+        counts = overlap_neighbors(config.rsrp, cfg)
+        covered = counts[max_rsrp(config.rsrp) > float(cfg.kpi.hole_dbm)]
+        if covered.size == 0:
+            covered = np.array([np.nan])
+        rows.append(
+            {
+                "configuration": name,
+                "mean_neighbours_covered": float(covered.mean()),
+                "mean_neighbours_all": float(counts.mean()),
+                "share_0_neighbours": float((covered == 0).mean()),
+                "share_1_neighbours": float((covered == 1).mean()),
+                "share_2_neighbours": float((covered == 2).mean()),
+                "share_3plus_neighbours": float((covered >= 3).mean()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def band_layer_summary(
+    configurations: Mapping[str, Configuration], band_labels: Sequence[str], cfg: DictConfig
+) -> pd.DataFrame:
+    """What each frequency layer covers and carries, per configuration.
+
+    Returns:
+        One row per configuration and band: ``coverage_share`` (tiles where the
+        band's strongest cell is above ``kpi.hole_dbm``), ``mean_band_rsrp_dbm``
+        over those tiles, ``serving_tile_share`` (tiles the serving rule puts on
+        the band, before PRB limits), ``served_share`` (UE reports admitted on
+        the band, after them) and ``served_sinr_median_db`` of those reports.
+    """
+    hole_dbm = float(cfg.kpi.hole_dbm)
+    rows = []
+    for name, config in configurations.items():
+        spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
+        tile_band = maps.serving_band(config.rsrp, spec.band_rank, spec.rsrp_threshold_dbm)
+        strongest = finite(config.rsrp).max(axis=1)
+        served_band = config.served["band"].to_numpy()
+        for index, band in enumerate(band_labels):
+            covered = strongest[index] > hole_dbm
+            mine = served_band == index
+            rows.append(
+                {
+                    "configuration": name,
+                    "band": band,
+                    "coverage_share": float(covered.mean()),
+                    "mean_band_rsrp_dbm": float(strongest[index][covered].mean())
+                    if covered.any()
+                    else np.nan,
+                    "serving_tile_share": float((tile_band == index).mean()),
+                    "served_share": float(mine.mean()),
+                    "served_sinr_median_db": float(config.served.loc[mine, "sinr_db"].median())
+                    if mine.any()
+                    else np.nan,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def gamma_sensitivity(
+    runs: list[Run], cfg: DictConfig, gammas: Sequence[float] = (0.0, 0.25, 0.5, 0.75, 1.0)
+) -> pd.DataFrame:
+    """Which configuration each run would have picked under another ``kpi.objective.gamma``.
+
+    Only ``gamma`` can vary without re-tracing: the history stores the two
+    objective terms, and every other objective parameter is inside them. The
+    pick is re-made over the run's own history, so the measures are over the MDT.
+
+    Returns:
+        One row per ``gamma`` and run: ``method``, ``seed``, ``gamma``,
+        ``best_iteration``, ``same_best`` (equal to the run's own pick), every
+        measure, and ``score`` of the pick under that ``gamma``.
+    """
+    rows = []
+    for gamma in gammas:
+        varied = copy.deepcopy(cfg)
+        varied.kpi.objective.gamma = float(gamma)
+        for run in runs:
+            scores = score_frame(run.history, varied)
+            best = int(np.argmax(scores))
+            rows.append(
+                {
+                    "method": run.method,
+                    "seed": run.seed,
+                    "gamma": float(gamma),
+                    "best_iteration": best,
+                    "same_best": best == run.best_index,
+                    **{name: float(run.history[name].iloc[best]) for name in MEASURE_NAMES},
+                    SCORE: float(scores[best]),
+                }
+            )
+    return pd.DataFrame(rows)

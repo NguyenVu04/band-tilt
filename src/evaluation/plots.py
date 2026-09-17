@@ -16,13 +16,13 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LogNorm
+from matplotlib.colors import ListedColormap, LogNorm
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
-from src.evaluation import maps
+from src.evaluation import compare, maps
 from src.kpi.capacity import max_rsrp
-from src.optim.objective import MAXIMISED, MEASURE_NAMES
+from src.optim.objective import MEASURE_NAMES
 from src.utils.plotting import label
 
 # One colour per configuration, identical in every figure so a reader learns
@@ -283,41 +283,40 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 
 
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean improvement over the incumbent per KPI and objective term, one panel each.
+    """Mean relative improvement over the incumbent per KPI and objective term, one panel each.
 
-    A panel per measure rather than one shared axis because they have no common
-    unit: a share moves by thousandths where the cell-edge RSRP moves by dB, and
-    one axis would hide every rate behind the dB. Each panel is signed so
-    positive is better whichever direction its KPI runs, and the error bars are
-    the 95 % interval over seeds.
+    Relative, in percent of the incumbent's value, so a rate and the cell-edge
+    RSRP read on a comparable scale; see
+    :func:`src.evaluation.compare.relative_improvement`. Each panel is signed so
+    positive is better whichever direction its KPI runs. No error bars: the
+    seed interval is in the scoreboard table.
 
     Args:
         summary: :func:`src.evaluation.compare.seed_summary` output.
     """
-    rows = summary[summary["kpi"].isin(MEASURE_NAMES)]
-    methods = list(dict.fromkeys(rows["method"]))
+    improvement = compare.relative_improvement(summary).set_index("method")
+    methods = list(improvement.index)
     positions = np.arange(len(methods))
 
     figure, axes = plt.subplots(2, 4, figsize=(14.0, 7.0), constrained_layout=True)
     for axis in axes.ravel()[len(MEASURE_NAMES) :]:
         axis.set_visible(False)
     for axis, name in zip(axes.ravel(), MEASURE_NAMES, strict=False):
-        mine = rows[rows["kpi"] == name].set_index("method").loc[methods]
-        sign = 1.0 if name in MAXIMISED else -1.0
-        half = (mine["ci95_high"] - mine["mean"]).to_numpy()
+        values = improvement[name].to_numpy()
         axis.axhline(0, color="0.4", lw=1, zorder=1)
-        axis.bar(
+        bars = axis.bar(
             positions,
-            sign * mine["mean_delta"].to_numpy(),
+            values,
             width=0.6,
-            yerr=np.where(np.isfinite(half), half, 0.0),
-            capsize=3,
             color=[COLOURS.get(method) for method in methods],
             zorder=2,
         )
+        axis.bar_label(bars, fmt="%+.1f%%", fontsize=7, padding=2)
+        axis.margins(y=0.15)
         axis.set_xticks(positions, [label(method) for method in methods], fontsize=8)
+        axis.set_ylabel("Improvement [%]", fontsize=8)
         axis.set_title(label(name), fontsize=9)
-    figure.suptitle("KPI improvement over the current configuration (higher is better)")
+    figure.suptitle("Relative KPI improvement over the current configuration (higher is better)")
     return figure
 
 
@@ -380,4 +379,121 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
     axes[1].set_xlabel("Tilt change [°] (negative: uptilt, positive: downtilt)")
     axes[1].set_title("Tilt change per cell and band")
     figure.suptitle(f"Recommended antenna tilt changes — {label(name)}")
+    return figure
+
+
+def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
+    """Every evaluated configuration on two measures, with each method's pick and the Pareto front.
+
+    Args:
+        frame: :func:`src.evaluation.compare.candidates` output.
+        x: Measure on the horizontal axis.
+        y: Measure on the vertical axis.
+    """
+    figure, axis = plt.subplots(figsize=(8.0, 5.5), constrained_layout=True)
+    searched = frame[frame["iteration"] > 0]
+    for method, group in searched.groupby("method", sort=False):
+        colour = COLOURS.get(str(method))
+        axis.scatter(group[x], group[y], s=14, alpha=0.4, color=colour, label=label(method))
+        pick = group.loc[group["score"].idxmax()]
+        axis.scatter(pick[x], pick[y], marker="*", s=260, color=colour, edgecolor="black", zorder=4)
+    axis.scatter(
+        [], [], marker="*", s=260, color="white", edgecolor="black", label="Best score per method"
+    )
+    incumbent = frame[frame["iteration"] == 0].iloc[0]
+    axis.scatter(
+        incumbent[x],
+        incumbent[y],
+        marker="X",
+        s=140,
+        color=COLOURS["incumbent"],
+        edgecolor="black",
+        zorder=5,
+        label=label("incumbent"),
+    )
+    front = frame[compare.pareto_front(frame, [x, y])].sort_values(x)
+    axis.plot(
+        front[x], front[y], color="0.2", ls="--", lw=1.2, marker="o", ms=4, label="Pareto front"
+    )
+    axis.set_xlabel(f"{label(x)} ({compare.direction(x)})")
+    axis.set_ylabel(f"{label(y)} ({compare.direction(y)})")
+    axis.set_title(f"{label(x)} against {label(y)}")
+    axis.legend(fontsize=8)
+    return figure
+
+
+def tilt_delta_heatmap(best_tilt: pd.DataFrame, name: str) -> Figure:
+    """Tilt change per cell and band on one diverging scale.
+
+    Args:
+        best_tilt: A run's ``best_tilt`` table.
+        name: Key of the configuration, for the title.
+    """
+    table = best_tilt.astype({"cell": str, "band": str})
+    cells = list(dict.fromkeys(table["cell"]))
+    bands = list(dict.fromkeys(table["band"]))
+    grid = table.pivot(index="cell", columns="band", values="delta_tilt_deg")
+    grid = grid.reindex(index=cells, columns=bands).to_numpy()
+    limit = float(np.nanmax(np.abs(grid))) or 1.0
+
+    figure, axis = plt.subplots(
+        figsize=(1.6 * len(bands) + 2.5, 0.35 * len(cells) + 1.5), constrained_layout=True
+    )
+    image = axis.imshow(grid, cmap="RdBu_r", vmin=-limit, vmax=limit, aspect="auto")
+    axis.grid(False)
+    for (row, col), value in np.ndenumerate(grid):
+        axis.text(col, row, f"{value:+.1f}", ha="center", va="center", fontsize=8)
+    axis.set_xticks(range(len(bands)), [label(band) for band in bands])
+    axis.set_yticks(range(len(cells)), cells)
+    figure.colorbar(image, ax=axis, label="Tilt change [°] (negative: uptilt)")
+    axis.set_title(f"Tilt change per cell and band — {label(name)}")
+    return figure
+
+
+def coverage_class_maps(
+    rasters: dict[str, np.ndarray],
+    radio: dict[str, Any],
+    cfg: DictConfig,
+    *,
+    cells: pd.DataFrame | None = None,
+) -> Figure:
+    """Hole, weak and good coverage per configuration, on identical classes.
+
+    Args:
+        rasters: Configuration key to its radio map's ``rsrp_dbm``.
+        radio: Any radio-map archive, for the grid extent.
+        cfg: Composed config; reads ``kpi.hole_dbm`` and ``kpi.weak_dbm``.
+        cells: Optional cell table with ``x`` and ``y``.
+    """
+    extent = maps.extent_of(radio)
+    colours = ListedColormap(["black", "tab:orange", "tab:green"])
+    figure, axes = plt.subplots(
+        1,
+        len(rasters),
+        figsize=(4.8 * len(rasters) + 1.0, 4.6),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    image = None
+    for axis, (key, rsrp) in zip(axes[0], rasters.items(), strict=True):
+        classes = maps.coverage_class(rsrp, cfg)
+        image = axis.imshow(
+            classes,
+            origin="lower",
+            extent=extent,
+            aspect="equal",
+            cmap=colours,
+            vmin=-0.5,
+            vmax=2.5,
+        )
+        _overlay(axis, cells, None)
+        _map_axes(
+            axis,
+            extent,
+            f"{label(key)}: hole {(classes == maps.HOLE).mean():.1%}, "
+            f"weak {(classes == maps.WEAK).mean():.1%}",
+        )
+    bar = figure.colorbar(image, ax=axes[0].tolist(), ticks=range(len(maps.COVERAGE_CLASSES)))
+    bar.ax.set_yticklabels([name.capitalize() for name in maps.COVERAGE_CLASSES])
+    figure.suptitle("Coverage classes")
     return figure

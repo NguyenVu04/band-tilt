@@ -21,6 +21,7 @@ from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import CapacitySpec, max_rsrp
+from src.kpi.overlap import overlap_neighbors
 from src.optim.objective import MEASURE_NAMES
 from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
@@ -74,16 +75,28 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     baseline = run_store.baseline_map(cfg)
     add("comparability_checks", run_store.verify(runs, baseline))
 
-    summary = compare.seed_summary(runs, cfg)
-    add("kpi_scoreboard", summary)
-    add("kpi_improvement", plots.kpi_comparison(summary))
-    add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
-    add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
-
     ue = pd.read_parquet(cfg.data.output.ue_file)
     cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")
     band_labels = [str(band) for band in baseline["band_label"]]
     tx_names = [str(name) for name in baseline["tx_name"]]
+    add("experiment_setup", compare.experiment_setup(baseline, ue, runs, cfg))
+
+    summary = compare.seed_summary(runs, cfg)
+    add("kpi_scoreboard", summary)
+    add("kpi_relative_improvement", compare.relative_improvement(summary))
+    add("kpi_improvement", plots.kpi_comparison(summary))
+    add("winner_vs_candidates", compare.winner_vs_candidates(runs, cfg))
+    add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs, cfg))
+
+    searched = compare.candidates(runs, cfg)
+    add("candidates", searched)
+    for x, y in (
+        ("hole_rate", "overlap_rate"),
+        ("hole_rate", "served_ratio"),
+        ("overlap_rate", "served_ratio"),
+    ):
+        add(f"tradeoff_{x}_vs_{y}", plots.tradeoff_scatter(searched, x, y))
+    add("gamma_sensitivity", compare.gamma_sensitivity(runs, cfg))
 
     best = compare.best_run_per_method(runs, cfg)
     winner = compare.best_method(runs, cfg)
@@ -137,6 +150,31 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
         for key, share in (column.rsplit("_", 1) for column in coverage.columns[1:])
     ]
     add("coverage_by_area_and_demand", coverage)
+    add(
+        "coverage_class_maps",
+        plots.coverage_class_maps(
+            {key: configurations[key].rsrp for key in ("incumbent", winner.method)},
+            baseline,
+            cfg,
+            cells=cells,
+        ),
+    )
+    add("overlap_neighbour_summary", compare.overlap_neighbour_summary(configurations, cfg))
+    add(
+        "overlap_neighbour_maps",
+        plots.map_row(
+            {
+                label(key): overlap_neighbors(configurations[key].rsrp, cfg).astype(float)
+                for key in ("incumbent", winner.method)
+            },
+            baseline,
+            colorbar_label="Overlapping co-band neighbours",
+            vmin=0.0,
+            cmap="magma",
+            cells=cells,
+        ),
+    )
+    add("band_layer_summary", compare.band_layer_summary(configurations, band_labels, cfg))
 
     service = {
         name: compare.service_summary(c.served, band_labels) for name, c in configurations.items()
@@ -157,10 +195,12 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("recommended_tilt", winner.best_tilt)
     add("tilt_movement_summary", compare.tilt_movement(winner))
     add("tilt_movement", plots.tilt_movement_plot(winner.best_tilt, winner.method))
+    add("tilt_delta_heatmap", plots.tilt_delta_heatmap(winner.best_tilt, winner.method))
 
     add("method_cost", compare.method_table(runs, cfg))
     trace = compare.convergence(runs, cfg)
     add("convergence", trace)
+    add("sample_efficiency", compare.sample_efficiency(trace))
     add("search_progress", plots.convergence_plot(trace))
     return results
 

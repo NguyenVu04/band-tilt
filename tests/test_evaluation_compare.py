@@ -221,3 +221,48 @@ def test_paired_method_gain_pairs_by_seed(scored_cfg: DictConfig) -> None:
     assert row["n_pairs"] == 2
     assert row["mean_gain"] == pytest.approx(0.15)
     assert row["method_better"] == 2
+
+
+def test_pareto_front_reads_each_column_in_its_direction() -> None:
+    """Hole rate is minimised and served ratio maximised; the dominated row drops out."""
+    frame = pd.DataFrame({"hole_rate": [0.1, 0.2, 0.1, 0.05], "served_ratio": [0.9, 0.9, 0.9, 0.5]})
+    mask = compare.pareto_front(frame, ["hole_rate", "served_ratio"])
+    assert mask.tolist() == [True, False, True, True]
+
+
+def test_relative_improvement_is_positive_when_better() -> None:
+    """A falling hole rate and a rising served ratio both read as gains."""
+    summary = pd.DataFrame(
+        {
+            "method": ["turbo", "turbo"],
+            "kpi": ["hole_rate", "served_ratio"],
+            "direction": ["minimise", "maximise"],
+            "incumbent": [0.2, 0.5],
+            "mean": [0.1, 0.6],
+        }
+    )
+    row = compare.relative_improvement(summary).iloc[0]
+    assert row["hole_rate"] == pytest.approx(50.0)
+    assert row["served_ratio"] == pytest.approx(20.0)
+
+
+def test_sample_efficiency_is_nan_past_a_runs_length(scored_cfg: DictConfig) -> None:
+    """A three-evaluation run has no value at a budget of four."""
+    runs = [_run("turbo", 0, [0.1, 0.5, 0.3, 0.9]), _run("rule", 0, [0.1, 0.4, 0.2])]
+    table = compare.sample_efficiency(
+        compare.convergence(runs, scored_cfg), kpis=["score"], budgets=[2]
+    ).set_index("budget")
+    assert table.loc[2, "turbo"] == pytest.approx(0.5)
+    assert table.loc[4, "turbo"] == pytest.approx(0.9)
+    assert np.isnan(table.loc[4, "rule"])
+
+
+def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
+    """One band, three cells: tile 0 has two neighbours in margin, tile 1 is a hole."""
+    rsrp = np.array([[[[-80.0, -130.0]], [[-82.0, -130.0]], [[-85.0, -130.0]]]])
+    cfg = OmegaConf.create({"kpi": {"hole_dbm": -120.0, "overlap_margin_db": 6.0}})
+    config = compare.Configuration(rsrp=rsrp, sinr=rsrp, served=pd.DataFrame(), demand=np.zeros(1))
+    row = compare.overlap_neighbour_summary({"incumbent": config}, cfg).iloc[0]
+    assert row["mean_neighbours_covered"] == pytest.approx(2.0)
+    assert row["mean_neighbours_all"] == pytest.approx(1.0)
+    assert row["share_2_neighbours"] == pytest.approx(1.0)
