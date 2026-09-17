@@ -272,6 +272,8 @@ output:
   ue_file: data/external/ue_positions.csv
   manifest_file: data/external/scenario.json
   radio_map_file: data/interim/radio_map.npz
+  # UEs the serving rule admits on the baseline map, with their serving RSRP.
+  mdt_file: data/interim/mdt.csv
 
 # Base seed. GPU ray-map accumulation is not bit-reproducible.
 seed: ${seed}

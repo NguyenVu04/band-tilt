@@ -3,7 +3,7 @@
 # The stages mirror the Taskfile targets and the notebooks one-to-one, and both
 # call the same functions in src/ — a notebook and a stage cannot diverge.
 #
-# Four stages are active: the two `simulation_*` stages (notebook 00),
+# Five stages are active: the three `simulation_*` stages (notebook 00),
 # `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
 # MARL and held-out validation still have no code in src/, so there is nothing
 # to define a stage against. Add those when the modules land instead of
@@ -83,7 +83,29 @@ stages:
     outs:
       - data/interim/radio_map.npz
 
-  # --- Stage 3: preprocessing (notebook 02) -----------------------------------
+  # --- Stage 3: the MDT (notebook 00, section 5) -----------------------------
+  # Serves the UE table on the baseline radio map and keeps the admitted UEs.
+  # No GPU. kpi is a param because the serving rule reads the capacity model
+  # and the hole threshold; the cells carry max_prb.
+  simulation_mdt:
+    cmd: python -m src.simulation.mdt
+    deps:
+      - src/simulation/mdt.py
+      - src/kpi/capacity.py
+      - src/core/cell.py
+      - data/external/ue_positions.csv
+      - data/interim/radio_map.npz
+    params:
+      - configs/kpi.yaml:
+          - hole_dbm
+          - capacity
+      - configs/simulation.yaml:
+          - transmitters
+          - seed
+    outs:
+      - data/interim/mdt.csv
+
+  # --- Stage 4: preprocessing (notebook 02) -----------------------------------
   # Verifies the simulation output against the contract named in each check
   # (configs/simulation.yaml or the scenario manifest), then writes the typed,
   # verified tables everything downstream reads. Nothing here learns from the
@@ -102,11 +124,15 @@ stages:
       - src/simulation/transmitter.py
       - src/simulation/radio.py
       - src/simulation/sample.py
+      - src/simulation/mdt.py
       - src/core/cell.py
       - data/external/ue_positions.csv
       - data/external/scenario.json
       - data/interim/radio_map.npz
+      - data/interim/mdt.csv
     params:
+      - configs/kpi.yaml:
+          - hole_dbm
       - configs/simulation.yaml:
           - scene
           - grid
@@ -116,6 +142,7 @@ stages:
           - ue
     outs:
       - data/processed/ue.parquet
+      - data/processed/mdt.parquet
       - data/processed/cell.parquet
 
   # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
@@ -149,6 +176,7 @@ stages:
       - src/core/cell.py
       - data/external/scenario.json
       - data/processed/ue.parquet
+      - data/processed/mdt.parquet
     params:
       - configs/optim/base.yaml:
           - seed

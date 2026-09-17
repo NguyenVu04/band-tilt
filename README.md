@@ -65,7 +65,9 @@ demand, and band-specific propagation behaviour.
 
 The repository evaluates this idea entirely in simulation. `src/simulation/`
 loads a Sionna-RT scene, generates a time-varying UE population, ray-traces
-and per-band radio maps; KPIs are counted over every UE. The implemented
+and per-band radio maps, and keeps the UEs served at the committed tilts as
+MDT. The search counts UE-based measures over the MDT; evaluation re-scores the
+published solutions over every UE. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
 from the incumbent configuration. Five reported KPIs - hole rate, overlap rate,
 served ratio (the share of UEs admitted to a cell-band), weak-signal rate and
@@ -98,7 +100,7 @@ flowchart TB
     scene["Sionna-RT scene<br/>bundled"]
     cells["Cell layout<br/>configs/simulation.yaml, generated once"]
 
-    sim["src/simulation<br/>scenario · radio map"]
+    sim["src/simulation<br/>scenario · radio map · MDT"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · PRB demand"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
@@ -138,7 +140,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Component | Responsibility | Location |
 |---|---|---|
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
-| Simulation | UE population, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
+| Simulation | UE population, radio-map ray tracing, MDT selection | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract, write typed processed tables | [`src/data/`](src/data/) |
 | KPI | The four KPI definitions, the reductions they share, and the serving-cell / PRB demand model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook; `src/config.py` composes the config outside an entry point | [`src/utils/`](src/utils/) |
@@ -206,7 +208,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-153 passed
+162 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region and traffic logic, the four
@@ -233,7 +235,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (tau_R, beta, rho_0, alpha, gamma), and the placeholder `capacity` block (band preference, serving threshold, admission cap, per-UE throughput, SCS) for the serving rule, the served ratio and PRB demand. The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the two processed tables |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths for the three processed tables (UE, MDT, cell) |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
@@ -272,7 +274,7 @@ through the task runner and `dvc repro`. Both call the same functions in
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio`) |
+| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio` → `simulation:mdt`) |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |
@@ -419,9 +421,9 @@ task check
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
-`src/simulation/`'s `density.py`, `sample.py` (region) and `traffic.py`,
+`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py` and `mdt.py`,
 `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 153 tests, all passing, none skipped. `src/data/`,
+`src/tracking.py` — 162 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

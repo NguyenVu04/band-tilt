@@ -5,7 +5,9 @@ the scenario manifest, or the radio map itself. A bound with no nameable source 
 a statistical threshold and belongs in a ``02x`` notebook, fitted on train only.
 
 The KPI thresholds are deliberately absent. ``kpi.hole_dbm`` and ``kpi.weak_dbm``
-classify a tile; they never disqualify a measurement.
+classify a tile; they never disqualify a measurement. The one exception is the MDT:
+the serving rule never admits a UE at or below ``kpi.hole_dbm``, so an MDT row there
+is a writer fault, not a hole.
 """
 
 from __future__ import annotations
@@ -16,12 +18,15 @@ from omegaconf import DictConfig
 
 from src.data.load import Artifacts
 from src.simulation import transmitter
+from src.simulation.mdt import MDT_COLUMNS
 from src.simulation.sample import CSV_COLUMNS
 
 _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
 _MAP = "radio_map.npz"
 _UE = "ue_positions.csv"
+_MDT = "mdt.csv"
+_KPI = "configs/kpi.yaml"
 
 # The UE table writes t_s with three decimals, so it round-trips to the
 # millisecond and no closer.
@@ -38,7 +43,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     Args:
         artifacts: The loaded artifacts, as read.
         cfg: Composed config; reads ``simulation.ue.height_m``,
-            ``simulation.antenna.power_rs`` and the cell table.
+            ``simulation.antenna.power_rs``, ``kpi.hole_dbm`` and the cell table.
 
     Returns:
         A frame of ``check``, ``source``, ``holds`` and ``violations``. Never
@@ -148,6 +153,27 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
 
     # Positions are continuous draws, so a repeated row is a writer fault.
     record("no duplicate rows", _UE, *_count(ue.duplicated().to_numpy()))
+
+    # --- the MDT: a served subset of the UE table ----------------------------
+    mdt = artifacts.mdt
+    has_columns = list(mdt.columns) == list(MDT_COLUMNS)
+    record("mdt columns are the declared set", _CONFIG, has_columns)
+    if has_columns:
+        rsrp = mdt["rsrp_dbm"].to_numpy(dtype=float)
+        # Both files write millimetre precision, so an exact join is the subset test.
+        matched = mdt.merge(ue.drop_duplicates(), on=list(CSV_COLUMNS), how="left", indicator=True)
+        record("every mdt row is a UE row", _UE, *_count(matched["_merge"] != "both"))
+        record(
+            "mdt rsrp_dbm is above the hole threshold",
+            _KPI,
+            *_count(~(rsrp > float(cfg.kpi.hole_dbm))),
+        )
+        record(
+            "mdt rsrp_dbm does not exceed the transmit RS power",
+            _CONFIG,
+            *_count(rsrp > float(cfg.simulation.antenna.power_rs)),
+        )
+        record("no duplicate mdt rows", _MDT, *_count(mdt.duplicated().to_numpy()))
 
     # --- the cell table the map was solved at -------------------------------
     tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)

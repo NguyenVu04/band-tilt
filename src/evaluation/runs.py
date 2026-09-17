@@ -14,8 +14,8 @@ from omegaconf import DictConfig
 
 from src.optim.objective import KpiVector
 
-# Written beside every run by src.optim.history.write_run.
-_TABLES = ("history", "best_tilt")
+# Written beside every run by src.optim.history.write_run and src.optim.run.run.
+_TABLES = ("history", "best_tilt", "evaluation")
 _RADIO_MAP = "best_radio_map.npz"
 
 # Settings that define what a radio map IS rather than what it cost. Two maps
@@ -48,9 +48,11 @@ class Run:
         method: Which search produced it.
         run_id: The timestamped directory name, unique within a method.
         directory: Where it lives.
-        history: One row per evaluation; see
-            :meth:`src.optim.history.History.frame`.
+        history: One row per search evaluation, UE-counted measures over the
+            MDT; see :meth:`src.optim.history.History.frame`.
         best_tilt: The deliverable table, one row per cell-band.
+        evaluation: The published solutions re-scored on every UE, one row
+            each; what a comparison between runs reads.
         meta: The parsed ``run.json``.
     """
 
@@ -59,6 +61,7 @@ class Run:
     directory: Path
     history: pd.DataFrame
     best_tilt: pd.DataFrame
+    evaluation: pd.DataFrame
     meta: dict[str, Any]
 
     @property
@@ -78,12 +81,17 @@ class Run:
 
     @property
     def incumbent_kpi(self) -> KpiVector:
-        """The committed tilts' score, evaluated at the start of this run."""
-        return KpiVector.from_mapping(self.meta["incumbent_kpi"])
+        """The committed tilts' measures over every UE."""
+        return KpiVector.from_mapping(self.meta["incumbent_kpi_all_ues"])
 
     @property
     def best_kpi(self) -> KpiVector:
-        """The winner's score."""
+        """The winner's measures over every UE."""
+        return KpiVector.from_mapping(self.meta["best_kpi_all_ues"])
+
+    @property
+    def search_best_kpi(self) -> KpiVector:
+        """The winner's measures as the search scored them, over the MDT."""
         return KpiVector.from_mapping(self.meta["best_kpi"])
 
     @property
@@ -153,6 +161,7 @@ def load(directory: str | Path) -> Run:
         directory=directory,
         history=tables["history"],
         best_tilt=tables["best_tilt"],
+        evaluation=tables["evaluation"],
         meta=meta,
     )
 

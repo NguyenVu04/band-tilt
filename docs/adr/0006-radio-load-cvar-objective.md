@@ -40,7 +40,8 @@ J_load  = 1 − CVaR_alpha([rho − rho_0]_+) / (1 − rho_0)
 - `q_ov = exp(−beta)`.
 - `rho` is one cell-band's admitted PRBs over its `max_prb` in one
   interval. The CVaR is the mean of the largest `ceil((1 − alpha) · N)` of all
-  (cell-band, interval) samples, idle ones included.
+  (cell-band, interval) samples, idle ones included. The search serves the MDT
+  (the UEs admitted at the committed tilts); evaluation serves every UE.
 - `tau_R`, `beta`, `rho_0`, `alpha`, `gamma` live in `kpi.objective`.
 
 **The terms are stored, not `J`.** `j_radio` and `j_load` are columns beside

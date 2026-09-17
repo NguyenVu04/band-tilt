@@ -1,8 +1,9 @@
-"""Build the two processed tables from the verified artifacts.
+"""Build the three processed tables from the verified artifacts.
 
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
-``ue.parquet`` is the UE population, typed, with every drawn UE kept.
+``ue.parquet`` is the UE population, typed, with every drawn UE kept; evaluation
+scores on it. ``mdt.parquet`` is the served subset the search scores load on.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from omegaconf import DictConfig
 from src.data import schema
 from src.data.load import Artifacts, load_artifacts, save
 from src.simulation import transmitter
+from src.simulation.mdt import MDT_COLUMNS
 from src.simulation.radio import Band
 from src.simulation.sample import CSV_COLUMNS
 from src.tracking import log_stage
@@ -98,8 +100,22 @@ def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def run(cfg: DictConfig) -> tuple[Path, Path]:
-    """Load, verify and write both tables. Returns ``(ue_path, cell_path)``.
+def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
+    """The MDT, typed and ordered as :func:`build_ue`, with no row dropped.
+
+    Returns:
+        One row per served UE per interval: :data:`src.simulation.mdt.MDT_COLUMNS`
+        and ``scenario_id``.
+    """
+    frame = artifacts.mdt[list(MDT_COLUMNS)].astype(_DTYPES | {"rsrp_dbm": "float32"})
+    frame["scenario_id"] = pd.Categorical([artifacts.scenario_id] * len(frame))
+    return frame.sort_values(
+        ["t_index", "tile_row", "tile_col", "x", "y"], kind="stable"
+    ).reset_index(drop=True)
+
+
+def run(cfg: DictConfig) -> tuple[Path, Path, Path]:
+    """Load, verify and write every table. Returns ``(ue_path, mdt_path, cell_path)``.
 
     Raises:
         FileNotFoundError: When a simulation stage has not been run.
@@ -111,15 +127,18 @@ def run(cfg: DictConfig) -> tuple[Path, Path]:
     schema.require(checks)
 
     ue = build_ue(artifacts)
+    mdt = build_mdt(artifacts)
     cells = build_cells(cfg, artifacts)
     ue_path = save(ue, cfg.data.output.ue_file)
+    mdt_path = save(mdt, cfg.data.output.mdt_file)
     cell_path = save(cells, cfg.data.output.cell_file)
 
     print(f"scenario:  {artifacts.scenario_id}")
     print(f"checks:    {len(checks)} passed")
     print(f"ue:        {len(ue):,} rows x {ue.shape[1]} columns  ->  {ue_path}")
+    print(f"mdt:       {len(mdt):,} rows x {mdt.shape[1]} columns  ->  {mdt_path}")
     print(f"cells:     {len(cells)} cell-band pairs  ->  {cell_path}")
-    return ue_path, cell_path
+    return ue_path, mdt_path, cell_path
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")

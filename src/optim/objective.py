@@ -253,7 +253,8 @@ def evaluate_kpis(
         sinr: The solver's SINR in dB, same shape as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         ue: The UE table; ``t_index``, ``tile_row`` and ``tile_col`` place the
-            UEs the served ratio and the load term count.
+            UEs the served ratio and the load term count. The search passes the
+            MDT, evaluation every UE.
         cfg: Composed config; the measures read ``cfg.kpi``.
     """
     return KpiVector(

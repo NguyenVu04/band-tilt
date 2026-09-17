@@ -76,8 +76,8 @@ class StubEvaluator:
         """No scene and no GPU memory to release."""
         return None
 
-    def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
-        """Score one vector, and record that it was solved."""
+    def evaluate(self, tilt_deg: np.ndarray, *, all_ues: bool = False) -> EvaluationResult:
+        """Score one vector, and record that it was solved; ``all_ues`` changes nothing here."""
         tilt_deg = np.asarray(tilt_deg, dtype=float)
         self.seen.append(tilt_deg.copy())
         unit = (tilt_deg - self.space.lower) / (self.space.upper - self.space.lower)
@@ -190,7 +190,7 @@ def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
     history, directory = run(cfg)
     loaded = run_store.load(directory)
 
-    assert len(stub.seen) == len(history)
+    assert len(stub.seen) == len(history) + int(loaded.meta["n_solutions_offered"])
     assert loaded.meta["best_kpi"] == history.results[loaded.best_index].kpi.as_dict()
     # The two-phase flags are gone: nothing is a prediction any more.
     assert "verified" not in loaded.meta
@@ -247,15 +247,18 @@ def test_the_incumbent_delta_compares_two_measurements(cfg, space, stub) -> None
     )
 
 
-def test_the_winners_map_costs_exactly_one_extra_solve(cfg, stub) -> None:
-    """Archiving re-solves the winner alone, on the evaluator already in hand."""
+def test_each_published_solution_costs_exactly_one_extra_solve(cfg, stub) -> None:
+    """Scoring on all UEs re-solves the shortlist once; the winner's map comes from that solve."""
     cfg.optim.output.save_radio_map = True
     history, directory = run(cfg)
+    evaluation = pd.read_parquet(directory / "evaluation.parquet")
+    published = pd.read_parquet(directory / "solutions.parquet")
+    best_index = history.best_index(cfg)
 
-    assert len(stub.seen) == len(history) + 1
-    # The extra solve is the winner, and it is not recorded as an evaluation.
-    winner = history.results[history.best_index(cfg)].tilt_deg
-    assert np.allclose(stub.seen[-1], winner)
+    # The extra solves are not recorded as evaluations.
+    assert len(stub.seen) == len(history) + len(published)
+    assert evaluation["iteration"].tolist() == published["iteration"].tolist()
+    assert evaluation.loc[evaluation["recommended"], "iteration"].item() == best_index
     assert len(stub.archived) == 1
-    assert np.allclose(stub.archived[0], winner)
+    assert np.allclose(stub.archived[0], history.results[best_index].tilt_deg)
     assert run_store.load(directory).meta["n_evaluations"] == len(history)

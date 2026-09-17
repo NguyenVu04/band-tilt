@@ -114,11 +114,17 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
 
+  simulation:mdt:
+    desc: 'Stage 3 - select the UEs served on the baseline radio map as MDT'
+    cmds:
+      - uv run python -m {{.PKG}}.simulation.mdt {{.CLI_ARGS}}
+
   simulation:
-    desc: 'Run both simulation stages in order'
+    desc: 'Run the three simulation stages in order'
     cmds:
       - task: simulation:scenario
       - task: simulation:radio
+      - task: simulation:mdt
 
   preprocess:
     desc: 'Verify the simulation output and write the processed tables (notebook 02)'

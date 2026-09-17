@@ -179,9 +179,11 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
         "best_iteration": best,
         "best_kpi": kpi,
         "incumbent_kpi": incumbent,
+        "best_kpi_all_ues": kpi,
+        "incumbent_kpi_all_ues": incumbent,
         "config": {"optim": {"seed": seed}},
     }
-    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), meta)
+    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), pd.DataFrame(), meta)
 
 
 def test_seed_summary_interval_brackets_the_mean(scored_cfg: DictConfig) -> None:

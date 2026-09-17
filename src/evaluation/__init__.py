@@ -5,6 +5,10 @@ Everything here works from artifacts on disk — the run directories under
 this package imports neither Sionna-RT nor ``src.optim.evaluator``, and a
 comparison costs seconds on a machine with no GPU.
 
+Every UE counts here. A run searched on the MDT, but a comparison reads the
+published solutions it re-scored on all UEs (``evaluation.parquet``); only the
+search traces (``convergence``, ``winner_vs_candidates``) are over the MDT.
+
 Modules, each with one reason to change:
 
 ``runs``

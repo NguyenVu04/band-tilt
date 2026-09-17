@@ -2,7 +2,7 @@
 
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
 map and the processed tables only, so like the rest of :mod:`src.evaluation` it
-needs no GPU.
+needs no GPU. UEs are served from ``data.output.ue_file``, every UE, not the MDT.
 """
 
 from __future__ import annotations

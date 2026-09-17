@@ -1,4 +1,4 @@
-"""Read the three simulation artifacts, and write processed tables as Parquet."""
+"""Read the four simulation artifacts, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ _STAGES = {
     "ue_file": "scenario",
     "manifest_file": "scenario",
     "radio_map_file": "radio",
+    "mdt_file": "mdt",
 }
 
 
@@ -26,11 +27,14 @@ class Artifacts:
     Attributes:
         ue: ``data/external/ue_positions.csv`` as read, before any typing.
             Every drawn UE, including those no transmitter reaches.
+        mdt: ``data/interim/mdt.csv`` as read: the UE rows served on the
+            baseline map, with ``rsrp_dbm``.
         radio: Every array in ``radio_map.npz``, keyed as written.
         manifest: The parsed ``scenario.json``.
     """
 
     ue: pd.DataFrame
+    mdt: pd.DataFrame
     radio: dict[str, np.ndarray]
     manifest: dict[str, Any]
 
@@ -84,6 +88,7 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
 
     return Artifacts(
         ue=pd.read_csv(paths["ue_file"]),
+        mdt=pd.read_csv(paths["mdt_file"]),
         radio=radio,
         manifest=json.loads(paths["manifest_file"].read_text(encoding="utf-8")),
     )

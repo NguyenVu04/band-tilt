@@ -83,6 +83,10 @@ def make_run(
             "delta_tilt_deg": [2.0, 0.0],
         }
     ).to_parquet(directory / "best_tilt.parquet", index=False)
+    pd.DataFrame(
+        {"iteration": [0], "solution": [0], "is_incumbent": [True], "recommended": [True]}
+        | {name: [KPI[name]] for name in MEASURE_NAMES}
+    ).to_parquet(directory / "evaluation.parquet", index=False)
 
     np.savez_compressed(directory / "best_radio_map.npz", **radio_archive(**radio))
     (directory / "run.json").write_text(
@@ -93,6 +97,8 @@ def make_run(
                 "best_iteration": 0,
                 "best_kpi": KPI,
                 "incumbent_kpi": KPI,
+                "best_kpi_all_ues": KPI,
+                "incumbent_kpi_all_ues": KPI,
                 "scenario_id": str(radio.get("scenario_id", "scn_test")),
                 "wall_clock_seconds": 120.0,
                 # Deliberately a Windows-style path: it must never be resolved.

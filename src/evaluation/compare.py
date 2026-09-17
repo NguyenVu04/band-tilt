@@ -135,6 +135,8 @@ def seed_summary(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
 def winner_vs_candidates(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     """How far each winner stands above what its own search measured.
 
+    Read from the search history, so the UE-counted terms are over the MDT.
+
     A search earns credit for the gap between its winner and a typical
     candidate, not for the gap to the incumbent: when the median candidate
     already beats the incumbent by nearly as much, the incumbent was weak.
@@ -255,7 +257,8 @@ def convergence(runs: list[Run], cfg: DictConfig) -> pd.DataFrame:
     """Best value seen so far, per measure and for the objective score, per evaluation and run.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
-    KPI accumulates in its own direction.
+    KPI accumulates in its own direction. A search trace: the UE-counted
+    measures are over the MDT.
     """
     frames = []
     for run in runs:
