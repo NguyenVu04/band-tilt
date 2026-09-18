@@ -85,16 +85,31 @@ def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
     assert order.tolist() == [1]
 
 
-def test_the_strongest_ue_is_admitted_first_whatever_the_row_order(cfg) -> None:
+def test_simultaneous_ues_are_admitted_strongest_first_whatever_the_row_order(cfg) -> None:
     """Room for one 6-PRB UE on 'hi' and no path on 'lo': the -80 dBm UE takes it."""
     cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-95.0], [np.nan]], [[-90.0], [np.nan]], [[-80.0], [np.nan]]])
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(3, dtype=int), spec)
+    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(3, dtype=int), np.zeros(3), spec)
     assert band.tolist() == [-1, -1, 0]
-    flipped, _, _ = capacity.serve_rows(rsrp[::-1], sinr, np.zeros(3, dtype=int), spec)
+    flipped, _, _ = capacity.serve_rows(rsrp[::-1], sinr, np.zeros(3, dtype=int), np.zeros(3), spec)
     assert flipped.tolist() == [0, -1, -1]
+
+
+def test_the_earlier_ue_is_admitted_before_a_stronger_later_one(cfg) -> None:
+    """Room for one 6-PRB UE: the -95 dBm UE reporting first takes it, not the -80 dBm one."""
+    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp = np.array([[[-95.0], [np.nan]], [[-80.0], [np.nan]]])
+    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
+
+    serving = capacity._select_serving(rsrp, sinr, np.array([10.0, 20.0]), spec)
+    assert serving.band.tolist() == [0, -1]
+
+    # Swap only the report times and the stronger UE wins instead.
+    later_first = capacity._select_serving(rsrp, sinr, np.array([20.0, 10.0]), spec)
+    assert later_first.band.tolist() == [-1, 0]
 
 
 def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
@@ -103,7 +118,7 @@ def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
     rsrp = np.array([[[-90.0], [-95.0]]] * 2)  # [ue, band, tx]
     # log2(1 + SINR) = 1/6 at the first choice, 1/6 at the second.
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, spec)
+    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
     assert serving.band.tolist() == [0, 1]
     assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
     assert serving.load[:, 0].tolist() == pytest.approx([6.0, 6.0])
@@ -120,7 +135,7 @@ def test_a_cell_band_over_its_admission_share_passes_the_ue_on(cfg) -> None:
     rsrp = np.array([[[-90.0], [-95.0]]] * 3)
     # log2(1 + SINR) = 1/3: each UE needs 3 PRBs.
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 3.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, spec)
+    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
     assert serving.band.tolist() == [0, 0, 1]
     assert serving.load[:, 0].tolist() == pytest.approx([6.0, 3.0])
 
@@ -138,7 +153,7 @@ def test_a_ue_with_no_room_anywhere_is_blocked_but_keeps_its_demand(cfg) -> None
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-90.0], [np.nan]]] * 2)
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, spec)
+    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
     assert serving.band.tolist() == [0, -1]
     assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
 
@@ -153,7 +168,7 @@ def test_each_cell_band_has_its_own_limit_and_intervals_do_not_share_prbs(cfg) -
     spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 2)
     rsrp = np.array([[[-90.0, -95.0]]] * 3)  # [ue, band, tx]
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    band, tx, per_ue = capacity.serve_rows(rsrp, sinr, np.array([0, 0, 1]), spec)
+    band, tx, per_ue = capacity.serve_rows(rsrp, sinr, np.array([0, 0, 1]), np.zeros(3), spec)
     # The two interval-0 UEs are identical, so the tie keeps row order.
     assert band[:2].tolist() == [0, -1]
     assert tx[:2].tolist() == [1, -1]
@@ -195,7 +210,9 @@ def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     rsrp = np.array([[[[-90.0, np.nan]]], [[[np.nan, np.nan]]]])  # [band, tx, row, col]
     # 0 dB wherever a path exists: 1 bit/s/Hz, so each UE needs exactly one PRB.
     sinr = np.where(np.isfinite(rsrp), 0.0, np.nan)
-    ue = pd.DataFrame({"t_index": [0, 1, 1, 1], "tile_row": [0] * 4, "tile_col": [0] * 4})
+    ue = pd.DataFrame(
+        {"t_index": [0, 1, 1, 1], "t_s": [0.0] * 4, "tile_row": [0] * 4, "tile_col": [0] * 4}
+    )
     peak = capacity.demand_prb(rsrp, sinr, ["hi", "lo"], ue, cfg)
     assert peak.shape == (1, 2)
     assert peak[0, 0] == pytest.approx(3.0)
@@ -206,7 +223,7 @@ def test_serve_intervals_reports_the_stored_sinr_at_the_serving_layer(cfg) -> No
     """SINR is read from the map passed in, not derived from RSRP."""
     rsrp = np.array([[[[-90.0]]], [[[-80.0]]]])
     sinr = np.array([[[[7.0]]], [[[3.0]]]])
-    ue = pd.DataFrame({"t_index": [0], "tile_row": [0], "tile_col": [0]})
+    ue = pd.DataFrame({"t_index": [0], "t_s": [0.0], "tile_row": [0], "tile_col": [0]})
     served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], ue, cfg)
     assert served["band"].tolist() == [0]
     assert served["sinr_db"].tolist() == [7.0]

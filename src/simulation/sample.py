@@ -64,14 +64,15 @@ def sample_positions(
     schedule: Schedule,
     grid_spec: GridSpec,
     seed: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Draw every interval's UEs, rejecting any inside a building.
 
     Assigns each UE a mixture component once, from the mass its own interval
     carries, then repeatedly draws a tile from that component and a uniform
-    position inside it, keeping the positions that land on open ground.
-    Returns ``(interval, x, y, component)``, where component is ``-1`` for the
-    uniform background and the hotspot index otherwise.
+    position inside it, keeping the positions that land on open ground. Each
+    UE's report time is drawn uniformly across its own interval.
+    Returns ``(interval, t_s, x, y, component)``, where component is ``-1`` for
+    the uniform background and the hotspot index otherwise.
 
     The rejection is not merely a filter: it is what weights a tile by its open
     area, so the resulting density is the density function times the tile's
@@ -127,7 +128,13 @@ def sample_positions(
             f"{_MAX_REDRAW_ROUNDS} redraws. The open-ground raster and the scene disagree."
         )
 
-    return interval, x, y, component - 1
+    # Reports are not synchronised to the interval boundary, and the serving
+    # rule admits UEs in time order: one shared t_s per interval would make
+    # every UE in it a tie. Drawn after the positions so a rerun at the same
+    # seed reproduces them unchanged.
+    t_s = schedule.t_s[interval] + rng.uniform(0.0, schedule.interval_s, size=n_ue)
+
+    return interval, t_s, x, y, component - 1
 
 
 def densest_decile_share(
@@ -157,7 +164,7 @@ def densest_decile_share(
 def write_csv(
     path: Path,
     interval: np.ndarray,
-    schedule: Schedule,
+    t_s: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     component: np.ndarray,
@@ -175,7 +182,6 @@ def write_csv(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tile_col, tile_row = raster.tile_indices(x, y)
-    t_s = schedule.t_s[interval]
 
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)

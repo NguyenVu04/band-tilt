@@ -69,7 +69,7 @@ def _draw() -> tuple[np.ndarray, ...]:
 
 def test_every_interval_gets_the_count_it_asked_for() -> None:
     """Counts of 3, 5 and 2 give ten rows labelled 0, 0, 0, 1, 1, 1, 1, 1, 2, 2."""
-    interval, x, y, component = _draw()
+    interval, _t_s, x, y, component = _draw()
 
     assert x.size == y.size == component.size == sum(COUNTS)
     np.testing.assert_array_equal(interval, np.repeat([0, 1, 2], COUNTS))
@@ -77,27 +77,27 @@ def test_every_interval_gets_the_count_it_asked_for() -> None:
 
 def test_background_draws_are_reported_as_component_minus_one() -> None:
     """Component 0 is the background and is written out as -1."""
-    _, _, _, component = _draw()
+    *_, component = _draw()
 
     np.testing.assert_array_equal(component, -1)
 
 
 def test_same_seed_gives_the_same_population() -> None:
     """The draw is a pure function of its seed, so a rerun reproduces it."""
-    _, first_x, _, _ = _draw()
-    _, second_x, _, _ = _draw()
+    _, _, first_x, _, _ = _draw()
+    _, _, second_x, _, _ = _draw()
 
     np.testing.assert_array_equal(first_x, second_x)
 
 
 def test_write_csv_has_no_ue_id_and_one_row_per_ue(tmp_path) -> None:
     """Ten UEs give ten rows under a header carrying the interval, not an id."""
-    interval, x, y, component = _draw()
+    interval, t_s, x, y, component = _draw()
 
     path = write_csv(
         tmp_path / "ue.csv",
         interval,
-        _schedule(),
+        t_s,
         x,
         y,
         component,
@@ -110,13 +110,22 @@ def test_write_csv_has_no_ue_id_and_one_row_per_ue(tmp_path) -> None:
     assert "ue_id" not in lines[0]
     assert len(lines) == 1 + sum(COUNTS)
     # The third interval starts at 1800 s, and its two rows are written last.
-    assert lines[-1].split(",")[1] == "1800.000"
+    assert 1800.0 <= float(lines[-1].split(",")[1]) < 2700.0
+
+
+def test_report_times_are_spread_over_the_interval_they_belong_to() -> None:
+    """Each t_s sits in [t_index * 900, (t_index + 1) * 900) and no two coincide."""
+    interval, t_s, *_ = _draw()
+    start = _schedule().t_s[interval]
+
+    assert np.all((t_s >= start) & (t_s < start + 900.0))
+    assert np.unique(t_s).size == t_s.size
 
 
 def test_densest_decile_share_is_a_fraction() -> None:
     """The concentration statistic is a share of the population."""
     raster = _raster()
-    _, x, y, _ = _draw()
+    _, _, x, y, _ = _draw()
     col, row = raster.tile_indices(x, y)
 
     share = sample.densest_decile_share(col, row, raster, np.ones((4, 4), dtype=bool))

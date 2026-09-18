@@ -68,7 +68,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
         density_spec.hotspot_mass_fraction,
         seeds.stream(cfg, "traffic"),
     )
-    interval, x, y, component = sample.sample_positions(
+    interval, t_s, x, y, component = sample.sample_positions(
         scene.mi_scene,
         bounds,
         raster,
@@ -79,7 +79,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     )
 
     ue_file = sample.write_csv(
-        Path(cfg.simulation.output.ue_file), interval, schedule, x, y, component, raster, ue
+        Path(cfg.simulation.output.ue_file), interval, t_s, x, y, component, raster, ue
     )
     manifest_file = _write_manifest(cfg, raster, bounds, field, schedule, x)
 

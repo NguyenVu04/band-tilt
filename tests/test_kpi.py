@@ -157,8 +157,8 @@ def test_every_covered_ue_with_room_is_served(cfg) -> None:
     """Three UEs on covered tiles, PRBs to spare: all served."""
     rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
     ue = _ue(
-        [{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 2
-        + [{"t_index": 0, "tile_row": 0, "tile_col": 1}]
+        [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 2
+        + [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1}]
     )
     assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(1.0)
 
@@ -167,7 +167,10 @@ def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
     """Tile 1 is heard only at or below -120 dBm, so no layer may serve it."""
     rsrp = _map([[[-80.0, -120.0]], [[-90.0, -140.0]]])
     ue = _ue(
-        [{"t_index": 0, "tile_row": 0, "tile_col": 0}, {"t_index": 0, "tile_row": 0, "tile_col": 1}]
+        [
+            {"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0},
+            {"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1},
+        ]
     )
     assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(0.5)
 
@@ -178,13 +181,13 @@ def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
     cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
-    ue = _ue([{"t_index": 0, "tile_row": 0, "tile_col": 0}] * 3)
+    ue = _ue([{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 3)
     assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(2.0 / 3.0)
 
 
 def test_served_ratio_rejects_an_empty_ue_table(cfg) -> None:
     """No UE, no denominator."""
     rsrp = _map([[[-80.0]], [[-80.0]]])
-    empty = pd.DataFrame(columns=["t_index", "tile_row", "tile_col"])
+    empty = pd.DataFrame(columns=["t_index", "t_s", "tile_row", "tile_col"])
     with pytest.raises(ValueError, match="no UE"):
         served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], empty, cfg)

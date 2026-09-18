@@ -28,8 +28,8 @@ _UE = "ue_positions.csv"
 _MDT = "mdt.csv"
 _KPI = "configs/kpi.yaml"
 
-# The UE table writes t_s with three decimals, so it round-trips to the
-# millisecond and no closer.
+# The UE table writes t_s with three decimals, so a t_s drawn inside its
+# interval round-trips to the millisecond and no closer.
 _T_S_TOL = 1e-3
 
 
@@ -138,17 +138,12 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     t_index = ue["t_index"].to_numpy()
     in_range = (t_index >= 0) & (t_index < len(schedule))
     record("t_index lies inside the schedule", _MANIFEST, *_count(~in_range))
+    interval_s = float(artifacts.manifest["time"]["spec"]["interval_s"])
+    offset = ue["t_s"].to_numpy() - schedule[np.clip(t_index, 0, len(schedule) - 1)]
     record(
-        "t_s matches the schedule for its t_index",
+        "t_s lies inside the interval its t_index names",
         _MANIFEST,
-        *_count(
-            in_range
-            & ~np.isclose(
-                ue["t_s"].to_numpy(),
-                schedule[np.clip(t_index, 0, len(schedule) - 1)],
-                atol=_T_S_TOL,
-            )
-        ),
+        *_count(in_range & ((offset < -_T_S_TOL) | (offset > interval_s + _T_S_TOL))),
     )
 
     # Positions are continuous draws, so a repeated row is a writer fault.

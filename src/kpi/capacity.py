@@ -9,10 +9,10 @@ UE's PRBs still fit under ``max_prb``; otherwise the UE passes to the next
 candidate in that same ranking. A layer at or below ``kpi.hole_dbm`` is never a
 candidate.
 
-Within an interval UEs are admitted strongest RSRP first, over every layer at
-the UE. Row order breaks only exact ties, which in practice are UEs on one tile:
-they see the same layers and need the same PRBs, so which of them is blocked
-changes no count.
+Within an interval UEs are admitted in ``t_s`` order: a cell fills in the order
+its reports arrive, not best-first. Two UEs reporting at the same instant are
+taken strongest RSRP first, over every layer at the UE, and row order breaks
+what remains.
 
 SINR is an input, never computed here: the solver's own, from the radio map
 (:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
@@ -227,17 +227,20 @@ def _candidate_order(
     return order[heard[order]]
 
 
-def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _Serving:
+def _select_serving(
+    rsrp: np.ndarray, sinr: np.ndarray, t_s: np.ndarray, spec: CapacitySpec
+) -> _Serving:
     """Assign one interval's UEs to cell-bands under the PRB limits.
 
-    UEs are taken strongest RSRP first, over every layer at the UE, ties in the
-    order given; each walks its :func:`_candidate_order` and takes the first
-    cell-band still at or under its admission share of ``max_prb`` and with room
-    for the UE's PRBs.
+    UEs are taken in ``t_s`` order, simultaneous ones strongest RSRP first over
+    every layer at the UE, and the order given breaks what remains; each walks
+    its :func:`_candidate_order` and takes the first cell-band still at or under
+    its admission share of ``max_prb`` and with room for the UE's PRBs.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
         sinr: ``[n_ue, n_band, n_tx]`` SINR in dB at the same locations.
+        t_s: ``[n_ue]`` report time of each UE, in seconds.
         spec: The capacity settings.
     """
     n_ue, n_band, n_tx = rsrp.shape
@@ -250,8 +253,11 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
     per_ue = np.full(n_ue, np.nan)
     load = np.zeros(n_band * n_tx)
     strongest = finite(rsrp).reshape(n_ue, -1).max(axis=1) if n_ue else np.empty(0)
+    # np.lexsort sorts by the last key first, and is stable, so row order breaks
+    # a UE pair tied on both time and strength.
+    admission_order = np.lexsort((-strongest, t_s))
     # ponytail: Python loop over UEs, run for every candidate; vectorise if serving dominates.
-    for ue in np.argsort(-strongest, kind="stable"):
+    for ue in admission_order:
         ue_need = need[ue].ravel()
         order = _candidate_order(
             rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
@@ -272,7 +278,11 @@ def _select_serving(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> _
 
 
 def serve_rows(
-    rsrp: np.ndarray, sinr: np.ndarray, t_index: np.ndarray, spec: CapacitySpec
+    rsrp: np.ndarray,
+    sinr: np.ndarray,
+    t_index: np.ndarray,
+    t_s: np.ndarray,
+    spec: CapacitySpec,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run :func:`_select_serving` once per interval.
 
@@ -280,6 +290,7 @@ def serve_rows(
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
         sinr: ``[n_ue, n_band, n_tx]`` SINR in dB at the same UEs.
         t_index: Interval of each UE; UEs compete for PRBs only within one.
+        t_s: Report time of each UE; sets the admission order inside an interval.
         spec: The capacity settings.
 
     Returns:
@@ -291,7 +302,7 @@ def serve_rows(
     per_ue = np.full(len(t_index), np.nan)
     for value in np.unique(t_index):
         at = np.flatnonzero(t_index == value)
-        serving = _select_serving(rsrp[at], sinr[at], spec)
+        serving = _select_serving(rsrp[at], sinr[at], t_s[at], spec)
         band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
     return band, tx, per_ue
 
@@ -310,7 +321,7 @@ def serve_intervals(
             each UE's tile, so the result follows the tilts.
         sinr: The solver's SINR in dB, same shape and axes as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
-        ue: Supplies ``t_index``, ``tile_row`` and ``tile_col`` only.
+        ue: Supplies ``t_index``, ``t_s``, ``tile_row`` and ``tile_col`` only.
         cfg: Composed config; see :meth:`CapacitySpec.from_config`.
 
     Returns:
@@ -330,6 +341,7 @@ def serve_intervals(
         rsrp[:, :, row, col].transpose(2, 0, 1),
         sinr[:, :, row, col].transpose(2, 0, 1),
         t_index,
+        ue["t_s"].to_numpy(dtype=float),
         spec,
     )
     out = pd.DataFrame({"t_index": t_index, "tile_row": row, "tile_col": col}, index=ue.index)

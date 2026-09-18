@@ -37,7 +37,7 @@ capacity:
   rsrp_threshold_dbm: -120.0
   # A cell-band admits no further UE once its load exceeds this share of
   # max_prb; the UE passes to its next candidate.
-  max_admission_utilisation: 0.8
+  max_admission_utilisation: 0.7
   # Assumed required throughput of each UE; sets PRBs per UE.
   throughput_per_ue_bps: 20000000 # 20 Mbps
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).
