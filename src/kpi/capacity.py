@@ -1,16 +1,18 @@
 """Serving-cell choice and PRB demand.
 
-The one serving rule in the project, read by the served ratio and the demand
-map: prefer bands in ``kpi.capacity.band_preference`` order while
+The one serving rule in the project, read by the served rate, the load
+measures and the demand map: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
 the strongest cell-band. That fallback is unreachable while
 ``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the committed
 config sets them: a layer below the threshold is not a candidate at all, so
-band preference always decides. A cell-band admits a UE only while its load is at most
-``kpi.capacity.max_admission_utilisation`` of ``max_prb`` (on the cell) and the
-UE's PRBs still fit under ``max_prb``; otherwise the UE passes to the next
-candidate in that same ranking. A layer at or below ``kpi.hole_dbm`` is never a
-candidate.
+band preference always decides. A cell-band admits a UE only while the UE's PRBs
+and the PRBs already on the cell-band together stay at or under
+``kpi.capacity.max_admission_utilisation`` of ``max_prb``; otherwise the UE
+passes to the next candidate in that same ranking. The cap is therefore a
+ceiling on the resulting load and not a gate on the load before admission: no
+cell-band ever ends an interval above that share of ``max_prb``. A layer at or
+below ``kpi.hole_dbm`` is never a candidate.
 
 Within an interval UEs are admitted in ``t_s`` order: a cell fills in the order
 its reports arrive, not best-first. Two UEs reporting at the same instant are
@@ -21,8 +23,9 @@ SINR is an input, never computed here: the solver's own, from the radio map
 (:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
 over an interval, and smooth in tilt.
 
-:func:`max_rsrp`, the strongest layer at each location, also lives here: the
-hole and weak rates read it. It is not the serving rule.
+:func:`max_rsrp`, the strongest layer at each location, and
+:func:`serving_sinr`, that layer's SINR, also live here: the hole, weak and
+percentile KPIs read them. Neither is the serving rule.
 """
 
 from __future__ import annotations
@@ -47,8 +50,8 @@ class CapacitySpec:
     Attributes:
         band_rank: Preference per band, 0 most preferred, shape ``[n_band]``.
         rsrp_threshold_dbm: Below this a band is skipped for the next one.
-        max_admission_utilisation: Share of ``max_prb`` above which a cell-band
-            admits no further UE.
+        max_admission_utilisation: Share of ``max_prb`` a cell-band's load may
+            not exceed; an admission that would carry it past this is refused.
         min_rsrp_dbm: A layer at or below this is never a candidate.
         throughput_per_ue_bps: Assumed throughput each UE requires.
         scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
@@ -155,6 +158,27 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
     return finite(rsrp).max(axis=(0, 1))
 
 
+def serving_sinr(rsrp: np.ndarray, sinr: np.ndarray) -> np.ndarray:
+    """SINR of the strongest layer at each location.
+
+    The layer :func:`max_rsrp` reports, read out of the solver's own SINR, so
+    the RSRP and SINR percentiles describe the same cell-band at every tile.
+
+    Args:
+        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
+            no path was found.
+        sinr: The solver's SINR in dB, same shape.
+
+    Returns:
+        ``[n_rows, n_cols]`` in dB. Where nothing is received every layer ties
+        at ``-inf`` and the value is whatever the first layer holds, usually
+        NaN; callers mask on coverage before reading it.
+    """
+    layers = finite(rsrp).reshape(-1, *rsrp.shape[-2:])
+    best = layers.argmax(axis=0)[None]
+    return np.take_along_axis(np.asarray(sinr, dtype=float).reshape(layers.shape), best, axis=0)[0]
+
+
 def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     """The UE table's ``(row, col)`` tile indices, checked against the map's grid.
 
@@ -243,8 +267,9 @@ def _select_serving(
 
     UEs are taken in ``t_s`` order, simultaneous ones strongest RSRP first over
     every layer at the UE, and the order given breaks what remains; each walks
-    its :func:`_candidate_order` and takes the first cell-band still at or under
-    its admission share of ``max_prb`` and with room for the UE's PRBs.
+    its :func:`_candidate_order` and takes the first cell-band where its PRBs fit
+    under ``max_admission_utilisation`` of ``max_prb``, counting the load already
+    there. A cell-band therefore never passes that share.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
@@ -265,7 +290,7 @@ def _select_serving(
     # np.lexsort sorts by the last key first, and is stable, so row order breaks
     # a UE pair tied on both time and strength.
     admission_order = np.lexsort((-strongest, t_s))
-    # ponytail: Python loop over UEs, run for every candidate; vectorise if serving dominates.
+    # Python loop over UEs, run for every candidate; vectorise if serving dominates.
     for ue in admission_order:
         ue_need = need[ue].ravel()
         order = _candidate_order(
@@ -274,8 +299,8 @@ def _select_serving(
         order = order[np.isfinite(ue_need[order])]
         if order.size == 0:
             continue
-        open_ = load[order] <= spec.max_admission_utilisation * limit[order]
-        fits = order[open_ & (load[order] + ue_need[order] <= limit[order])]
+        ceiling = spec.max_admission_utilisation * limit[order]
+        fits = order[load[order] + ue_need[order] <= ceiling]
         if fits.size == 0:
             per_ue[ue] = ue_need[order[0]]
             continue

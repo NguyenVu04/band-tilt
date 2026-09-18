@@ -11,7 +11,11 @@
   ADRs 0004 and 0005; partly, the weighted score of
   [ADR 0003](0003-turbo-on-a-weighted-kpi-score.md) and the objective role of
   [ADR 0001](0001-four-kpis-and-weighted-score.md)'s KPIs
-- **Superseded by:** —
+- **Superseded by:** [ADR 0007](0007-demand-weighted-objective.md) — the
+  tile-uniform average became a demand-weighted one, the admission cap became
+  a ceiling on the resulting load, and the reported KPI list grew from five
+  measures to eleven. The coverage utility, the co-band neighbour count and
+  the two thresholds below are unchanged.
 
 ## Context
 

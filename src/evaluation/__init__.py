@@ -24,14 +24,15 @@ Modules, each with one reason to change:
 ``export``
     Writing tables and figures to ``reports/``.
 
-Demand-weighted numbers are diagnostics, not objectives:
+Two views of the same cut:
 This package reports coverage weighted by where UEs actually stand, alongside
 the tile-weighted rates. The two can disagree sharply, because a hole need not
-fall where anyone stands.
+fall where anyone stands, and that difference is why both are printed.
 
-That is a reporting view and nothing more. The objective remains exactly the
-one of docs/adr/0006-radio-coverage-objective.md; no demand-weighted coverage
-quantity joins it. The thresholds separating hole, weak and good are read from
-``cfg.kpi``, never restated here, so a diagnostic and its KPI always cut the
-map at the same dBm.
+Which of them is the objective is settled in
+docs/adr/0007-demand-weighted-objective.md: the search maximises the
+demand-weighted one, and every reported KPI here stays tile-uniform, so a rate
+and the objective answer different questions on purpose. The thresholds
+separating hole, weak and good are read from ``cfg.kpi``, never restated here,
+so a diagnostic and its KPI always cut the map at the same dBm.
 """

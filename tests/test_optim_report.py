@@ -86,9 +86,15 @@ class StubEvaluator:
             kpi=KpiVector(
                 hole_rate=float(np.mean((unit - 0.35) ** 2)),
                 overlap_rate=float(np.mean(unit) * 0.5),
-                served_ratio=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                overlap_neighbor_mean=float(np.mean(unit) * 1.5),
                 weak_rate=float(np.mean((unit - 0.25) ** 2)),
-                edge_rsrp_dbm=float(-120.0 + 20.0 * np.mean(unit)),
+                rsrp_p05_dbm=float(-120.0 + 20.0 * np.mean(unit)),
+                rsrp_p50_dbm=float(-100.0 + 20.0 * np.mean(unit)),
+                sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
+                sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
+                served_rate=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                prb_utilisation_max=float(0.8 * np.mean(unit)),
+                load_imbalance=float(0.5 * np.mean(unit)),
                 objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
             ),
             seconds=1.0,
@@ -134,15 +140,29 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
     return evaluator
 
 
+def _kpi(objective: float, rng: np.random.Generator | None = None) -> KpiVector:
+    """One KPI vector with the given objective; the rest is filler to rank around."""
+    draw = (lambda: 0.5) if rng is None else (lambda: float(rng.random()))
+    return KpiVector(
+        hole_rate=draw(),
+        overlap_rate=draw(),
+        overlap_neighbor_mean=draw(),
+        weak_rate=draw(),
+        rsrp_p05_dbm=-110.0,
+        rsrp_p50_dbm=-95.0,
+        sinr_p05_db=-3.0,
+        sinr_p50_db=8.0,
+        served_rate=draw(),
+        prb_utilisation_max=draw(),
+        load_imbalance=draw(),
+        objective=objective,
+    )
+
+
 def _kpis(count: int) -> list[KpiVector]:
     """A spread of KPI vectors to rank, the first a middling incumbent."""
     rng = np.random.default_rng(0)
-    kpis = [KpiVector(0.5, 0.5, 0.5, 0.5, -110.0, 0.5)]
-    for _ in range(count - 1):
-        rates = [float(value) for value in rng.random(4)]
-        edge = -120.0 + 20.0 * rng.random()
-        kpis.append(KpiVector(*rates, edge, float(rng.random())))
-    return kpis
+    return [_kpi(0.5), *(_kpi(float(rng.random()), rng) for _ in range(count - 1))]
 
 
 def test_choose_always_publishes_the_incumbent_first() -> None:

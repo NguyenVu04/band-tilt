@@ -13,7 +13,17 @@ from scipy import stats
 from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, finite, max_rsrp, prb_by_interval, serve_intervals
-from src.kpi.overlap import overlap_neighbors
+from src.kpi.hole import hole_rate
+from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max, utilisation
+from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
+from src.kpi.quality import (
+    LOW_PERCENTILE,
+    MEDIAN_PERCENTILE,
+    rsrp_percentile_dbm,
+    sinr_percentile_db,
+)
+from src.kpi.served import served_rate
+from src.kpi.weak import weak_rate
 from src.optim.objective import (
     MAXIMISED,
     MEASURE_NAMES,
@@ -305,18 +315,27 @@ class Configuration:
         sinr: The solver's SINR in dB, same shape.
         served: :func:`src.kpi.capacity.serve_intervals` output.
         demand: PRBs required per tile in its busiest interval.
+        t_values: The intervals present, in order.
+        prb: PRBs each cell-band carried in each of them,
+            ``[n_t, n_band, n_tx]``, aligned to ``t_values``.
     """
 
     rsrp: np.ndarray
     sinr: np.ndarray
     served: pd.DataFrame
     demand: np.ndarray
+    t_values: np.ndarray
+    prb: np.ndarray
 
 
 def configuration(
     archive: Mapping[str, np.ndarray], ue: pd.DataFrame, cfg: DictConfig
 ) -> Configuration:
-    """Serve the UEs on one archived radio map."""
+    """Serve the UEs on one archived radio map.
+
+    Serves once and keeps both reductions the evaluation needs: the per-tile
+    demand raster and the per-cell-band load series.
+    """
     rsrp = archive["rsrp_dbm"].astype(float)
     sinr = archive["sinr_db"].astype(float)
     served = serve_intervals(rsrp, sinr, [str(b) for b in archive["band_label"]], ue, cfg)
@@ -327,7 +346,15 @@ def configuration(
         served["prb_per_ue"].to_numpy(),
         rsrp.shape[-2:],
     )
-    return Configuration(rsrp=rsrp, sinr=sinr, served=served, demand=prb.max(axis=0))
+    t_values, cell_prb = prb_by_cell_interval(served, rsrp.shape[0], rsrp.shape[1])
+    return Configuration(
+        rsrp=rsrp,
+        sinr=sinr,
+        served=served,
+        demand=prb.max(axis=0),
+        t_values=t_values,
+        prb=cell_prb,
+    )
 
 
 def reproducibility(
@@ -522,6 +549,14 @@ def experiment_setup(
         ("Hole threshold [dBm]", f"{float(cfg.kpi.hole_dbm):g}"),
         ("Weak coverage upper bound [dBm]", f"{float(cfg.kpi.weak_dbm):g}"),
         ("Overlap margin [dB]", f"{float(cfg.kpi.overlap_margin_db):g}"),
+        (
+            "Admission ceiling [share of max_prb]",
+            f"{float(cfg.kpi.capacity.max_admission_utilisation):g}",
+        ),
+        ("Objective tau_R [dB]", f"{float(cfg.kpi.objective.tau_r_db):g}"),
+        ("Objective beta", f"{float(cfg.kpi.objective.beta):g}"),
+        ("Demand map KDE bandwidth [m]", f"{float(cfg.data.demand.bandwidth_m):g}"),
+        ("Demand map uniform share", f"{float(cfg.data.demand.uniform_share):g}"),
     ]
     for run in runs:
         settings = {k: v for k, v in run.meta["config"]["optim"]["method"].items() if k != "name"}
@@ -710,3 +745,111 @@ def band_layer_summary(
                 }
             )
     return pd.DataFrame(rows)
+
+
+# The whole-network row of :func:`band_kpis`, beside the per-band ones.
+ALL_BANDS = "all"
+
+
+def _band_view(
+    config: Configuration, spec: CapacitySpec, band: int | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """One band's slice of a configuration, or the whole map when ``band`` is None.
+
+    Slicing the band axis rather than reparameterising the KPIs is what keeps
+    one definition of each measure: a per-band rate is the same function given
+    one band's layers.
+    """
+    if band is None:
+        return config.rsrp, config.sinr, config.prb, spec.max_prb
+    layer = slice(band, band + 1)
+    return config.rsrp[layer], config.sinr[layer], config.prb[:, layer], spec.max_prb[layer]
+
+
+def band_kpis(
+    configurations: Mapping[str, Configuration],
+    band_labels: Sequence[str],
+    cfg: DictConfig,
+) -> pd.DataFrame:
+    """Every reported KPI per configuration, over all bands and per band.
+
+    The ``all`` row is the whole radio map and equals the run's own
+    :class:`~src.optim.objective.KpiVector` for that configuration. A band row
+    is the same measure given only that band's layers, so a coverage hole on
+    700 MHz is a hole in the 700 MHz row whatever the other layers do. The
+    per-band served rates are shares of *all* reports, so they sum to the ``all``
+    row; the rates over tiles do not sum to anything, because a tile can be a
+    hole on two bands at once.
+
+    ``objective`` is not here: it scores the network, and a single layer of a
+    multi-band network is not a network.
+
+    Returns:
+        One row per configuration and band: ``configuration``, ``band``, then
+        :data:`src.optim.objective.KPI_NAMES`.
+    """
+    rows = []
+    for name, config in configurations.items():
+        spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
+        views = [(ALL_BANDS, None), *((band, index) for index, band in enumerate(band_labels))]
+        for band, index in views:
+            rsrp, sinr, prb, max_prb = _band_view(config, spec, index)
+            rows.append(
+                {
+                    "configuration": name,
+                    "band": band,
+                    "hole_rate": hole_rate(rsrp, cfg),
+                    "overlap_rate": overlap_rate(rsrp, cfg),
+                    "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
+                    "weak_rate": weak_rate(rsrp, cfg),
+                    "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
+                    "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
+                    "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+                    "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
+                    "served_rate": served_rate(config.served, index),
+                    "prb_utilisation_max": prb_utilisation_max(prb, max_prb),
+                    "load_imbalance": load_imbalance(prb, max_prb),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def prb_usage_by_time(
+    configurations: Mapping[str, Configuration],
+    band_labels: Sequence[str],
+    tx_names: Sequence[str],
+    max_prb: np.ndarray,
+) -> pd.DataFrame:
+    """PRBs each cell-band carried in each interval, and that as a share of its limit.
+
+    The series behind ``prb_utilisation_max`` and ``load_imbalance``: those two
+    are reductions of exactly this table, so a cell that looks overloaded in the
+    scalar can be read here interval by interval.
+
+    Args:
+        configurations: Configuration key to its :class:`Configuration`.
+        band_labels: Band names, the ``band`` index order.
+        tx_names: Cell names, the ``tx`` index order.
+        max_prb: ``[n_band, n_tx]`` limits, as ``CapacitySpec.max_prb``.
+
+    Returns:
+        Long form: ``configuration``, ``cell``, ``band``, ``t_index``,
+        ``prb_load``, ``utilisation``.
+    """
+    frames = []
+    for name, config in configurations.items():
+        share = utilisation(config.prb, max_prb)
+        n_t, n_band, n_tx = config.prb.shape
+        frames.append(
+            pd.DataFrame(
+                {
+                    "configuration": name,
+                    "cell": np.tile(list(tx_names), n_t * n_band),
+                    "band": np.tile(np.repeat(list(band_labels), n_tx), n_t),
+                    "t_index": np.repeat(config.t_values, n_band * n_tx),
+                    "prb_load": config.prb.reshape(-1),
+                    "utilisation": share.reshape(-1),
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)

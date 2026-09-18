@@ -7,8 +7,15 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import edge_rsrp_dbm, hole_rate, served_ratio, weak_rate
-from src.kpi.capacity import _tile_index
+from src.kpi import (
+    hole_rate,
+    overlap_neighbor_mean,
+    rsrp_percentile_dbm,
+    served_rate,
+    sinr_percentile_db,
+    weak_rate,
+)
+from src.kpi.capacity import _tile_index, serve_intervals
 from src.kpi.overlap import overlap_neighbors
 
 
@@ -21,7 +28,6 @@ def cfg():
                 "hole_dbm": -120.0,
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
-                "quality": {"edge_percentile": 5.0},
                 "capacity": {
                     "band_preference": ["hi", "lo"],
                     "rsrp_threshold_dbm": -100.0,
@@ -70,6 +76,11 @@ def _ue(rows: list[dict[str, float]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _served(rsrp: np.ndarray, ue: pd.DataFrame, cfg) -> pd.DataFrame:
+    """The serving assignment the served rate reduces."""
+    return serve_intervals(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg)
+
+
 # --- thresholds ------------------------------------------------------------
 
 
@@ -93,25 +104,40 @@ def test_a_map_reaching_nothing_is_entirely_holes(cfg) -> None:
     assert hole_rate(_map([[[np.nan, np.nan]]]), cfg) == pytest.approx(1.0)
 
 
-# --- edge RSRP -------------------------------------------------------------
+# --- RSRP and SINR percentiles ---------------------------------------------
 
 
-def test_edge_rsrp_ignores_the_locations_with_no_coverage(cfg) -> None:
+def test_rsrp_percentile_ignores_the_locations_with_no_coverage(cfg) -> None:
     """Conditional on coverage by design: a hole has no serving RSRP to report.
 
     Taken at the 0th percentile so the assertion is the weakest covered tile
     itself, with no interpolation between order statistics to read past.
     """
-    cfg.kpi.quality.edge_percentile = 0.0
     # No path, exactly on the hole threshold, then three covered tiles. The
     # first two are excluded, so the weakest reported is -100 and not -inf.
     rsrp = _map([[[np.nan, -120.0, -100.0, -90.0, -80.0]]])
-    assert edge_rsrp_dbm(rsrp, cfg) == pytest.approx(-100.0)
+    assert rsrp_percentile_dbm(rsrp, cfg, 0.0) == pytest.approx(-100.0)
+    assert rsrp_percentile_dbm(rsrp, cfg, 50.0) == pytest.approx(-90.0)
 
 
-def test_edge_rsrp_of_a_dead_map_is_minus_infinity(cfg) -> None:
+def test_rsrp_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
     """Total outage has to order below every configuration that covers something."""
-    assert edge_rsrp_dbm(_map([[[np.nan, np.nan]]]), cfg) == -np.inf
+    assert rsrp_percentile_dbm(_map([[[np.nan, np.nan]]]), cfg, 5.0) == -np.inf
+
+
+def test_sinr_percentile_reads_the_layer_the_rsrp_percentile_reads(cfg) -> None:
+    """The best server on tile 0 is band 'lo', so its SINR is the one reported."""
+    rsrp = _map([[[-100.0, -95.0]], [[-80.0, -130.0]]])
+    sinr = _map([[[3.0, 9.0]], [[12.0, -5.0]]])
+    # Tile 0: 'lo' at -80 serves, SINR 12. Tile 1: 'hi' at -95 serves, SINR 9.
+    assert sinr_percentile_db(rsrp, sinr, cfg, 0.0) == pytest.approx(9.0)
+    assert sinr_percentile_db(rsrp, sinr, cfg, 100.0) == pytest.approx(12.0)
+
+
+def test_sinr_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
+    """Nothing covered, nothing to take a percentile of."""
+    rsrp = _map([[[np.nan, np.nan]]])
+    assert sinr_percentile_db(rsrp, _sinr(rsrp), cfg, 50.0) == -np.inf
 
 
 # --- overlap ---------------------------------------------------------------
@@ -141,6 +167,23 @@ def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
     assert overlap_neighbors(rsrp, cfg).tolist() == [[0]]
 
 
+def test_overlap_neighbor_mean_averages_over_covered_tiles_only(cfg) -> None:
+    """Tile 0 carries two neighbours, tile 1 is a hole: the mean is 2, not 1."""
+    rsrp = _map(
+        [
+            [[-80.0, -130.0], [-84.0, -130.0]],
+            [[-90.0, -130.0], [-94.0, -130.0]],
+        ]
+    )
+    assert overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
+    assert overlap_neighbor_mean(rsrp, cfg) == pytest.approx(2.0)
+
+
+def test_overlap_neighbor_mean_of_a_dead_map_is_nan(cfg) -> None:
+    """No coverage is not the same statement as no crowding."""
+    assert np.isnan(overlap_neighbor_mean(_map([[[np.nan, np.nan]]]), cfg))
+
+
 # --- tiles -----------------------------------------------------------------
 
 
@@ -150,7 +193,7 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
         _tile_index(_ue([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
-# --- served ratio ----------------------------------------------------------
+# --- served rate -----------------------------------------------------------
 
 
 def test_every_covered_ue_with_room_is_served(cfg) -> None:
@@ -160,7 +203,7 @@ def test_every_covered_ue_with_room_is_served(cfg) -> None:
         [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 2
         + [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1}]
     )
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(1.0)
+    assert served_rate(_served(rsrp, ue, cfg)) == pytest.approx(1.0)
 
 
 def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
@@ -172,7 +215,7 @@ def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
             {"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1},
         ]
     )
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(0.5)
+    assert served_rate(_served(rsrp, ue, cfg)) == pytest.approx(0.5)
 
 
 def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
@@ -182,12 +225,14 @@ def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
     ue = _ue([{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 3)
-    assert served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg) == pytest.approx(2.0 / 3.0)
+    served = _served(rsrp, ue, cfg)
+    assert served_rate(served) == pytest.approx(2.0 / 3.0)
+    # One UE on each band, so each band's own rate is a third of all reports.
+    assert served_rate(served, band=0) == pytest.approx(1.0 / 3.0)
+    assert served_rate(served, band=1) == pytest.approx(1.0 / 3.0)
 
 
-def test_served_ratio_rejects_an_empty_ue_table(cfg) -> None:
+def test_served_rate_rejects_an_empty_ue_table(cfg) -> None:
     """No UE, no denominator."""
-    rsrp = _map([[[-80.0]], [[-80.0]]])
-    empty = pd.DataFrame(columns=["t_index", "t_s", "tile_row", "tile_col"])
     with pytest.raises(ValueError, match="no UE"):
-        served_ratio(rsrp, _sinr(rsrp), ["hi", "lo"], empty, cfg)
+        served_rate(pd.DataFrame(columns=["band"]))

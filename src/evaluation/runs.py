@@ -304,15 +304,20 @@ def require(checks: pd.DataFrame) -> None:
 def _kpi_definition(run: Run) -> dict[str, Any]:
     """Everything a reported measure reads, from the run's own config snapshot.
 
-    The thresholds, the capacity model, the objective parameters and the
-    reported-quality settings, plus each cell's PRB limit: the KPIs and the
-    objective depend on all of them, so two runs that differ on any one did not
-    measure the same thing.
+    The thresholds, the capacity model and the objective parameters, plus each
+    cell's PRB limit: the KPIs and the objective depend on all of them, so two
+    runs that differ on any one did not measure the same thing. The RSRP and
+    SINR percentiles are not here because they are constants in
+    :mod:`src.kpi.quality` and no run can differ on them.
 
     ``bandwidth`` and ``temperature`` are here because kTB over the band
     bandwidth is the noise floor behind every SINR, and SINR sets the PRBs a UE
-    needs and therefore the served ratio. Neither is stored in the archive, so
+    needs and therefore the served rate. Neither is stored in the archive, so
     the config snapshot is the only place they can be checked.
+
+    ``demand`` is here because the objective averages against the demand map's
+    tile weights (ADR 0007): two runs whose KDE settings differ optimised
+    different quantities, whatever else they share.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
@@ -323,7 +328,7 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
         "objective": kpi.get("objective"),
-        "quality": kpi.get("quality"),
+        "demand": config.get("data", {}).get("demand"),
         "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
         "bandwidth": {
             band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])

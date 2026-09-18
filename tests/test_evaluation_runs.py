@@ -15,9 +15,15 @@ from src.optim.objective import MEASURE_NAMES
 KPI = {
     "hole_rate": 0.10,
     "overlap_rate": 0.28,
-    "served_ratio": 0.009,
+    "overlap_neighbor_mean": 0.45,
     "weak_rate": 0.12,
-    "edge_rsrp_dbm": -108.0,
+    "rsrp_p05_dbm": -108.0,
+    "rsrp_p50_dbm": -95.0,
+    "sinr_p05_db": -3.0,
+    "sinr_p50_db": 8.0,
+    "served_rate": 0.009,
+    "prb_utilisation_max": 0.62,
+    "load_imbalance": 0.44,
     "objective": 0.40,
 }
 
@@ -60,7 +66,7 @@ def make_run(
     n: int = 3,
     seed: int = 0,
     throughput_per_ue_bps: float = 1e6,
-    edge_percentile: float = 5.0,
+    bandwidth_m: float = 150.0,
     bandwidth: int = 10000000,
     **radio: object,
 ) -> Path:
@@ -108,8 +114,8 @@ def make_run(
                         "overlap_margin_db": 6.0,
                         "capacity": {"throughput_per_ue_bps": throughput_per_ue_bps},
                         "objective": {"beta": 1.0},
-                        "quality": {"edge_percentile": edge_percentile},
                     },
+                    "data": {"demand": {"bandwidth_m": bandwidth_m, "uniform_share": 0.0}},
                     "simulation": {
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]},
                         "radio_map": {
@@ -235,11 +241,11 @@ def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
     assert "band carrier frequencies match the baseline, in order" in failed
 
 
-def test_verify_catches_a_different_edge_percentile(tmp_path) -> None:
-    """edge_rsrp_dbm is a reported KPI, so the percentile behind it must agree."""
+def test_verify_catches_a_different_demand_map(tmp_path) -> None:
+    """The objective averages against the demand weights, so its KDE must agree."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
-        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", edge_percentile=50.0)),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth_m=400.0)),
     ]
     checks = run_store.verify(runs, radio_archive())
     failed = checks[~checks["holds"]]

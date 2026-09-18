@@ -113,8 +113,9 @@ stages:
   # --- Stage 4: preprocessing (notebook 02) -----------------------------------
   # Verifies the simulation output against the contract named in each check
   # (configs/simulation.yaml or the scenario manifest), then writes the typed,
-  # verified tables everything downstream reads. Nothing here learns from the
-  # data — see the notebook's boundary rule.
+  # verified tables everything downstream reads, and the demand map the objective
+  # weights its tiles by (ADR 0007). Nothing here learns from the data — see the
+  # notebook's boundary rule; the KDE is a fixed kernel, not a fitted one.
   #
   # `configs/simulation.yaml` params below are the sections `src/data/schema.py`
   # cross-checks the artifacts against; a change to them can invalidate the
@@ -124,6 +125,7 @@ stages:
     cmd: python -m src.data.build
     deps:
       - src/data/build.py
+      - src/data/demand.py
       - src/data/load.py
       - src/data/schema.py
       - src/simulation/transmitter.py
@@ -138,6 +140,9 @@ stages:
     params:
       - configs/kpi.yaml:
           - hole_dbm
+      - configs/data.yaml:
+          # The KDE behind the demand map's tile weights.
+          - demand
       - configs/simulation.yaml:
           - scene
           - grid
@@ -149,6 +154,7 @@ stages:
       - data/processed/ue.parquet
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
+      - data/processed/demand.npz
 
   # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
   # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
@@ -161,6 +167,8 @@ stages:
   #
   # kpi is a param because the measures read the KPI thresholds, the capacity
   # model and kpi.objective: change any and every previous run becomes incomparable.
+  # The demand map is a file dependency for the same reason — the objective
+  # averages its per-tile utility against those weights (ADR 0007).
   optimization:
     cmd: python -m src.optim.run
     deps:
@@ -172,6 +180,7 @@ stages:
       - src/optim/run.py
       - src/optim/report.py
       - src/kpi
+      - src/data/demand.py
       - src/simulation/radio.py
       - src/simulation/materials.py
       - src/simulation/transmitter.py
@@ -182,6 +191,7 @@ stages:
       - data/external/scene
       - data/external/scenario.json
       - data/processed/ue.parquet
+      - data/processed/demand.npz
     params:
       - configs/optim/base.yaml:
           - seed
@@ -206,8 +216,6 @@ stages:
           - overlap_margin_db
           - capacity
           - objective
-          # edge_rsrp_dbm is a recorded KPI and reads quality.edge_percentile.
-          - quality
       - configs/simulation.yaml:
           - scene
           - grid

@@ -168,6 +168,14 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
             _CONFIG,
             *_count(rsrp > float(cfg.simulation.antenna.power_rs)),
         )
+        # A report is in the MDT because a cell-band scheduled PRBs for it, so
+        # a non-positive or non-finite requirement is a writer fault.
+        prb = mdt["prb_per_ue"].to_numpy(dtype=float)
+        record(
+            "mdt prb_per_ue is finite and positive",
+            _MDT,
+            *_count(~(np.isfinite(prb) & (prb > 0.0))),
+        )
         record("no duplicate mdt rows", _MDT, *_count(mdt.duplicated().to_numpy()))
 
     # The cell table the map was solved at.

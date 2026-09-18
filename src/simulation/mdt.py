@@ -5,8 +5,10 @@ MDT is a subset of the UE population, not a second draw. A UE enters it when
 because only a served UE reports measurements. It is kept for later use: the
 search and evaluation both count every UE.
 
-``rsrp_dbm`` is the serving cell-band's RSRP at the UE's tile. It is kept for
-reference and plots; no score reads it.
+``rsrp_dbm`` is the serving cell-band's RSRP at the UE's tile, kept for
+reference and plots; no score reads it. ``prb_per_ue`` is what the serving rule
+required of the cell that admitted the report, and the demand map
+(:mod:`src.data.demand`) is the median of it per tile.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from src.kpi.capacity import serve_intervals
 from src.simulation.sample import CSV_COLUMNS
 from src.tracking import log_stage
 
-MDT_COLUMNS = (*CSV_COLUMNS, "rsrp_dbm")
+MDT_COLUMNS = (*CSV_COLUMNS, "rsrp_dbm", "prb_per_ue")
 
 
 def select(
@@ -44,6 +46,9 @@ def select(
 
     Returns:
         :data:`MDT_COLUMNS`, one row per admitted UE, in the UE table's order.
+        ``prb_per_ue`` is the PRBs the serving cell-band scheduled for it, and
+        is finite and positive on every row: a report with no finite need was
+        never admitted.
 
     Raises:
         ValueError: As :func:`src.kpi.capacity.serve_intervals`.
@@ -58,6 +63,7 @@ def select(
         served["tile_row"].to_numpy()[on],
         served["tile_col"].to_numpy()[on],
     ]
+    mdt["prb_per_ue"] = served["prb_per_ue"].to_numpy()[on]
     return mdt
 
 

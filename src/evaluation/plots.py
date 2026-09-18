@@ -298,7 +298,11 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
     methods = list(improvement.index)
     positions = np.arange(len(methods))
 
-    figure, axes = plt.subplots(2, 4, figsize=(14.0, 7.0), constrained_layout=True)
+    columns = 4
+    rows = -(-len(MEASURE_NAMES) // columns)
+    figure, axes = plt.subplots(
+        rows, columns, figsize=(3.5 * columns, 3.5 * rows), constrained_layout=True
+    )
     for axis in axes.ravel()[len(MEASURE_NAMES) :]:
         axis.set_visible(False)
     for axis, name in zip(axes.ravel(), MEASURE_NAMES, strict=False):
@@ -502,4 +506,94 @@ def coverage_class_maps(
     bar = figure.colorbar(image, ax=axes[0].tolist(), ticks=range(len(maps.COVERAGE_CLASSES)))
     bar.ax.set_yticklabels([name.capitalize() for name in maps.COVERAGE_CLASSES])
     figure.suptitle("Coverage classes")
+    return figure
+
+
+def prb_usage_heatmaps(usage: pd.DataFrame, max_utilisation: float) -> Figure:
+    """PRB utilisation of every cell-band over time, one panel per configuration.
+
+    A heatmap rather than lines: a week of 15-minute intervals against three
+    dozen cell-bands is too many series to read, and what a reader looks for
+    here is which rows run hot and when.
+
+    Args:
+        usage: :func:`src.evaluation.compare.prb_usage_by_time` output.
+        max_utilisation: The colour-scale top, and the admission ceiling
+            ``kpi.capacity.max_admission_utilisation``: the serving rule cannot
+            produce a value above it, so the scale is the whole reachable range.
+    """
+    keys = list(dict.fromkeys(usage["configuration"]))
+    figure, axes = plt.subplots(
+        1,
+        len(keys),
+        figsize=(5.0 * len(keys) + 1.2, 5.2),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    image = None
+    for index, (axis, key) in enumerate(zip(axes[0], keys, strict=True)):
+        mine = usage[usage["configuration"] == key]
+        grid = mine.pivot_table(
+            index=["band", "cell"], columns="t_index", values="utilisation", sort=False
+        )
+        image = axis.imshow(
+            grid.to_numpy(),
+            aspect="auto",
+            origin="lower",
+            cmap="YlOrRd",
+            vmin=0.0,
+            vmax=max_utilisation,
+            interpolation="nearest",
+        )
+        axis.grid(False)
+        axis.set_xlabel("Interval")
+        axis.set_yticks(
+            range(len(grid.index)),
+            [f"{cell} {label(band)}" for band, cell in grid.index] if index == 0 else [],
+            fontsize=5,
+        )
+        axis.set_title(label(key))
+    figure.colorbar(
+        image,
+        ax=axes[0].tolist(),
+        label=f"PRB utilisation (admission ceiling {max_utilisation:.0%})",
+    )
+    figure.suptitle("Cell-band PRB usage over time")
+    return figure
+
+
+def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
+    """One panel per KPI, grouped bars over bands, one bar per configuration.
+
+    Args:
+        table: :func:`src.evaluation.compare.band_kpis` output.
+        kpis: Which measures to draw, in panel order.
+    """
+    keys = list(dict.fromkeys(table["configuration"]))
+    bands = list(dict.fromkeys(table["band"]))
+    positions = np.arange(len(bands))
+    width = 0.8 / max(len(keys), 1)
+
+    columns = min(len(kpis), 3)
+    rows = -(-len(kpis) // columns)
+    figure, axes = plt.subplots(
+        rows, columns, figsize=(4.6 * columns, 3.4 * rows), constrained_layout=True, squeeze=False
+    )
+    flat = axes.ravel()
+    for axis in flat[len(kpis) :]:
+        axis.set_visible(False)
+    for axis, name in zip(flat, kpis, strict=False):
+        for offset, key in enumerate(keys):
+            mine = table[table["configuration"] == key].set_index("band")[name]
+            axis.bar(
+                positions + (offset - (len(keys) - 1) / 2) * width,
+                mine.reindex(bands).to_numpy(),
+                width=width,
+                color=COLOURS.get(key),
+                label=label(key),
+            )
+        axis.set_xticks(positions, [label(band) for band in bands], fontsize=8)
+        axis.set_title(label(name), fontsize=9)
+    flat[0].legend(fontsize=8)
+    figure.suptitle("Reported KPIs per frequency layer")
     return figure

@@ -92,8 +92,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("candidates", searched)
     for x, y in (
         ("hole_rate", "overlap_rate"),
-        ("hole_rate", "served_ratio"),
-        ("overlap_rate", "served_ratio"),
+        ("hole_rate", "served_rate"),
+        ("overlap_rate", "served_rate"),
     ):
         add(f"tradeoff_{x}_vs_{y}", plots.tradeoff_scatter(searched, x, y))
 
@@ -174,6 +174,22 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
         ),
     )
     add("band_layer_summary", compare.band_layer_summary(configurations, band_labels, cfg))
+    per_band = compare.band_kpis(configurations, band_labels, cfg)
+    add("band_kpis", per_band)
+    add(
+        "band_kpi_panels",
+        plots.band_kpi_panels(
+            per_band,
+            (
+                "hole_rate",
+                "overlap_rate",
+                "weak_rate",
+                "rsrp_p05_dbm",
+                "sinr_p05_db",
+                "served_rate",
+            ),
+        ),
+    )
 
     service = {
         name: compare.service_summary(c.served, band_labels) for name, c in configurations.items()
@@ -187,6 +203,18 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
         for name in ("incumbent", winner.method)
     }
     add("cell_band_utilisation", plots.utilisation_heatmaps(load))
+    add("cell_band_load", pd.concat([f.assign(configuration=k) for k, f in load.items()]))
+    usage = compare.prb_usage_by_time(
+        {key: configurations[key] for key in ("incumbent", winner.method)},
+        band_labels,
+        tx_names,
+        max_prb,
+    )
+    add("prb_usage_by_time", usage)
+    add(
+        "prb_usage_heatmaps",
+        plots.prb_usage_heatmaps(usage, float(cfg.kpi.capacity.max_admission_utilisation)),
+    )
     add(
         "cell_impact",
         compare.cell_impact(winner.best_tilt, load["incumbent"], load[winner.method], cells),

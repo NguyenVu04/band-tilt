@@ -1,6 +1,7 @@
 # @package kpi
 # Thresholds defining the KPIs, the objective's parameters, and the capacity
-# model behind the serving rule, the served ratio and the PRB demand map.
+# model behind the serving rule, the served rate, the load measures and the PRB
+# demand map.
 
 # Strongest signal at or below which a location is a coverage hole. Also the
 # RSRP a cell-band must exceed to serve a UE, and the objective's coverage
@@ -14,19 +15,27 @@ weak_dbm: -90.0
 # Also the objective's Delta_R.
 overlap_margin_db: 6.0
 
-# J = mean_g sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g)
-# (src/optim/objective.py, ADR 0006).
+# J = sum_g w_g * sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g), sum_g w_g = 1
+# (src/optim/objective.py, ADR 0007). w_g is the demand map's tile weight; the
+# KDE that builds it is configured in configs/data.yaml `demand`.
+#
+# How to choose the two below: see docs/adr/0007-demand-weighted-objective.md,
+# "Choosing the parameters". In short, tau_r_db is the dB width over which a
+# tile goes from worthless to fully served, so set it to the span you actually
+# care to distinguish (hole_dbm to weak_dbm is 30 dB here); beta is the price of
+# one overlapping neighbour, so set it from how many dB of coverage one
+# neighbour is worth trading away: beta = ln(1 + d) where d is the relative
+# utility you would give up, and 0.5 trades a neighbour for ~39% of a tile.
 objective:
   # tau_R: width of the coverage sigmoid on (R_s - T_cov), in dB.
   tau_r_db: 30.0
   # Each co-band overlapping neighbour keeps q_ov = exp(-beta) of the utility.
   beta: 0.5
 
-# Reported network-quality measures that the objective does not read.
-quality:
-  # Percentile of serving RSRP taken as the cell edge, over covered locations
-  # only: the 5% point of 3GPP TR 36.814 Annex A.2.1.4.
-  edge_percentile: 5.0
+# The RSRP and SINR percentiles are not configured: the measures are named
+# rsrp_p05_dbm, rsrp_p50_dbm, sinr_p05_db and sinr_p50_db, so the points they
+# read are part of the name. src/kpi/quality.py holds them, with the 3GPP
+# citation behind the 5% point.
 
 # Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
@@ -36,9 +45,11 @@ capacity:
   # hole_dbm here, which makes that skip unreachable: a layer that low is not a
   # candidate at all. Raise it above hole_dbm to put the rule back in play.
   rsrp_threshold_dbm: -120.0
-  # A cell-band admits no further UE once its load exceeds this share of
-  # max_prb; the UE passes to its next candidate.
-  max_admission_utilisation: 0.7
+  # Ceiling on cell-band load: an admission is refused when the UE's PRBs plus
+  # the PRBs already there would carry the cell-band past this share of
+  # max_prb, and the UE passes to its next candidate. No cell-band ever ends an
+  # interval above it, so kpi.prb_utilisation_max is bounded by this value.
+  max_admission_utilisation: 0.8
   # Assumed required throughput of each UE; sets PRBs per UE.
   throughput_per_ue_bps: 20000000 # 20 Mbps
   # scs_hz: subcarrier spacing; a PRB is 12 subcarriers (TS 38.211 4.4.4.1).

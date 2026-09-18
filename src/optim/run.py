@@ -5,7 +5,7 @@ loops over. Every candidate is ray
 traced at the configured fidelity, with no surrogate, so every KPI this writes
 is a measurement and the run it produces is complete: a named winner and its
 shortlist, the winner's radio map, and the two tables an operator chooses from.
-The served ratio counts every UE (``data.output.ue_file``).
+The served rate counts every UE (``data.output.ue_file``).
 
 Needs a CUDA GPU and the ``rt`` extra.
 """

@@ -10,8 +10,12 @@
 - **Superseded by:** partly, by
   [ADR 0006](0006-radio-coverage-objective.md) — the four definitions below
   stand and are reported, but the objective is no longer built from them. See
-  Amendment. The amendments for the deleted ADRs 0004 and 0005 are in Git
-  history.
+  Amendment. Then by
+  [ADR 0007](0007-demand-weighted-objective.md) — the served ratio is renamed
+  `served_rate`, `edge_rsrp_dbm` becomes `rsrp_p05_dbm` beside a median and two
+  SINR percentiles, six more measures join them, and the admission cap becomes a
+  ceiling; see Amendment 2. The amendments for the deleted ADRs 0004 and 0005
+  are in Git history.
 
 ## Context
 
@@ -71,6 +75,24 @@ three rates are shares of the map; the served ratio is a share of the traffic.
 
 **Accessibility is excluded** as a KPI: synthetic MDT carries RSRP and position,
 not connection outcomes, and Sionna-RT models propagation, not random access.
+
+## Amendment 2 (2026-09-18, ADR 0007)
+
+The four definitions above still stand; what is reported around them changed.
+
+- **The names.** `served_ratio` is `served_rate`; `edge_rsrp_dbm` is
+  `rsrp_p05_dbm`, and the percentile behind it is a constant in
+  `src/kpi/quality.py` rather than a config value, because the column is named
+  after it.
+- **Six more measures**: `overlap_neighbor_mean`, `rsrp_p50_dbm`,
+  `sinr_p05_db`, `sinr_p50_db`, `prb_utilisation_max` and `load_imbalance`.
+  Every one of the eleven is also reported per frequency layer.
+- **The admission rule** is a ceiling, not a gate: a cell-band refuses a UE
+  whose PRBs would carry it past `kpi.capacity.max_admission_utilisation` of
+  `max_prb`, so no cell-band ever ends an interval above that share. The
+  paragraph above describing a cell-band "already loaded past" the share
+  describes the superseded rule.
+- **The objective** is demand-weighted. See ADR 0007.
 
 ## Consequences
 

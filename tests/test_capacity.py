@@ -124,11 +124,13 @@ def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
     assert serving.load[:, 0].tolist() == pytest.approx([6.0, 6.0])
 
 
-def test_a_cell_band_over_its_admission_share_passes_the_ue_on(cfg) -> None:
-    """At 0.5 of 10 PRBs, 'hi' admits a 3-PRB UE at load 0 and 3, then not at 6.
+def test_the_admission_share_is_a_ceiling_on_the_resulting_load(cfg) -> None:
+    """At 0.5 of 10 PRBs no cell-band may pass 5, so a 3-PRB UE fits only once.
 
-    The third UE would still fit under ``max_prb`` (9 <= 10), so only the
-    admission share moves it to 'lo'.
+    The second UE would still sit under ``max_prb`` on 'hi' (6 <= 10) and under
+    the share before its own PRBs are counted (3 <= 5); it is refused because
+    admitting it would end the interval at 6, above the ceiling. It takes 'lo'
+    instead, and the third UE fits nowhere.
     """
     cfg.kpi.capacity.max_admission_utilisation = 0.5
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
@@ -136,8 +138,9 @@ def test_a_cell_band_over_its_admission_share_passes_the_ue_on(cfg) -> None:
     # log2(1 + SINR) = 1/3: each UE needs 3 PRBs.
     sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 3.0) - 1.0))
     serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
-    assert serving.band.tolist() == [0, 0, 1]
-    assert serving.load[:, 0].tolist() == pytest.approx([6.0, 3.0])
+    assert serving.band.tolist() == [0, 1, -1]
+    assert serving.load[:, 0].tolist() == pytest.approx([3.0, 3.0])
+    assert (serving.load <= 0.5 * spec.max_prb).all()
 
 
 def test_the_admission_share_is_checked_against_config(cfg) -> None:
