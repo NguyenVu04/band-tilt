@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import numpy as np
 from omegaconf import DictConfig
 
-# Diurnal-profile period.
 _DAY_S = 86400.0
 
 

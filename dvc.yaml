@@ -1,10 +1,13 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 #
-# The stages mirror the Taskfile targets and the notebooks one-to-one, and both
-# call the same functions in src/ — a notebook and a stage cannot diverge.
+# Each stage calls the same functions in src/ as its notebook, so a notebook and
+# a stage cannot diverge on what they compute.
 #
 # Five stages are active: the three `simulation_*` stages (notebook 00),
 # `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
+# Two entry points deliberately have no stage. `src/evaluation/run.py`
+# (notebook 04, `task evaluate`) reads finished runs and re-solves nothing, so
+# it has no reproducible inputs to track; notebook 01 writes no data at all.
 # MARL and held-out validation still have no code in src/, so there is nothing
 # to define a stage against. Add those when the modules land instead of
 # guessing at their shape now.
@@ -203,6 +206,8 @@ stages:
           - overlap_margin_db
           - capacity
           - objective
+          # edge_rsrp_dbm is a recorded KPI and reads quality.edge_percentile.
+          - quality
       - configs/simulation.yaml:
           - scene
           - grid

@@ -11,8 +11,8 @@ budget:
   # Trust-region evaluations after it does.
   n_iter: 128
   # Evaluations per round. The evaluator traces a batch one point at a time, so a
-  # larger batch saves no wall clock; it only cuts GP refits and trust-region
-  # updates. Not 1: a refit costs more than a trace.
+  # larger batch saves no wall clock; it only cuts how often the GP is refitted
+  # and the trust region updated. Not 1, so a run is not one refit per trace.
   batch_size: 3
 
 # Trust-region schedule in the unit cube the tilt box is rescaled to, as in

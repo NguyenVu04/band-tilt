@@ -77,10 +77,10 @@ class Evaluator:
     """Ray-trace a tilt vector and score the resulting radio map.
 
     Construction loads the scene, attaches the antenna arrays and checks the
-    masts still stand on open ground — everything :func:`src.simulation.radio.solve` does per call
-    that does not depend on tilt. It is a large fixed fraction of what one
-    evaluation costs, so paying it per candidate would add roughly half again
-    to every point in the run.
+    masts still stand on open ground — the setup
+    :func:`src.simulation.radio.solve_band` needs but that no tilt changes.
+    Hoisting it out of the loop is why a search pays for it once rather than
+    once per candidate.
 
     Use it as a context manager. It holds GPU and scene state, and releasing
     that when the run ends rather than whenever the collector notices is what

@@ -6,8 +6,8 @@ Three stages, run in order, each a ``python -m`` entry point:
     Rasters the delivered scene and draws the UE population over it, once per
     interval across the horizon. Writes the UE table and a manifest.
 ``radio``
-    Rebuilds that scenario, places the transmitters, and ray-traces one clean
-    radio map per band.
+    Reads that scenario's manifest, places the transmitters, and ray-traces one
+    clean radio map per band.
 ``mdt``
     Serves the UE table on the baseline map and keeps the admitted UEs, with
     their serving RSRP. Kept for later use; the search and evaluation count every UE.

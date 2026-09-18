@@ -61,7 +61,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
     max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
 
-    # --- structure: do the three files describe the same run? ---------------
+    # Structure: do the three files describe the same run?
     cells = transmitter.load(cfg)
     record(
         "npz tx_name matches the configured cells",
@@ -99,7 +99,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         and artifacts.radio["sinr_db"].shape == artifacts.radio["rsrp_dbm"].shape,
     )
 
-    # --- rows: bounds whose source is the config or the manifest ------------
+    # Rows: bounds whose source is the config or the manifest.
     record(
         "z equals the configured UE height",
         _CONFIG,
@@ -149,7 +149,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     # Positions are continuous draws, so a repeated row is a writer fault.
     record("no duplicate rows", _UE, *_count(ue.duplicated().to_numpy()))
 
-    # --- the MDT: a served subset of the UE table ----------------------------
+    # The MDT: a served subset of the UE table.
     mdt = artifacts.mdt
     has_columns = list(mdt.columns) == list(MDT_COLUMNS)
     record("mdt columns are the declared set", _CONFIG, has_columns)
@@ -170,7 +170,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         )
         record("no duplicate mdt rows", _MDT, *_count(mdt.duplicated().to_numpy()))
 
-    # --- the cell table the map was solved at -------------------------------
+    # The cell table the map was solved at.
     tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)
     configured = np.array(
         [[cell.tilt_for(band).baseline_deg for cell in cells] for band in artifacts.band_labels]

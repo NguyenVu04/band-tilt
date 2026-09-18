@@ -1,6 +1,7 @@
 """Search the tilt space with Sionna-RT and publish what it found.
 
-Entry point for ``task bo`` and ``task baseline``. Every candidate is ray
+Entry point for ``task bo``, ``task baseline`` and each method ``task optim``
+loops over. Every candidate is ray
 traced at the configured fidelity, with no surrogate, so every KPI this writes
 is a measurement and the run it produces is complete: a named winner and its
 shortlist, the winner's radio map, and the two tables an operator chooses from.
@@ -75,7 +76,10 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Optimize with one method. Entry point for ``task bo``.
+    """Optimize with one method.
+
+    Entry point for ``task bo``, ``task baseline`` and each method ``task optim``
+    loops over.
 
     Example:
         $ task bo -- optim/method=random optim.method.budget.n_iter=0

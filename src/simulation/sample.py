@@ -16,7 +16,8 @@ from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds
 from src.simulation.traffic import Schedule
 
-# Redraw the tile and position after rejection; keep the assigned component.
+# Rejection can only fail forever if the chosen component sits entirely on
+# buildings, so the cap exists to raise rather than hang, not to bound bias.
 _MAX_REDRAW_ROUNDS = 500
 
 CSV_COLUMNS = ("t_index", "t_s", "x", "y", "z", "tile_col", "tile_row", "component")

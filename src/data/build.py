@@ -24,8 +24,9 @@ from src.simulation.sample import CSV_COLUMNS
 from src.tracking import log_stage
 
 # int16 covers the grid with room to spare; float32 holds the millimetre
-# coordinates the UE table is written with. t_s stays float64: at a 604800 s
-# horizon, float32 cannot represent whole seconds exactly.
+# coordinates the UE table is written with. t_s stays float64: over a week-long
+# horizon float32's spacing grows coarser than the milliseconds the UE table is
+# written with, so late intervals would quantise.
 _DTYPES = {
     "t_index": "int32",
     "t_s": "float64",

@@ -1,7 +1,8 @@
 """Ray-trace one clean radio map per band.
 
-Rebuilds the scenario and writes RSRP and SINR on its UE grid, both as the
-solver's :class:`sionna.rt.RadioMap` reports them.
+Reads the stored scenario manifest and writes RSRP and SINR on its UE grid,
+both as the solver's :class:`sionna.rt.RadioMap` reports them. Nothing here
+redraws the scenario: a map must describe the population already on disk.
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ from src.simulation.grid import GridSpec
 from src.simulation.scene import SceneSpec
 from src.tracking import log_stage
 
-# Use NaN for tiles no ray reached; weak paths retain finite values.
+# A tile no ray reached is unknown, not weak: NaN keeps it out of every
+# reduction instead of competing with the finite values a weak path leaves.
 _NO_PATH = np.nan
 
 

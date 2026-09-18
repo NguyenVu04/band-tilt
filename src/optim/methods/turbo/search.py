@@ -153,9 +153,13 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     def evaluate(points: np.ndarray, phase: str, node: str) -> list[float]:
         new = []
         for point in points:
-            result = evaluator.evaluate(space.clip(lower + point * span))
+            tilts = space.clip(lower + point * span)
+            result = evaluator.evaluate(tilts)
             history.append(result, phase=phase, generation_node=node)
-            unit_x.append(point)
+            # The clipped point, not the proposal: on a dimension whose bounds
+            # coincide the two differ, and a GP told the input moved when the
+            # tilt could not would fit the trust region to a fictitious axis.
+            unit_x.append((tilts - lower) / span)
             new.append(result.kpi.objective)
         score_y.extend(new)
         return new

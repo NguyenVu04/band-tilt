@@ -21,7 +21,7 @@ current position rather than the history — read them in a year and you cannot
 tell which of their statements were obvious, which were contested, and which were
 chosen against a real alternative that has since become more attractive.
 
-The code has the same problem in sharper form. `pitch = deg2rad(-tilt)` records
+The code has the same problem in sharper form. `pitch = deg2rad(tilt)` records
 a convention and never the fact that the opposite sign produces a plausible,
 entirely wrong radio map. A future change either repeats an experiment already
 run, or removes a constraint that existed for a reason nobody can now state.

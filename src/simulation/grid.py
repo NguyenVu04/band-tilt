@@ -118,7 +118,8 @@ def build(mi_scene: Any, bounds: SceneBounds, spec: GridSpec, seed: int) -> Rast
 
     rng = np.random.default_rng(seed)
     shape = (n_rows, n_cols, sub, sub)
-    # One random point is sampled in each sub-tile.
+    # Jittered rather than on a fixed sub-grid: a regular lattice beats against
+    # building edges and biases the open-ground estimate of whole rows of tiles.
     offset_x = (np.arange(sub).reshape(1, 1, 1, sub) + rng.random(shape)) * step
     offset_y = (np.arange(sub).reshape(1, 1, sub, 1) + rng.random(shape)) * step
 

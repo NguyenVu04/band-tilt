@@ -61,9 +61,10 @@ The four definitions above are unchanged. What changed around them:
 PRBs (`max_prb`), or already loaded past `kpi.capacity.max_admission_utilisation`
 of them, passes the UE to the next candidate. PRBs per UE are
 `throughput_per_ue_bps / (12 · SCS · log2(1 + SINR))`, with the solver's
-full-load co-band SINR. UEs within an interval are admitted strongest RSRP
-first, over every layer at the UE, so which UE is blocked does not follow its
-position in the UE table. A layer at or below `kpi.hole_dbm` never serves.
+full-load co-band SINR. UEs within an interval are admitted in `t_s` order,
+so a cell fills as its reports arrive; ties are broken by strongest RSRP over
+every layer at the UE, then by row order. A layer at or below `kpi.hole_dbm`
+never serves.
 
 A UE on a hole, and a UE blocked everywhere, both count as not served. The
 three rates are shares of the map; the served ratio is a share of the traffic.

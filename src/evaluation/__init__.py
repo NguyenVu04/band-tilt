@@ -24,8 +24,7 @@ Modules, each with one reason to change:
 ``export``
     Writing tables and figures to ``reports/``.
 
-Demand-weighted numbers are diagnostics, not objectives
--------------------------------------------------------
+Demand-weighted numbers are diagnostics, not objectives:
 This package reports coverage weighted by where UEs actually stand, alongside
 the tile-weighted rates. The two can disagree sharply, because a hole need not
 fall where anyone stands.

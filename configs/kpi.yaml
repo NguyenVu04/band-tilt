@@ -18,9 +18,9 @@ overlap_margin_db: 6.0
 # (src/optim/objective.py, ADR 0006).
 objective:
   # tau_R: width of the coverage sigmoid on (R_s - T_cov), in dB.
-  tau_r_db: 10.0
+  tau_r_db: 30.0
   # Each co-band overlapping neighbour keeps q_ov = exp(-beta) of the utility.
-  beta: 1.0
+  beta: 0.5
 
 # Reported network-quality measures that the objective does not read.
 quality:
@@ -28,12 +28,13 @@ quality:
   # only: the 5% point of 3GPP TR 36.814 Annex A.2.1.4.
   edge_percentile: 5.0
 
-# Serving-cell choice and PRB demand (src/kpi/capacity.py). Every value is a
-# PLACEHOLDER pending the maintainer's numbers.
+# Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
   # Serving band preference, most preferred first. Must list every band.
   band_preference: [b2600, b1800, b700]
-  # Below this the preferred band is skipped for the next one.
+  # Below this the preferred band is skipped for the next one. Equal to
+  # hole_dbm here, which makes that skip unreachable: a layer that low is not a
+  # candidate at all. Raise it above hole_dbm to put the rule back in play.
   rsrp_threshold_dbm: -120.0
   # A cell-band admits no further UE once its load exceeds this share of
   # max_prb; the UE passes to its next candidate.

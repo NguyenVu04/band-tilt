@@ -75,8 +75,9 @@ cell-edge RSRP - are measured for every candidate through [`src/kpi/`](src/kpi/)
 one objective, `J = mean_g sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g)`
 ([ADR 0006](docs/adr/0006-radio-coverage-objective.md)): coverage utility per
 tile, discounted per overlapping co-band neighbour.
-[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE,
-strongest RSRP first, under per-cell PRB limits and an admission cap; the served
+[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE by
+band preference then RSRP, admitting UEs in report-time order under per-cell PRB
+limits and an admission cap; the served
 ratio counts what it admits, and the PRB demand map built from it is a
 diagnostic outside the objective.
 
@@ -157,7 +158,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.scene.name` points at `data/external/scene/scene.xml` (with its `mesh/` folder). `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
-| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | In use | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py). Random search needs only torch's Sobol engine |
+| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
+| [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
@@ -209,7 +211,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-166 passed
+165 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region, traffic, MDT and node-layout
@@ -269,8 +271,9 @@ repository, and `DVC_REMOTE_URL` is the only value that may carry a credential.
 ## Usage
 
 The implemented part of the pipeline runs as a chain of notebooks, or as scripts
-through the task runner and `dvc repro`. Both call the same functions in
-`src/`, so they cannot diverge.
+through the task runner and `dvc repro`. Where a phase has both, the two call the
+same functions in `src/`, so they cannot diverge on what they compute. Notebook
+01 has no script counterpart; it writes no data.
 
 | Phase | Notebook | Script |
 |---|---|---|
@@ -366,7 +369,7 @@ band-tilt/
 ├── notebooks/     one per pipeline phase, 00 through 04
 ├── outputs/       gitignored; one directory per optimization run
 ├── mlruns/        gitignored; MLflow artifacts (runs are in mlflow.db)
-├── reports/       tables, figures and the republished tilt deliverable
+├── reports/       report.md, plus gitignored tables, figures and the republished tilt deliverable
 ├── src/           importable project logic
 ├── tests/         unit tests for simulation, the KPIs, optim, evaluation and tracking
 └── Taskfile.yml   every command
@@ -394,7 +397,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet — see `04_evaluation.ipynb` section 9. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace measures ray-tracing variance only |
-| `kpi.capacity` values are placeholders | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) run on placeholder SCS, PRB limits, per-UE throughput, RSRP threshold and noise figure, flagged in [`configs/kpi.yaml`](configs/kpi.yaml). The served ratio counts the UEs that rule admits, so the objective depends on them |
+| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kTB over the band bandwidth, with no receiver noise figure modelled. The served ratio counts the UEs that rule admits, so every capacity figure inherits these |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards
@@ -423,7 +426,7 @@ task check
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py`, `mdt.py` and
 `transmitter.py` (node positions), `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 166 tests, all passing, none skipped. `src/data/`,
+`src/tracking.py` — 165 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

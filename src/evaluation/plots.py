@@ -193,8 +193,8 @@ def map_row(
     values = [np.where(np.isfinite(panel), panel, np.nan) for panel in panels.values()]
     present = np.concatenate([value[np.isfinite(value)] for value in values] + [np.zeros(1)])
     if symmetric:
-        # 99th percentile, not the maximum: a few tiles beside the masts change by tens of dB
-        # and would otherwise wash out every other change.
+        # 99th percentile, not the maximum: tiles nearest a mast swing hardest
+        # under tilt, and letting them set the scale flattens everything else.
         limit = float(np.quantile(np.abs(present), 0.99)) or 1.0
         vmin, vmax, cmap = -limit, limit, cmap or "RdBu_r"
         colorbar_label = f"{colorbar_label}, clipped at ±{limit:.1f}"

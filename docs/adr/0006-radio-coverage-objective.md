@@ -50,10 +50,12 @@ m_g = sum_b #{ j ≠ s_b(g) on band b : R_j > T_cov and R_s_b − R_j <= Delta_R
 `data.output.ue_file`, in the search and in evaluation alike. The MDT is still
 built, and kept for later use; nothing scores on it.
 
-**Serving order.** Within an interval, UEs are admitted strongest RSRP first,
-over every layer at the UE. A cell-band admits a UE only while its load is at
-most `kpi.capacity.max_admission_utilisation` of `max_prb` and the UE still
-fits; otherwise the UE passes to its next candidate.
+**Serving order.** Within an interval, UEs are admitted in `t_s` order: a
+cell fills in the order its reports arrive, not best-first. Reports at the same
+instant are taken strongest RSRP first over every layer at the UE, and row order
+breaks what remains. A cell-band admits a UE only while its load is at most
+`kpi.capacity.max_admission_utilisation` of `max_prb` and the UE still fits;
+otherwise the UE passes to its next candidate.
 
 **Layout.** A fourth node stands on the centroid of the corner triangle, and
 every node's cell fan is rotated by
@@ -69,8 +71,10 @@ cell-edge RSRP, stored beside `objective`.
 - Two parameters, each with a physical reading (dB width, per-neighbour
   retention), and no trade-off weight.
 - The objective depends on the radio map alone, so the population a run is
-  scored on cannot change which configuration wins.
-- Serving no longer depends on a random draw or on the UE table's row order.
+  scored on cannot change which configuration wins. This is what makes the
+  serving rule's own randomness harmless to the search: `t_s` is drawn per UE
+  (`src/simulation/sample.py`), so admission order is a random draw, but it
+  reaches only the reported served ratio, never `J`.
 
 **Negative**
 

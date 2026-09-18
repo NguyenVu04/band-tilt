@@ -82,7 +82,15 @@ def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
     columns = ["solution", "is_incumbent", "recommended", *MEASURE_NAMES]
     table = published[columns].copy()
     for name in MEASURE_NAMES:
-        table[f"delta_{name}"] = table[name] - getattr(incumbent, name)
+        reference = getattr(incumbent, name)
+        values = table[name]
+        # edge_rsrp_dbm is -inf when nothing is covered (src/kpi/quality.py), so
+        # a total-outage pair would subtract to NaN and print as a blank cell.
+        # Two configurations that both cover nothing have not moved the measure.
+        delta = np.where(
+            (values == reference) & np.isinf(values), 0.0, values.to_numpy() - reference
+        )
+        table[f"delta_{name}"] = delta
     return table.reset_index(drop=True)
 
 

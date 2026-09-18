@@ -255,6 +255,18 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
             != [str(label) for label in baseline["band_label"]]
         ],
     )
+    # A band keeps its name when its carrier is retuned, so the labels agreeing
+    # does not make two maps the same network.
+    record(
+        "band carrier frequencies match the baseline, in order",
+        [
+            run.label
+            for run in runs
+            if not np.array_equal(
+                np.asarray(run.radio_map["band_hz"]), np.asarray(baseline["band_hz"])
+            )
+        ],
+    )
     record(
         "every run recorded the KPI definition it scored with",
         [run.label for run in runs if "kpi" not in run.meta.get("config", {})],
@@ -290,18 +302,31 @@ def require(checks: pd.DataFrame) -> None:
 
 
 def _kpi_definition(run: Run) -> dict[str, Any]:
-    """Everything the objective reads, from the run's own config snapshot.
+    """Everything a reported measure reads, from the run's own config snapshot.
 
-    The thresholds, the capacity model and the objective parameters, plus each
-    cell's PRB limit: the served ratio and the objective depend on all of them,
-    so two runs that differ on any one did not optimize the same objective.
+    The thresholds, the capacity model, the objective parameters and the
+    reported-quality settings, plus each cell's PRB limit: the KPIs and the
+    objective depend on all of them, so two runs that differ on any one did not
+    measure the same thing.
+
+    ``bandwidth`` and ``temperature`` are here because kTB over the band
+    bandwidth is the noise floor behind every SINR, and SINR sets the PRBs a UE
+    needs and therefore the served ratio. Neither is stored in the archive, so
+    the config snapshot is the only place they can be checked.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
-    cells = config.get("simulation", {}).get("transmitters", {}).get("cells", [])
+    simulation = config.get("simulation", {})
+    cells = simulation.get("transmitters", {}).get("cells", [])
+    radio_map = simulation.get("radio_map", {})
     return {
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
         "objective": kpi.get("objective"),
+        "quality": kpi.get("quality"),
         "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
+        "bandwidth": {
+            band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])
+        },
+        "temperature": radio_map.get("temperature"),
     }

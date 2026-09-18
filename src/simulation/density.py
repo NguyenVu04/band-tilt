@@ -219,7 +219,8 @@ def draw_hotspots(
     candidate_weights = np.where(allowed, candidate_weights, 0.0).ravel()
 
     if int(np.count_nonzero(candidate_weights)) < spec.n_hotspots:
-        # Use uniform eligible-tile weights when nearby building volume is zero.
+        # A scene with no buildings has nothing to weight centres by, so fall
+        # back to open ground rather than failing on an all-zero weight vector.
         candidate_weights = allowed.astype(np.float64).ravel()
         n_eligible = int(np.count_nonzero(candidate_weights))
         if n_eligible < spec.n_hotspots:
@@ -270,10 +271,10 @@ def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
     """Build the mixture the UE positions are drawn from.
 
     Weights carry the density function alone. They are deliberately NOT scaled
-    by a tile's open area: ``free_fraction`` is a sub-sampled estimate, and on
-    a tile holding only a sliver of open ground it overstates the truth by more
-    than an order of magnitude. Baking it in here would hand those tiles that
-    same factor in UE weight.
+    by a tile's open area: ``free_fraction`` is a sub-sampled estimate, and on a
+    tile holding only a sliver of open ground the coarsest sub-grid cell that
+    lands on it rounds that sliver up to its own area. Baking the estimate in
+    here would hand those tiles that error as UE weight.
 
     Instead the open area enters through rejection in
     :func:`src.simulation.sample.sample_positions`, which draws uniformly

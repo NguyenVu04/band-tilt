@@ -57,7 +57,8 @@ class Cell:
             one; becomes the transmitter name.
         x: Position east, in scene metres.
         y: Position north, in scene metres.
-        z: Mast height above the scene's ground plane.
+        z: Height in scene metres, absolute and not above local ground: the
+            generator sets it to the measured ground height plus the mast.
         azimuth_deg: Boresight bearing, counter-clockwise from the x axis.
         tilt: One :class:`Tilt` per band name.
         max_prb: PRBs each band of this cell can schedule at most, per band name.

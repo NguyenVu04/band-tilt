@@ -406,7 +406,9 @@ def cell_band_load(
                 }
             )
     frame = pd.DataFrame(rows)
-    frame["peak_utilisation"] = frame["peak_prb"] / frame["max_prb"]
+    # A cell-band with max_prb 0 carries no traffic; inf would sort it to the
+    # top of every utilisation table it appears in.
+    frame["peak_utilisation"] = (frame["peak_prb"] / frame["max_prb"]).where(frame["max_prb"] > 0)
     return frame
 
 
@@ -453,6 +455,7 @@ def service_summary(served: pd.DataFrame, band_labels: Sequence[str]) -> dict[st
         band_labels: Band names, the ``band`` index order.
 
     Returns:
+        ``reports`` (how many rows the shares are taken over),
         ``not_served_share`` (blocked by PRB limits, or no path), the 10th
         percentile and median SINR of served reports, their median PRBs per
         UE, and ``share_<band>`` of all reports served on each band.

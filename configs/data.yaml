@@ -1,5 +1,6 @@
 # @package data
-# The verified, typed artifacts notebook 02 writes from the simulation output.
+# The verified, typed artifacts src/data/build.py writes from the simulation
+# output, via `task preprocess`. Notebook 02 calls the same functions.
 
 output:
   # The UE population after schema verification and typing, one row per UE

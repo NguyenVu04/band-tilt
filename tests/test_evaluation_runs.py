@@ -27,6 +27,7 @@ def radio_archive(**overrides: object) -> dict[str, np.ndarray]:
     archive = {
         "rsrp_dbm": np.full((1, 1, 2, 3), -80.0, dtype=np.float32),
         "band_label": np.array(["b700"]),
+        "band_hz": np.array([700000000]),
         "scenario_id": np.array("scn_test"),
         "n_rows": np.array(2),
         "n_cols": np.array(3),
@@ -59,6 +60,8 @@ def make_run(
     n: int = 3,
     seed: int = 0,
     throughput_per_ue_bps: float = 1e6,
+    edge_percentile: float = 5.0,
+    bandwidth: int = 10000000,
     **radio: object,
 ) -> Path:
     """Write a run directory the way src.optim.history does."""
@@ -105,9 +108,14 @@ def make_run(
                         "overlap_margin_db": 6.0,
                         "capacity": {"throughput_per_ue_bps": throughput_per_ue_bps},
                         "objective": {"beta": 1.0},
+                        "quality": {"edge_percentile": edge_percentile},
                     },
                     "simulation": {
-                        "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]}
+                        "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]},
+                        "radio_map": {
+                            "temperature": 298.15,
+                            "bands": [{"name": "b700", "bandwidth": bandwidth}],
+                        },
                     },
                 },
             }
@@ -215,6 +223,38 @@ def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
     failed = checks[~checks["holds"]]
     assert failed["check"].tolist() == ["KPI definition agrees across runs"]
     assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
+
+
+def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
+    """A band keeps its name when its carrier moves, so the label cannot carry this."""
+    runs = [
+        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", band_hz=[3500000000]))
+    ]
+    checks = run_store.verify(runs, radio_archive())
+    failed = checks[~checks["holds"]]["check"].tolist()
+    assert "band carrier frequencies match the baseline, in order" in failed
+
+
+def test_verify_catches_a_different_edge_percentile(tmp_path) -> None:
+    """edge_rsrp_dbm is a reported KPI, so the percentile behind it must agree."""
+    runs = [
+        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", edge_percentile=50.0)),
+    ]
+    checks = run_store.verify(runs, radio_archive())
+    failed = checks[~checks["holds"]]
+    assert failed["check"].tolist() == ["KPI definition agrees across runs"]
+    assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
+
+
+def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
+    """Bandwidth sets the noise floor, so it sets SINR and the served ratio."""
+    runs = [
+        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
+    ]
+    checks = run_store.verify(runs, radio_archive())
+    assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]
 
 
 def test_require_names_the_offender(tmp_path) -> None:

@@ -26,7 +26,6 @@ INIT = "init"
 SEARCH = "search"
 SWEEP = "sweep"
 
-# Generator names recorded per evaluation.
 ATTACHED = "attached"
 SOBOL = "Sobol"
 

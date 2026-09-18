@@ -1,7 +1,6 @@
 """Importable, testable project logic.
 
-Layout
-------
+Layout:
 - ``src.core``        the shared domain types: cell and per-band tilt
 - ``src.simulation``  scene, UE population, ray-traced radio maps
 - ``src.data``        verify the simulation output and write the typed tables
@@ -12,8 +11,7 @@ Layout
 - ``src.config``      compose the Hydra config outside an entry point
 - ``src.tracking``    log one stage as one MLflow run
 
-Dependency direction
---------------------
+Dependency direction:
 ::
 
     core        ->  nothing
@@ -32,8 +30,7 @@ radio map and a hand-built test fixture alike.
 ``src.tracking`` is called only from ``@hydra.main`` entry points, never from
 library code.
 
-Rules
------
+Rules:
 - Notebooks import from ``src``; ``src`` never imports from notebooks.
 - Anything reused by more than one notebook belongs here, not in a cell.
 

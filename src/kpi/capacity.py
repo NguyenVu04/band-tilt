@@ -3,7 +3,10 @@
 The one serving rule in the project, read by the served ratio and the demand
 map: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
-the strongest cell-band. A cell-band admits a UE only while its load is at most
+the strongest cell-band. That fallback is unreachable while
+``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the committed
+config sets them: a layer below the threshold is not a candidate at all, so
+band preference always decides. A cell-band admits a UE only while its load is at most
 ``kpi.capacity.max_admission_utilisation`` of ``max_prb`` (on the cell) and the
 UE's PRBs still fit under ``max_prb``; otherwise the UE passes to the next
 candidate in that same ranking. A layer at or below ``kpi.hole_dbm`` is never a
@@ -115,8 +118,10 @@ class _Serving:
     Attributes:
         band: Serving band index per UE, ``-1`` where blocked or unreachable.
         tx: Serving transmitter index per UE, ``-1`` likewise.
-        prb_per_ue: PRBs each UE needs at its serving cell-band, or at its
-            first choice when blocked; NaN when no cell-band reaches it.
+        prb_per_ue: PRBs each UE needs at its serving cell-band; when blocked,
+            at the first candidate whose need is finite. NaN when the UE has no
+            such candidate, whether because no layer reaches it or because every
+            layer that does would need unbounded PRBs at its SINR.
         load: PRBs assigned per cell-band, shape ``[n_band, n_tx]``.
     """
 
@@ -169,6 +174,10 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
     n_rows, n_cols = shape
     row = ue["tile_row"].to_numpy()
     col = ue["tile_col"].to_numpy()
+    # No UE is outside no grid. Without this, min() on the empty array raises
+    # numpy's "zero-size array to reduction" instead of anything a caller can act on.
+    if not len(row):
+        return row, col
     if row.min() < 0 or row.max() >= n_rows or col.min() < 0 or col.max() >= n_cols:
         raise ValueError(
             f"UE tiles span rows {row.min()}..{row.max()} cols {col.min()}..{col.max()}, "
@@ -326,8 +335,8 @@ def serve_intervals(
 
     Returns:
         One row per UE row, index aligned: ``t_index``, ``tile_row``,
-        ``tile_col``, ``band``, ``tx``, ``sinr_db`` (at the serving cell-band,
-        NaN when blocked), ``prb_per_ue``.
+        ``tile_col``, ``band``, ``tx``, ``prb_per_ue``, ``sinr_db`` (at the
+        serving cell-band, NaN when blocked).
 
     Raises:
         ValueError: When the UE table is off the map's grid or the config does not

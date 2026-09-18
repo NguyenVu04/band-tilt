@@ -67,7 +67,7 @@ def log_stage(
     if not bool(cfg.mlflow.enabled):
         return None
     if importlib.util.find_spec("mlflow") is None:
-        print("mlflow not installed (task sync --extra tracking); stage not tracked")
+        print("mlflow not installed (uv sync --extra tracking); stage not tracked")
         return None
     import mlflow
 
