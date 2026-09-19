@@ -115,7 +115,7 @@ stages:
   # (configs/simulation.yaml or the scenario manifest), then writes the typed,
   # verified tables everything downstream reads, and the demand map the objective
   # weights its tiles by (ADR 0007). Nothing here learns from the data — see the
-  # notebook's boundary rule; the KDE is a fixed kernel, not a fitted one.
+  # notebook's boundary rule; the map is a count, not a fitted estimate.
   #
   # `configs/simulation.yaml` params below are the sections `src/data/schema.py`
   # cross-checks the artifacts against; a change to them can invalidate the
@@ -140,9 +140,9 @@ stages:
     params:
       - configs/kpi.yaml:
           - hole_dbm
-      - configs/data.yaml:
-          # The KDE behind the demand map's tile weights.
-          - demand
+      # configs/data.yaml holds output paths only; the demand map has no
+      # settings of its own, and the per-band blend is kpi.objective.alpha,
+      # which the optimization stage below tracks.
       - configs/simulation.yaml:
           - scene
           - grid
@@ -167,8 +167,8 @@ stages:
   #
   # kpi is a param because the measures read the KPI thresholds, the capacity
   # model and kpi.objective: change any and every previous run becomes incomparable.
-  # The demand map is a file dependency for the same reason — the objective
-  # averages its per-tile utility against those weights (ADR 0007).
+  # The demand map is a file dependency for the same reason — every band's
+  # weights blend its tile shares (ADR 0007).
   optimization:
     cmd: python -m src.optim.run
     deps:

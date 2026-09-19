@@ -1,7 +1,7 @@
 """Serving-cell choice and PRB demand.
 
-The one serving rule in the project, read by the served rate, the load
-measures and the demand map: prefer bands in ``kpi.capacity.band_preference`` order while
+The one serving rule in the project, read by the served rate and the load
+measures: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
 the strongest cell-band. That fallback is unreachable while
 ``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the committed
@@ -209,6 +209,26 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
             "different grids."
         )
     return row, col
+
+
+# The PRB requirement below is a Shannon bound, not an NR link adaptation model.
+# Three deviations from 3GPP, all in the optimistic direction, kept because the
+# search needs a quantity that is smooth in tilt and this one is:
+#
+# - No modulation and coding ceiling. TS 38.214 Table 5.1.3.1-2 tops out at
+#   Q_m * R = 8 * 948/1024 bit/s/Hz per layer (Table 5.1.3.1-1, without 256QAM:
+#   6 * 948/1024), and CQI index 1 of Table 5.2.2.1-2 floors a schedulable UE at
+#   2 * 78/1024. log2(1 + SINR) obeys neither, so a high-SINR UE is charged too
+#   few PRBs and a UE below the floor is charged a finite number rather than
+#   being refused.
+# - The rate basis is the nominal RB bandwidth, 12 * SCS. The UE data rate of
+#   TS 38.306 4.1.2 uses the symbol rate 12 / T_s^mu, T_s^mu = 1e-3 / (14 * 2^mu),
+#   and scales by (1 - OH) with OH = 0.14 for downlink FR1.
+# - One layer, no MIMO: no v_Layers factor and no R_max.
+#
+# SINR is also the solver's wideband value applied per PRB, so frequency
+# selective fading does not appear. The PRB limits themselves are 3GPP:
+# max_prb per cell-band is N_RB from TS 38.101-1 Table 5.3.2-1.
 
 
 def _spectral_efficiency(sinr: np.ndarray) -> np.ndarray:

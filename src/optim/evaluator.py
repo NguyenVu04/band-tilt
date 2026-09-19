@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.optim.objective import KpiVector, evaluate_kpis, tile_weights
+from src.optim.objective import KpiVector, evaluate_kpis, tile_share
 from src.optim.space import TiltSpace
 from src.simulation import radio, seeds, transmitter
 from src.simulation import scene as scene_module
@@ -77,7 +77,7 @@ class Evaluator:
     """Ray-trace a tilt vector and score the resulting radio map.
 
     Construction loads the scene, attaches the antenna arrays, reads the demand
-    map's tile weights and checks the masts still stand on open ground — the setup
+    map's tile shares and checks the masts still stand on open ground — the setup
     :func:`src.simulation.radio.solve_band` needs but that no tilt changes.
     Hoisting it out of the loop is why a search pays for it once rather than
     once per candidate.
@@ -119,7 +119,7 @@ class Evaluator:
         self._ue = pd.read_parquet(cfg.data.output.ue_file)
         # Read here so a missing or mis-shaped demand map fails before the first
         # ray trace rather than after it.
-        self._weights = tile_weights(
+        self._share = tile_share(
             cfg, (int(self._grid_meta["n_rows"]), int(self._grid_meta["n_cols"]))
         )
         self._centres: np.ndarray | None = None
@@ -188,7 +188,7 @@ class Evaluator:
         seconds = time.perf_counter() - started
 
         rsrp, sinr = np.stack(rsrp_maps), np.stack(sinr_maps)
-        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg, self._weights)
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg, self._share)
 
         return EvaluationResult(
             tilt_deg=tilt_deg,

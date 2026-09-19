@@ -17,10 +17,15 @@ from src.optim.objective import (
     ObjectiveSpec,
     best_by_objective,
     objective,
-    tile_weights,
+    tile_share,
 )
 
-_OBJECTIVE = {"tau_r_db": 10.0, "beta": 1.0}
+# alpha 0 everywhere, so a test that passes no share reads the tile-uniform
+# weights and the per-band terms differ only in their own layers.
+_OBJECTIVE = {"tau_r_db": 10.0, "beta": 1.0, "alpha": {"hi": 0.0, "lo": 0.0}}
+
+# Band labels for a map built by _map, in its band-axis order.
+_BANDS = ("hi", "lo")
 
 
 @pytest.fixture
@@ -62,8 +67,13 @@ def _map(values: list[list[float]]) -> np.ndarray:
 
 
 def _even(rsrp: np.ndarray) -> np.ndarray:
-    """Equal weight on every tile: the tile-uniform objective of ADR 0006."""
+    """Equal share on every tile; with alpha 0 the weights are equal regardless."""
     return np.ones(rsrp.shape[-2:])
+
+
+def _score(rsrp: np.ndarray, cfg, share: np.ndarray | None = None) -> float:
+    """Score a map built by :func:`_map`, labelling its bands in axis order."""
+    return objective(rsrp, _BANDS[: rsrp.shape[0]], cfg, share)
 
 
 def test_priority_order_is_the_adr_order() -> None:
@@ -115,51 +125,85 @@ def test_from_mapping_names_a_missing_measure() -> None:
     [("tau_r_db", 0.0), ("beta", -0.1)],
 )
 def test_unusable_objective_parameters_raise(cfg, key, value) -> None:
-    """Each bound keeps the objective finite and inside [0, 1]."""
+    """Each bound keeps a band's term finite and inside [0, 1]."""
     cfg.kpi.objective[key] = value
     with pytest.raises(ValueError, match=key):
-        ObjectiveSpec.from_config(cfg)
+        ObjectiveSpec.from_config(cfg, ["hi"])
+
+
+def test_an_alpha_outside_the_unit_interval_raises(cfg) -> None:
+    """Outside [0, 1] the weights stop being a blend of two distributions."""
+    cfg.kpi.objective.alpha.hi = 1.5
+    with pytest.raises(ValueError, match="alpha"):
+        ObjectiveSpec.from_config(cfg, ["hi"])
+
+
+def test_a_band_with_no_alpha_raises(cfg) -> None:
+    """A band silently defaulting to a weighting nobody recorded is the failure here."""
+    with pytest.raises(ValueError, match="mid"):
+        ObjectiveSpec.from_config(cfg, ["mid"])
+
+
+def test_band_labels_must_match_the_map(cfg) -> None:
+    """Mislabelled bands would apply the wrong alpha to the wrong layers."""
+    with pytest.raises(ValueError, match="band labels"):
+        objective(_map([[-100.0]]), ["hi", "lo"], cfg, np.ones((1, 1)))
 
 
 def test_objective_is_half_on_the_coverage_threshold(cfg) -> None:
     """At R_s = T_cov the sigmoid is a half, and a server not above T_cov has no neighbours."""
     rsrp = _map([[-120.0, -121.0]])
-    assert objective(rsrp, cfg, _even(rsrp)) == pytest.approx(0.5)
+    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(0.5)
 
 
 def test_objective_discounts_each_co_band_neighbour_by_q_ov(cfg) -> None:
     """A neighbour 4 dB down is inside the 6 dB margin; one 7 dB down is not."""
-    inside = objective(_map([[-100.0, -104.0]]), cfg, np.ones((1, 1)))
-    outside = objective(_map([[-100.0, -107.0]]), cfg, np.ones((1, 1)))
+    inside = _score(_map([[-100.0, -104.0]]), cfg, np.ones((1, 1)))
+    outside = _score(_map([[-100.0, -107.0]]), cfg, np.ones((1, 1)))
     covered = 1.0 / (1.0 + math.exp(-2.0))
     assert inside == pytest.approx(covered * math.exp(-1.0))
     assert outside == pytest.approx(covered)
 
 
-def test_objective_ignores_a_close_layer_on_another_band(cfg) -> None:
-    """Overlap is co-band: the other band's cell 1 dB down is not a neighbour."""
+def test_each_band_is_scored_on_its_own_strongest_transmitter(cfg) -> None:
+    """Two bands 1 dB apart are two terms, not one band-collapsed maximum.
+
+    Overlap stays co-band with it: neither cell is the other's neighbour.
+    """
     rsrp = _map([[-100.0], [-101.0]])
-    assert objective(rsrp, cfg, _even(rsrp)) == pytest.approx(1.0 / (1.0 + math.exp(-2.0)))
+    expected = 1.0 / (1.0 + math.exp(-2.0)) + 1.0 / (1.0 + math.exp(-1.9))
+    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(expected)
+
+
+def test_a_hole_on_one_band_is_not_hidden_by_another_band_covering_it(cfg) -> None:
+    """The regression the per-band split exists to prevent.
+
+    A band with no path scores zero on its own term however strong the other
+    band is at that tile, so the hole costs a whole band's contribution.
+    """
+    covered = 1.0 / (1.0 + math.exp(-3.0))
+    assert _score(_map([[-90.0], [np.nan]]), cfg, np.ones((1, 1))) == pytest.approx(covered)
+    assert _score(_map([[-90.0], [-90.0]]), cfg, np.ones((1, 1))) == pytest.approx(2.0 * covered)
 
 
 def test_objective_counts_crowding_on_a_band_that_does_not_serve(cfg) -> None:
     """'hi' serves alone at -90 dBm; on 'lo' tx1 is 2 dB below tx0, so m = 1.
 
-    The 'lo' neighbour is judged against the 'lo' server, not against R_s, which
-    it is 12 dB below.
+    The 'lo' neighbour is judged against the 'lo' server, and 'lo' carries its
+    own coverage term rather than being hidden behind 'hi'.
     """
     rsrp = _map([[-90.0, -130.0], [-100.0, -102.0]])
-    expected = 1.0 / (1.0 + math.exp(-3.0)) * math.exp(-1.0)
-    assert objective(rsrp, cfg, _even(rsrp)) == pytest.approx(expected)
+    expected = 1.0 / (1.0 + math.exp(-3.0)) + 1.0 / (1.0 + math.exp(-2.0)) * math.exp(-1.0)
+    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(expected)
 
 
 def test_objective_scores_a_no_path_tile_zero(cfg) -> None:
     """No path is R_s = -inf: no coverage utility at all."""
     rsrp = _map([[np.nan, np.nan]])
-    assert objective(rsrp, cfg, _even(rsrp)) == pytest.approx(0.0)
+    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(0.0)
 
 
-# --- the demand weighting --------------------------------------------------
+# --- the per-band tile weights ---------------------------------------------
 
 
 def _two_tiles() -> np.ndarray:
@@ -167,55 +211,79 @@ def _two_tiles() -> np.ndarray:
     return np.array([[[[-120.0, np.nan]]]], dtype=float)
 
 
-def test_the_objective_is_a_weighted_average_not_a_mean(cfg) -> None:
-    """Equal weights give the tile mean; all the weight on one tile gives that tile."""
+def test_alpha_zero_weights_every_tile_equally(cfg) -> None:
+    """A coverage layer spends its effort on the map, not on where the UEs were."""
     rsrp = _two_tiles()
-    assert objective(rsrp, cfg, np.array([[1.0, 1.0]])) == pytest.approx(0.25)
-    assert objective(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.5)
-    assert objective(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.0)
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.25)
+    assert _score(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.25)
 
 
-def test_the_weights_need_not_be_normalised(cfg) -> None:
-    """The average divides by their sum, so a demand map in raw PRBs would also work."""
+def test_alpha_one_weights_purely_by_the_demand_share(cfg) -> None:
+    """A capacity layer scores only where the MDT reported."""
+    cfg.kpi.objective.alpha.hi = 1.0
     rsrp = _two_tiles()
-    assert objective(rsrp, cfg, np.array([[3.0, 1.0]])) == pytest.approx(0.375)
+    assert _score(rsrp, cfg, np.array([[1.0, 1.0]])) == pytest.approx(0.25)
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.5)
+    assert _score(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.0)
 
 
-def test_weights_that_do_not_cover_the_grid_raise(cfg) -> None:
+def test_alpha_between_the_two_blends_them(cfg) -> None:
+    """Half of each at alpha = 0.5: w = (1 - alpha) / n + alpha * p."""
+    cfg.kpi.objective.alpha.hi = 0.5
+    assert _score(_two_tiles(), cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.375)
+
+
+def test_each_band_blends_with_its_own_alpha(cfg) -> None:
+    """The point of a per-band alpha: one map, two weightings of it."""
+    cfg.kpi.objective.alpha.hi = 0.0
+    cfg.kpi.objective.alpha.lo = 1.0
+    rsrp = np.array([[[[-120.0, np.nan]]], [[[-120.0, np.nan]]]], dtype=float)
+    # 'hi' averages the two tiles; 'lo' sees only the reported one.
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.25 + 0.5)
+
+
+def test_the_share_need_not_be_normalised(cfg) -> None:
+    """It is normalised here, so a raw count raster works as well as a share."""
+    cfg.kpi.objective.alpha.hi = 1.0
+    assert _score(_two_tiles(), cfg, np.array([[3.0, 1.0]])) == pytest.approx(0.375)
+
+
+def test_a_share_that_does_not_cover_the_grid_raises(cfg) -> None:
     """Silently weighting the wrong tiles is the failure this rules out."""
     with pytest.raises(ValueError, match="cover it exactly"):
-        objective(_two_tiles(), cfg, np.ones((1, 3)))
+        _score(_two_tiles(), cfg, np.ones((1, 3)))
 
 
-def test_weights_summing_to_nothing_raise(cfg) -> None:
+def test_a_share_summing_to_nothing_raises(cfg) -> None:
     """An empty demand map is a broken artifact, not an objective of zero."""
     with pytest.raises(ValueError, match="sum to zero"):
-        objective(_two_tiles(), cfg, np.zeros((1, 2)))
+        _score(_two_tiles(), cfg, np.zeros((1, 2)))
 
 
-def test_the_objective_reads_the_demand_map_when_given_no_weights(cfg, tmp_path) -> None:
-    """The path every caller but a test takes: weights come off disk."""
+def test_the_objective_reads_the_demand_map_when_given_no_share(cfg, tmp_path) -> None:
+    """The path every caller but a test takes: the share comes off disk."""
     path = tmp_path / "demand.npz"
-    demand.save({demand.WEIGHT: np.array([[1.0, 0.0]])}, path)
+    demand.save({demand.SHARE: np.array([[1.0, 0.0]])}, path)
     cfg.data = {"output": {"demand_file": str(path)}}
-    assert tile_weights(cfg, (1, 2)).tolist() == [[1.0, 0.0]]
-    assert objective(_two_tiles(), cfg) == pytest.approx(0.5)
+    cfg.kpi.objective.alpha.hi = 1.0
+    assert tile_share(cfg, (1, 2)).tolist() == [[1.0, 0.0]]
+    assert objective(_two_tiles(), ["hi"], cfg) == pytest.approx(0.5)
 
 
 def test_a_demand_map_on_another_grid_is_refused(cfg, tmp_path) -> None:
     """Two artifacts built on different grids must not be silently combined."""
     path = tmp_path / "demand.npz"
-    demand.save({demand.WEIGHT: np.ones((4, 4))}, path)
+    demand.save({demand.SHARE: np.ones((4, 4))}, path)
     cfg.data = {"output": {"demand_file": str(path)}}
     with pytest.raises(ValueError, match="different grids"):
-        tile_weights(cfg, (1, 2))
+        tile_share(cfg, (1, 2))
 
 
 def test_a_missing_demand_map_names_the_stage_that_builds_it(cfg, tmp_path) -> None:
     """The objective cannot be evaluated before preprocessing has run."""
     cfg.data = {"output": {"demand_file": str(tmp_path / "absent.npz")}}
     with pytest.raises(FileNotFoundError, match="task preprocess"):
-        tile_weights(cfg, (1, 2))
+        tile_share(cfg, (1, 2))
 
 
 # --- selection -------------------------------------------------------------

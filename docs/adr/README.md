@@ -80,6 +80,10 @@ Later on 2026-09-17, again at the maintainer's direction, 0006 was rewritten in
 place and renamed from `0006-radio-load-cvar-objective.md` when its load term was
 removed, and 0001 was amended to match.
 
+On 2026-09-19, again at the maintainer's direction, 0007 was rewritten in place
+and retitled when the demand map moved from requested PRBs to MDT report counts,
+the KDE was removed, and the objective was split into one term per band.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -91,6 +95,6 @@ is the thing these records exist to preserve.
 | [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
 | [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
 | [0006](0006-radio-coverage-objective.md) | A radio coverage objective | Superseded by 0007 | 2026-09-17 | 2026-09-17 |
-| [0007](0007-demand-weighted-objective.md) | A demand-weighted objective, a load ceiling, and the reported KPI set | Accepted | 2026-09-18 | — |
+| [0007](0007-demand-weighted-objective.md) | A per-band demand-weighted objective, a load ceiling, and the reported KPI set | Accepted | 2026-09-18 | 2026-09-19 |
 
 0002, 0004 and 0005 are deleted; the numbers are not reused.

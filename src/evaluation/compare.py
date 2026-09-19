@@ -555,8 +555,10 @@ def experiment_setup(
         ),
         ("Objective tau_R [dB]", f"{float(cfg.kpi.objective.tau_r_db):g}"),
         ("Objective beta", f"{float(cfg.kpi.objective.beta):g}"),
-        ("Demand map KDE bandwidth [m]", f"{float(cfg.data.demand.bandwidth_m):g}"),
-        ("Demand map uniform share", f"{float(cfg.data.demand.uniform_share):g}"),
+        *(
+            (f"Objective alpha, {display_name(str(band))}", f"{float(value):g}")
+            for band, value in cfg.kpi.objective.alpha.items()
+        ),
     ]
     for run in runs:
         settings = {k: v for k, v in run.meta["config"]["optim"]["method"].items() if k != "name"}

@@ -66,7 +66,7 @@ def make_run(
     n: int = 3,
     seed: int = 0,
     throughput_per_ue_bps: float = 1e6,
-    bandwidth_m: float = 150.0,
+    alpha_b700: float = 0.0,
     bandwidth: int = 10000000,
     **radio: object,
 ) -> Path:
@@ -113,9 +113,12 @@ def make_run(
                         "weak_dbm": -90.0,
                         "overlap_margin_db": 6.0,
                         "capacity": {"throughput_per_ue_bps": throughput_per_ue_bps},
-                        "objective": {"beta": 1.0},
+                        "objective": {
+                            "tau_r_db": 17.0,
+                            "beta": 1.0,
+                            "alpha": {"b700": alpha_b700, "b2600": 1.0},
+                        },
                     },
-                    "data": {"demand": {"bandwidth_m": bandwidth_m, "uniform_share": 0.0}},
                     "simulation": {
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]},
                         "radio_map": {
@@ -241,11 +244,11 @@ def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
     assert "band carrier frequencies match the baseline, in order" in failed
 
 
-def test_verify_catches_a_different_demand_map(tmp_path) -> None:
-    """The objective averages against the demand weights, so its KDE must agree."""
+def test_verify_catches_a_different_band_weighting(tmp_path) -> None:
+    """Alpha decides which tiles a band's term weights, so it defines the objective."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
-        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth_m=400.0)),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", alpha_b700=1.0)),
     ]
     checks = run_store.verify(runs, radio_archive())
     failed = checks[~checks["holds"]]

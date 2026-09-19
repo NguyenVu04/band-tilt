@@ -1,4 +1,4 @@
-# 7. A demand-weighted objective, a load ceiling, and the reported KPI set
+# 7. A per-band demand-weighted objective, a load ceiling, and the reported KPI set
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
@@ -7,6 +7,11 @@
   [ADR 0006](0006-radio-coverage-objective.md); the admission rule and the
   five-KPI list of [ADR 0001](0001-four-kpis-and-weighted-score.md)
 - **Superseded by:** —
+- **Rewritten in place on 2026-09-19**, at the maintainer's direction, when the
+  demand map moved from requested PRBs to report counts and the objective was
+  split per band. The original text, which recorded the PRB-weighted map and the
+  band-collapsed objective, is in Git history. See
+  [the README](README.md).
 
 ## Context
 
@@ -19,6 +24,13 @@ most of the traffic had the same say. A tilt that filled a hole where nobody
 stands scored exactly like one that filled a hole in a hotspot. The simulator
 already produces the measurement that would fix this — the MDT is the set of
 reports the network actually served — and nothing read it.
+
+**Every band counted as one.** `R_s(g)` was the strongest cell-band at the tile,
+over all three layers at once. A tile lit by 2600 MHz therefore scored full
+coverage utility even where 700 MHz had a hole, and the objective could not see
+the difference. Worse for the search: on a tile where 2600 is strongest, moving
+a 700 MHz tilt leaves the maximum unchanged, so 12 of the 36 decision dimensions
+had no gradient over large parts of the map.
 
 **The admission cap did not cap anything.** `kpi.capacity.max_admission_utilisation`
 gated admission on the load a cell-band *already* carried: a cell-band at 0.69
@@ -37,41 +49,65 @@ KPI was a whole-network scalar.
 ### 1. The demand map
 
 `src/data/demand.py`, built by `task preprocess` into
-`data.output.demand_file`, in two steps.
+`data.output.demand_file`. One step:
 
 ```
-d_g   = median{ sum of prb_per_ue on tile g in interval t : t in T_g }
-w_g   = (1 - u) * K_h * d / ||K_h * d||_1  +  u / |G|
+c_g = |{ MDT reports on tile g, over the whole horizon }|
+p_g = c_g / sum_h c_h
 ```
 
-- `T_g` is the set of intervals in which tile `g` carries **at least one** MDT
-  report. Not every interval of the horizon: no tile on this scenario is
-  reported in more than 16 of 672 intervals, so a median over all of them is
-  zero for every tile and carries no information.
-- `prb_per_ue` is the PRBs the serving rule required for that report, and the
-  MDT now carries it (`src/simulation/mdt.py`). A tile never reported has
-  `d_g = 0`, which is a statement about the sample and not about the tile.
-- `K_h` is an isotropic Gaussian kernel of standard deviation
-  `data.demand.bandwidth_m`. On a regular lattice a Gaussian KDE evaluated at
-  tile centres, over samples aggregated per tile, *is* the discrete Gaussian
-  convolution of `d`, so that is how it is computed. Kernel mass falling off the
-  grid edge is dropped and the result renormalised: a KDE restricted to the
-  study area.
-- `u` is `data.demand.uniform_share`, a floor under ground the MDT never
-  reported. It is 0 in the committed config.
+- Reports are counted as rows, with no de-duplication. This simulator redraws
+  every UE position independently per interval (`src/simulation/sample.py`) and
+  the schema carries no UE identity, so each row is a distinct UE by
+  construction. Real MDT, where one handset can send several reports inside one
+  interval, must be de-duplicated by UE id first, or a stationary chatty device
+  outweighs a crowd.
+- A tile never reported has `p_g = 0`, which is a statement about the sample and
+  not about the tile. There is no smoothing; section 2's `alpha` is the only
+  floor.
+- The map has no settings of its own and carries no band. A UE standing on a
+  tile is a UE standing on a tile, whichever layer ends up serving it.
+
+**Counts, not requested PRBs.** `prb_per_ue` is a function of SINR, which is a
+function of the tilt being optimized. A map built at the baseline tilts and
+weighted by PRBs therefore weights the objective by the baseline network's own
+coverage — the circularity behind the "hotspot nobody can reach gets almost no
+weight" negative this record carried before the rewrite. Counting rows makes the
+map independent of the variable being searched. `src/simulation/mdt.py` no
+longer carries the column.
+
+**Counts over the horizon, not a per-interval median.** The earlier map took the
+median summed PRB over the intervals a tile was reported in. Transposed to UE
+counts that statistic degenerates: with about 15 UEs per interval over 101 060
+tiles, no tile on this scenario is ever occupied twice in one interval, so the
+median is 1.0 on 3 016 of the 3 017 reported tiles and `p` becomes an indicator
+of "ever reported" carrying no intensity at all. The count over the horizon runs
+1 to 15 and does carry it.
 
 ### 2. The objective
 
 ```
-J   = sum_g w_g * sigmoid((R_s(g) - T_cov) / tau_R) * q_ov^m_g,   sum_g w_g = 1
-m_g = sum_b #{ j != s_b(g) on band b : R_j > T_cov and R_s_b - R_j <= Delta_R }
+J     = sum_b sum_g w_bg * sigmoid((R_sb(g) - T_cov) / tau_R) * q_ov^m_bg
+w_bg  = (1 - alpha_b) / |G| + alpha_b * p_g,      sum_g w_bg = 1
+m_bg  = #{ j != s_b(g) on band b : R_j > T_cov and R_s_b - R_j <= Delta_R }
 ```
 
-Everything but `w_g` is ADR 0006 unchanged: `R_s` the strongest cell-band at the
-tile, `m_g` the co-band neighbour count `overlap_rate` thresholds,
-`T_cov = kpi.hole_dbm`, `Delta_R = kpi.overlap_margin_db`, `q_ov = exp(-beta)`.
-Setting `uniform_share` to 1 recovers ADR 0006's tile mean exactly, which is how
-the two are compared.
+One term per band, summed. `R_sb(g)` is the strongest transmitter **on band `b`**
+at the tile, and `m_bg` its co-band overlapping neighbours — the same count
+`overlap_rate` thresholds, now applied to its own band's sigmoid rather than to
+a band-collapsed one. `T_cov = kpi.hole_dbm`, `Delta_R = kpi.overlap_margin_db`,
+`q_ov = exp(-beta)`, all unchanged from ADR 0006.
+
+Each band's weights sum to one, so each term lies in `[0, 1]` and **`J` lies in
+`[0, n_band]`**, not in `[0, 1]`. The sum is deliberate: it weights every layer
+alike, and the place to say a layer matters more is a per-band weight, which
+this record does not introduce.
+
+`alpha_b` is `kpi.objective.alpha` for that band: **0** spends the band's effort
+evenly over the map, which is what a coverage layer wants, and **1** spends it
+where the traffic was measured, which is what a capacity layer wants. The
+committed values are `b700: 0.0`, `b1800: 0.5`, `b2600: 1.0`. Setting every
+`alpha` to 0 recovers a per-band form of ADR 0006's tile mean.
 
 ### 3. The admission ceiling
 
@@ -104,15 +140,19 @@ Eleven measures, stored beside `objective`, in this order:
 | `prb_utilisation_max` | highest cell-band load in any interval, over its limit | minimise |
 | `load_imbalance` | coefficient of variation of cell-band utilisation | minimise |
 
+These stay **tile-uniform and band-collapsed**, on purpose: a rate that says how
+much of the *map* is bad and an objective that says how much of the *traffic* is
+badly served answer different questions, and both are worth printing.
+
 `load_imbalance` is the population standard deviation over the mean of each
 cell-band's interval-averaged utilisation. Scale-free: it does not move when the
 whole network gets busier, only when the traffic sits unevenly.
 
 **Per band.** Every one of the eleven is also reported per frequency layer
 (`src.evaluation.compare.band_kpis`), by giving the same function one band's
-slice of the radio map. There is no second definition. `objective` is not
-reported per band: it scores a network, and one layer of a multi-band network is
-not a network.
+slice of the radio map. There is no second definition, and it is the same slice
+the objective now takes. `objective` is still not reported per band: its terms
+are, but the number that ranks a configuration scores a network.
 
 **The PRB series.** `prb_usage_by_time` reports the PRBs and utilisation of every
 cell-band in every interval — the series `prb_utilisation_max` and
@@ -120,15 +160,32 @@ cell-band in every interval — the series `prb_utilisation_max` and
 
 ## Choosing the parameters
 
-Four judgement values now sit in `configs/`. None of them has a calibration
-against operator measurements, so each is set from a stated reading rather than
-from a fit, and this is the reading.
+Three judgement values sit in `configs/kpi.yaml`, plus the admission ceiling.
+None has a calibration against operator measurements, so each is set from a
+stated reading rather than from a fit, and this is the reading.
 
 **`kpi.objective.tau_r_db` — the width of the coverage sigmoid, in dB.**
 The utility runs from 0.12 to 0.88 over `±tau_R` around `T_cov`, so `tau_R` is
 the dB span across which the objective can tell one grade of coverage from
-another. Set it to the span you actually want distinguished, which for this
-project is `hole_dbm` to `weak_dbm`, and it is **30 dB**. Read the two ends:
+another. Set it to the spread the radio map actually has:
+
+```
+tau_R  ~  IQR(R_sb) / 1.349
+```
+
+`1.349 = Phi^-1(0.75) - Phi^-1(0.25)`, so this is the normal-scale robust
+estimate of the standard deviation — robust because the RSRP distribution has a
+long low tail from tiles at the edge of reach, which would inflate a plain
+standard deviation. Take the IQR over the **per-band serving RSRP at reached
+tiles**, which is exactly the quantity each term's sigmoid reads, and pool the
+bands: one `tau_r_db` serves all three terms. Notebook 01's `rsrp_statistics`
+table reports the per-band and pooled figures. On this scenario the three bands
+agree to within a dB and the pooled value is 17.1 dB, so the committed value is
+**17.0**.
+
+Re-derive it when the scenario changes — a different scene, mast layout or
+transmit power gives a different spread — and never between two runs on one
+scenario, or the two stop being comparable. Read the two ends:
 
 - Much smaller (5 dB) makes `J` a soft hole rate. Everything above about
   `T_cov + 10` scores 1, so the search stops caring how strong coverage is and
@@ -138,107 +195,134 @@ project is `hole_dbm` to `weak_dbm`, and it is **30 dB**. Read the two ends:
   a tile at `-119` and a tile at `-60` score almost alike and the hole threshold
   stops meaning anything.
 
-Sanity check after a change: the incumbent's `J` should sit well inside `(0, 1)`
+Sanity check after a change: each band's term should sit well inside `(0, 1)`
 and the spread of `J` across the search's candidates should be larger than the
 solver's re-trace noise. If every candidate scores within a thousandth of the
 incumbent, `tau_R` is too large to rank them.
 
 **`kpi.objective.beta` — the price of one overlapping co-band neighbour.**
-One neighbour keeps `exp(-beta)` of a tile's utility, so it is set from the
-question "what fraction of a tile's coverage value would I give up to remove one
-overlapping neighbour from it?" If that fraction is `f`, then
-`beta = -ln(1 - f)`. The committed **0.5** is `f = 39%`. Equivalently, in dB:
-one neighbour costs the same as losing `beta * tau_R` of sigmoid argument, which
-at these settings is about 15 dB of coverage near the threshold — a steep price,
-deliberately, because a redundant layer is exactly what the project exists to
-remove.
+One neighbour keeps `exp(-beta)` of a tile's utility on that band, so it is set
+from the question "what fraction of a tile's coverage value would I give up to
+remove one overlapping neighbour from it?" If that fraction is `f`, then
+`beta = -ln(1 - f)`. The committed **0.25** is `f = 22%`.
+
+It was halved from 0.5 when the objective was split. The count is now applied to
+its own band's sigmoid rather than once to a band-collapsed sum, so a tile
+crowded on two bands is penalised inside two terms instead of once, and the
+previous price would have overstated the trade.
 
 - `beta = 0` deletes the overlap term and the objective becomes pure coverage;
   the search will then blanket the area with every layer.
-- `beta >= 2` (86% per neighbour) makes two overlapping neighbours worth less
-  than an uncovered tile, and the search will open holes to avoid overlap. Keep
-  `beta * max(m_g)` below about 2 for the trade to stay sane, and
-  `overlap_neighbor_mean` in the reported KPIs is where to read `max(m_g)`.
+- Large `beta` makes two overlapping neighbours worth less than an uncovered
+  tile, and the search will open holes to avoid overlap. Keep
+  `beta * max(m_bg)` below about 2 for the trade to stay sane, and
+  `overlap_neighbor_mean` in the reported KPIs is where to read the typical
+  neighbour count.
 
-**`data.demand.bandwidth_m` — the KDE bandwidth, in metres.**
-Do not use Scott's or Silverman's rule. Both scale the bandwidth with the spread
-of the samples, which here is the size of the study area (about 6.5 km), giving
-a kernel hundreds of metres wide that erases the very hotspots the map exists to
-find. Two readings that do give a number, and they agree to within a factor of
-two on this scenario:
+**`kpi.objective.alpha` — the demand share of a band's tile weights.**
+This is where a band's role in the network is stated. At `alpha = 0` the band is
+scored evenly over the map: every hole costs the same wherever it is, which is
+what a coverage layer is for. At `alpha = 1` the band is scored only where the
+MDT reported, so it is rewarded for serving measured traffic and not for
+blanketing empty ground. The committed `b700: 0.0, b1800: 0.5, b2600: 1.0` is
+the usual low-band-covers / high-band-carries split.
 
-1. **Sampling spacing.** With `n` reported tiles over area `A`, neighbouring
-   samples sit about `sqrt(A / n)` apart — about 113 m here. A bandwidth near
-   that makes adjacent kernels just touch, so the field is continuous without
-   being smooth.
-2. **Feature scale.** The demand the map should resolve has a physical size: in
-   this simulator, `simulation.density.sigma_minor_m`/`sigma_major_m`, i.e.
-   40–200 m. A bandwidth at the low end of the feature scale keeps hotspots
-   separate.
-
-The committed **150 m** sits between the two. Check it by eye on the two rasters
-notebook 02 plots: the weight map should show the hotspots as distinct blobs. If
-they have merged into one cloud, the bandwidth is too large; if the map looks
-like scattered dots, it is too small.
-
-**`data.demand.uniform_share` — the floor under unreported ground.**
-At 0 the objective may ignore a region no UE was ever drawn in. That is correct
-when the MDT is the demand you care about, and it is the committed value. Raise
-it when a region matters for a reason the traffic sample cannot show — a
-coverage obligation, a road, a site about to be built — and read it as "this
-fraction of the score is about the map, the rest is about the traffic". Setting
-it to 1 is the ADR 0006 objective.
+Read the extremes before moving one. `alpha = 1` with no smoothing means the
+band's term is a sum over the reported tiles alone — about 3% of this grid — so
+that term is a point estimate with the variance of the UE sample, and its
+optimum moves with the sampling seed. Lower `alpha` towards 0 to buy back a
+floor under unreported ground; that is the lever, since the map itself no longer
+has one.
 
 **`kpi.capacity.max_admission_utilisation`.** Not an objective parameter, but it
-now binds: it is the headroom policy, and `prb_utilisation_max` cannot exceed
-it. 0.8 is a common operational ceiling; lowering it trades `served_rate` for
+binds: it is the headroom policy, and `prb_utilisation_max` cannot exceed it.
+0.8 is a common operational ceiling; lowering it trades `served_rate` for
 headroom directly and visibly.
+
+## The capacity model is a Shannon bound, not NR link adaptation
+
+`src/kpi/capacity.py` charges a UE
+`throughput_per_ue_bps / (B_PRB * log2(1 + SINR))` PRBs, with `B_PRB = 12 * SCS`.
+Accepted as a deliberate fidelity-for-smoothness trade: the search needs a
+quantity that moves continuously with tilt, and this one does. The deviations
+from 3GPP, all optimistic, are recorded in that module and summarised here so a
+reader knows what the served rate and the load KPIs are:
+
+- **No modulation and coding ceiling.** TS 38.214 Table 5.1.3.1-2 tops out at
+  `Q_m * R = 8 * 948/1024` bit/s/Hz per layer (Table 5.1.3.1-1, without 256QAM:
+  `6 * 948/1024`); CQI index 1 of Table 5.2.2.1-2 floors a schedulable UE at
+  `2 * 78/1024`. `log2(1 + SINR)` obeys neither, so a high-SINR UE is charged
+  too few PRBs — cells look less loaded than they would be — and a UE below the
+  floor is charged a finite number and blocked by the ceiling rather than
+  refused outright.
+- **The rate basis is the nominal RB bandwidth.** The UE data rate of
+  TS 38.306 4.1.2 uses the symbol rate `12 / T_s^mu` with
+  `T_s^mu = 1e-3 / (14 * 2^mu)`, and scales by `(1 - OH)` with `OH = 0.14` for
+  downlink FR1. Using `12 * SCS` and no overhead is optimistic on both counts.
+- **One layer.** No `v_Layers` MIMO factor and no `R_max`.
+- **SINR is the solver's wideband value applied per PRB**, so frequency-selective
+  fading does not appear and the PRB figure is an interval average.
+
+What *is* 3GPP: `12` subcarriers per resource block (TS 38.211 4.4.4.1) and the
+`max_prb` limits per cell-band, which are `N_RB` from TS 38.101-1 Table 5.3.2-1
+for each band's bandwidth at 15 kHz SCS.
+
+This matters less to the objective than it used to — the demand map no longer
+reads `prb_per_ue` — but it still sets `served_rate`, `prb_utilisation_max`,
+`load_imbalance` and which admissions the ceiling refuses.
 
 ## Consequences
 
 **Positive**
 
 - The objective is about the traffic, not about the map's empty quarters, which
-  was ADR 0006's first recorded negative.
-- The demand weighting costs the search nothing: the weights are built once,
+  was ADR 0006's first recorded negative — and it is about the traffic only as
+  much as each band's role says it should be.
+- The demand map no longer depends on the variable being optimized. A tilt can
+  no longer make ground look unimportant by failing to cover it.
+- A hole on one layer is visible. Every cell-band tilt now moves a term of `J`
+  directly, which removes the flat regions the band-collapsed maximum created.
+- The map has no hyperparameters left: no bandwidth to justify, no uniform
+  share. The one remaining knob, `alpha`, states a band's role rather than a
+  smoothing choice.
+- The demand weighting still costs the search nothing: the share is built once,
   read once per run, and a candidate is still one ray trace.
 - The load ceiling makes `max_admission_utilisation` mean what it is named, and
   gives `prb_utilisation_max` a bound a reader can check against.
-- Serving the UE table once per measurement, with the served rate and both load
-  measures reducing that one assignment, keeps the added KPIs free of ray-tracing
-  cost.
 - Per-band rows make a multi-band claim checkable: "700 MHz is the coverage
   floor" is now a number and not a design intention.
 
 **Negative**
 
-- The objective now depends on the UE sample through the MDT, which ADR 0006
-  deliberately avoided: `J` was a function of the radio map alone. Two scenarios
-  drawn from the same density give slightly different weights, so a comparison
+- **`J` is no longer in `[0, 1]`.** It is in `[0, n_band]`, and its absolute
+  value is not comparable with anything recorded before this rewrite. Neither is
+  its scale comparable across studies with different band counts.
+- **A band at `alpha = 1` is scored on about 3% of the grid.** With no
+  smoothing, `p` is zero on every tile the MDT never reported — 98 043 of
+  101 060 here — so that band's term is a sum over 3 017 isolated 20 m tiles. It
+  is a high-variance estimate of a spatial integral and it moves with the UE
+  sampling seed, which makes `J` non-comparable across scenario seeds. Lowering
+  `alpha` is the only floor; a kernel was removed deliberately and could be put
+  back.
+- The objective still depends on the UE sample through the MDT, which ADR 0006
+  deliberately avoided: `J` was a function of the radio map alone. A comparison
   across scenarios must fix the demand map rather than rebuild it.
-- **A hotspot nobody can reach gets almost no weight.** The MDT holds served
-  reports, so ground the network already fails to cover is under-represented in
-  the very map that decides where coverage matters. On this scenario the fourth
-  hotspot sits far from every mast: 1 844 UE reports stand within 400 m of its
-  centre and only 117 of them are ever served, so the KDE leaves it nearly
-  weightless and the objective has little reason to reach for it. `hole_rate`
-  still counts those tiles at full weight, which is one reason the KPIs stay
-  tile-uniform; raising `data.demand.uniform_share` is the lever if the
-  objective should chase such a region, and building the map from the UE table
-  instead is the alternative rejected below.
-- The demand map inherits every simplification of the capacity model: the PRBs
-  it is a median of come from a Shannon rate with no MCS cap.
-- The median is taken over the intervals a tile was reported in, so a tile
-  reported once carries the same standing as a tile reported sixteen times. The
-  KDE smooths the noise that creates but does not remove it.
-- Two more judgement parameters, and still no sensitivity analysis behind any of
-  the four.
-- The 0.8 ceiling refuses admissions the previous rule accepted, so
-  `served_rate` is not comparable with any figure recorded before this change —
-  and neither is anything else: `src/evaluation/runs.py` refuses to compare runs
-  across it.
-- Runs recorded before this change carry `served_ratio` and `edge_rsrp_dbm` and
-  cannot be loaded as a `KpiVector`.
+- **The MDT still holds served reports only**, so ground the network already
+  fails to cover is under-represented in the map that decides where coverage
+  matters. Weighting by counts rather than PRBs weakens this — an unserved tile
+  is now under-weighted only by not being in the MDT, not also by its poor SINR
+  — but it does not remove it. `hole_rate` still counts those tiles at full
+  weight, which is one reason the KPIs stay tile-uniform.
+- A tile reported once and a tile reported twice differ by a factor of two in
+  `p`, on a sample that thin. There is no smoothing left to absorb that noise.
+- Three judgement parameters, and still no sensitivity analysis behind any of
+  them. `tau_r_db` now at least has a stated estimator.
+- The 0.8 ceiling refuses admissions the pre-0007 rule accepted, so
+  `served_rate` is not comparable with any figure recorded before it — and
+  neither is anything else: `src/evaluation/runs.py` refuses to compare runs
+  across `kpi.objective`.
+- Every run scored under the previous form of this record is incomparable and
+  was deleted rather than reconciled.
 
 ## Alternatives considered
 
@@ -250,16 +334,28 @@ a quarter of the study area.
 
 **Use the UE table rather than the MDT.** The UE table includes UEs no cell
 reaches, so its demand map would weight holes by the traffic standing in them —
-which the objective is already measuring through `R_s`. The MDT is what a real
+which the objective is already measuring through `R_sb`. The MDT is what a real
 network can observe, and using it keeps the map buildable from measurements.
 
-**Scott's / Silverman's bandwidth.** Rejected; see "Choosing the parameters".
-They estimate a density over the sample's own spread, and the sample's spread
-here is the study area.
+**Weight by requested PRBs rather than report count.** This was the decision
+before the rewrite, on the reading that two UEs at -118 dBm need far more PRBs
+than two at -70 dBm and it is the PRBs a cell must find. Reversed: that reading
+is true of the *cell's* load, which is what `prb_utilisation_max` and
+`load_imbalance` measure, and false of *where the demand is*, which is what the
+map is for. Weighting by a function of SINR made the objective's weights depend
+on the tilts it was searching over.
 
-**Weight by report count instead of requested PRBs.** Rejected: two UEs at
--118 dBm need far more PRBs than two at -70 dBm, and it is the PRBs a cell must
-find. Counting reports would weight the easy traffic and the hard traffic alike.
+**Keep the KDE, applied to counts.** Rejected here, and the closest call. The
+kernel was doing real variance reduction: it filled the 97% of the grid the MDT
+never reaches and made the map stable under the UE seed. It was removed because
+it is a hyperparameter no data selects — Scott's and Silverman's rules both
+scale with the study area and erase the hotspots — and because `alpha` now
+provides the floor it was partly standing in for. Recorded as a negative above;
+the lever if the 3%-of-grid support proves too thin is to put it back.
+
+**Average over bands instead of summing.** Rejected: it only divides `J` by a
+constant, so it changes no ranking. Summing was kept because it makes the band
+count visible in the number's range.
 
 **Keep the old admission gate and add a separate ceiling KPI.** Rejected: it
 would report an overload the rule was configured to prevent, and leave the

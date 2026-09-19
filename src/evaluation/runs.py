@@ -315,9 +315,10 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     needs and therefore the served rate. Neither is stored in the archive, so
     the config snapshot is the only place they can be checked.
 
-    ``demand`` is here because the objective averages against the demand map's
-    tile weights (ADR 0007): two runs whose KDE settings differ optimised
-    different quantities, whatever else they share.
+    ``objective`` carries ``tau_r_db``, ``beta`` and the per-band ``alpha``
+    (ADR 0007). The demand map has no settings of its own any more, so this
+    block is the whole of what defines the objective: two runs that differ on
+    any of it optimised different quantities, whatever else they share.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
@@ -328,7 +329,6 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
         "objective": kpi.get("objective"),
-        "demand": config.get("data", {}).get("demand"),
         "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
         "bandwidth": {
             band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])

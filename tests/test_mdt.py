@@ -44,6 +44,7 @@ def test_mdt_keeps_served_ues_with_their_serving_rsrp() -> None:
 
     table = mdt.select(rsrp, sinr, ["hi", "lo"], ue, cfg)
 
-    assert list(table.columns) == list(mdt.MDT_COLUMNS)
+    # The demand map counts rows, so the MDT carries no PRB column to count.
+    assert list(table.columns) == [*CSV_COLUMNS, "rsrp_dbm"] == list(mdt.MDT_COLUMNS)
     assert table["x"].tolist() == [10.0]
     assert table["rsrp_dbm"].tolist() == [-95.0]

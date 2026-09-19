@@ -1,98 +1,52 @@
-"""The demand map: where the traffic actually is, as one weight per grid tile.
+"""The demand map: where the traffic actually is, as one share per grid tile.
 
-Two steps, both deterministic and both read from the MDT alone.
+One step, deterministic, read from the MDT alone: count the reports that landed
+on each tile over the whole horizon, and normalise the raster to sum to one.
+That share is ``p`` in the objective's tile weight
+``w_g = (1 - alpha) / n + alpha * p_g`` (:mod:`src.optim.objective`, ADR 0007),
+where ``alpha`` is per band, so the map itself carries no band: a UE standing on
+a tile is a UE standing on a tile whichever layer ends up serving it.
 
-1. **Median requested PRB per tile.** Each MDT report carries the PRBs the
-   serving rule required for it (:func:`src.kpi.capacity.serve_intervals`). Sum
-   those per tile per interval, then take the **median over the intervals in
-   which that tile was reported at all**. Not over every interval in the
-   horizon: a tile is reported in a handful of the horizon's intervals, so that
-   median is zero for every tile and carries no information. A tile never
-   reported is zero, which is a statement about the sample and not about the
-   tile.
-2. **Kernel density estimation.** The medians are a few thousand isolated tiles
-   on a grid of a hundred thousand. An isotropic Gaussian kernel of
-   ``data.demand.bandwidth_m`` spreads them into a field defined everywhere,
-   which is what lets a tile with no report of its own still carry the weight of
-   the traffic beside it. On a regular lattice that estimate is exactly the
-   discrete Gaussian convolution of the per-tile medians, so that is how it is
-   computed; mass that falls off the grid edge is dropped and the result is
-   renormalised, making this a KDE restricted to the study area.
+Counting rows rather than the PRBs they required is what keeps the map
+independent of tilt. The PRB a report needs is a function of its SINR, which is
+a function of the tilt being optimized, so a PRB-weighted map would weight the
+objective by the baseline network's own coverage.
 
-The weights sum to one and :func:`src.optim.objective.objective` averages its
-per-tile utility against them, which is the only thing that reads them. The
-reported KPIs stay tile-uniform, so a rate and the objective answer different
-questions on purpose: how much of the *map* is bad, and how much of the
-*traffic* sits where it is bad.
+The reported KPIs stay tile-uniform, so a rate and the objective answer
+different questions on purpose: how much of the *map* is bad, and how much of
+the *traffic* sits where it is bad.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
-from scipy.ndimage import gaussian_filter
 
 # Arrays in the artifact, keyed as written.
-MEDIAN_PRB = "median_prb"
-WEIGHT = "weight"
+REPORTS = "reports"
+SHARE = "share"
 
 
-@dataclass(frozen=True)
-class DemandSpec:
-    """``data.demand``: how the medians become weights.
+def reports_per_tile(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
+    """Count the MDT reports that landed on each tile, over the whole horizon.
 
-    Attributes:
-        bandwidth_m: Standard deviation of the KDE's Gaussian kernel, in
-            scene metres. Zero leaves the medians unsmoothed.
-        uniform_share: Share of the weight spread evenly over every tile,
-            blended in after the KDE. Zero lets the objective ignore a region
-            the MDT never reported; raising it is how a tile far from any
-            traffic keeps a floor of influence.
-    """
-
-    bandwidth_m: float
-    uniform_share: float
-
-    @classmethod
-    def from_config(cls, cfg: DictConfig) -> DemandSpec:
-        """Read ``data.demand``.
-
-        Raises:
-            ValueError: When ``data.demand`` is absent, ``bandwidth_m`` is
-                negative, or ``uniform_share`` is outside ``[0, 1]``.
-        """
-        block = cfg.data.get("demand")
-        if block is None:
-            raise ValueError("configs/data.yaml has no `demand` block.")
-        spec = cls(
-            bandwidth_m=float(block.bandwidth_m),
-            uniform_share=float(block.uniform_share),
-        )
-        if spec.bandwidth_m < 0:
-            raise ValueError(
-                f"data.demand.bandwidth_m must be non-negative, got {spec.bandwidth_m}"
-            )
-        if not 0.0 <= spec.uniform_share <= 1.0:
-            raise ValueError(
-                f"data.demand.uniform_share must be in [0, 1], got {spec.uniform_share}"
-            )
-        return spec
-
-
-def median_prb_per_tile(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
-    """Median PRBs requested on each tile, over the intervals it was reported in.
+    Rows are counted as they stand, with no de-duplication. This simulator
+    redraws every UE position independently per interval
+    (:func:`src.simulation.sample.sample_positions`) and the schema carries no UE identity,
+    so each row is a distinct UE by construction. Real MDT, where one UE can
+    send several reports inside one interval, must be de-duplicated by UE id
+    first or a stationary chatty handset outweighs a crowd.
 
     Args:
-        mdt: The MDT table, one row per served report, carrying ``tile_row``,
-            ``tile_col``, ``t_index`` and ``prb_per_ue``.
+        mdt: The MDT table, one row per served report, carrying ``tile_row``
+            and ``tile_col``.
         shape: The radio map's ``(n_rows, n_cols)``.
 
     Returns:
-        ``[n_rows, n_cols]`` in PRBs, zero on every tile the MDT never reported.
+        ``[n_rows, n_cols]`` counts, zero on every tile the MDT never reported.
 
     Raises:
         ValueError: When a report falls outside the grid, which means the MDT
@@ -112,69 +66,43 @@ def median_prb_per_tile(mdt: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray
             "different grids."
         )
 
-    per_interval = mdt.groupby(["tile_row", "tile_col", "t_index"], observed=True)[
-        "prb_per_ue"
-    ].sum()
-    median = per_interval.groupby(level=["tile_row", "tile_col"], observed=True).median()
-    rows, cols = zip(*median.index, strict=True)
-    raster[np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64)] = median.to_numpy()
+    count = mdt.groupby(["tile_row", "tile_col"], observed=True).size()
+    rows, cols = zip(*count.index, strict=True)
+    raster[np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64)] = count.to_numpy()
     return raster
 
 
-def kde_weights(median_prb: np.ndarray, tile_size_m: float, spec: DemandSpec) -> np.ndarray:
-    """Turn the per-tile medians into weights that sum to one.
-
-    The Gaussian kernel is isotropic and its bandwidth is given in metres
-    rather than derived by Scott's or Silverman's rule: those scale with the
-    spread of the samples, which here is the size of the study area, and would
-    smooth every hotspot away. See ``docs/adr/0007``.
-
-    Args:
-        median_prb: :func:`median_prb_per_tile` output.
-        tile_size_m: The grid's tile side, for converting the bandwidth to tiles.
-        spec: The KDE settings.
+def share(reports: np.ndarray) -> np.ndarray:
+    """Normalise the counts to sum to one.
 
     Returns:
         ``[n_rows, n_cols]``, non-negative and summing to one. Uniform when the
-        MDT reported nothing anywhere, so a missing demand map degrades to the
-        equal-tile average rather than to a division by zero.
+        MDT reported nothing anywhere, so a scenario with no reports degrades to
+        the equal-tile average rather than to a division by zero.
     """
-    total_demand = float(np.sum(median_prb))
-    if total_demand <= 0.0:
-        return np.full(np.shape(median_prb), 1.0 / np.size(median_prb))
-
-    sigma = spec.bandwidth_m / float(tile_size_m)
-    # mode="constant" is the KDE truncated at the study area: kernel mass that
-    # falls off the edge is dropped, and renormalising restores the total.
-    density = gaussian_filter(np.asarray(median_prb, dtype=float), sigma=sigma, mode="constant")
-    density = np.clip(density, 0.0, None)
-    weight = density / density.sum()
-    if spec.uniform_share > 0.0:
-        uniform = 1.0 / np.size(weight)
-        weight = (1.0 - spec.uniform_share) * weight + spec.uniform_share * uniform
-    return weight
+    reports = np.asarray(reports, dtype=float)
+    total = float(reports.sum())
+    if total <= 0.0:
+        return np.full(reports.shape, 1.0 / reports.size)
+    return reports / total
 
 
-def build(mdt: pd.DataFrame, shape: tuple[int, int], tile_size_m: float, cfg: DictConfig) -> dict:
-    """The demand map's two rasters and the settings behind them.
+def build(mdt: pd.DataFrame, shape: tuple[int, int], tile_size_m: float) -> dict:
+    """The demand map's two rasters and the grid they sit on.
 
     Returns:
         The arrays :func:`save` writes, keyed as the artifact stores them.
 
     Raises:
-        ValueError: As :meth:`DemandSpec.from_config` and
-            :func:`median_prb_per_tile`.
+        ValueError: As :func:`reports_per_tile`.
     """
-    spec = DemandSpec.from_config(cfg)
-    median_prb = median_prb_per_tile(mdt, shape)
+    reports = reports_per_tile(mdt, shape)
     return {
-        MEDIAN_PRB: median_prb,
-        WEIGHT: kde_weights(median_prb, tile_size_m, spec),
+        REPORTS: reports,
+        SHARE: share(reports),
         "n_rows": shape[0],
         "n_cols": shape[1],
         "tile_size_m": float(tile_size_m),
-        "bandwidth_m": spec.bandwidth_m,
-        "uniform_share": spec.uniform_share,
     }
 
 
@@ -190,15 +118,15 @@ def save(arrays: dict, path: str | Path) -> Path:
     return path
 
 
-def load_weights(cfg: DictConfig) -> np.ndarray:
-    """The tile weights from ``data.output.demand_file``.
+def load_share(cfg: DictConfig) -> np.ndarray:
+    """The tile shares from ``data.output.demand_file``.
 
     Side effect: reads the artifact from disk on every call. Deliberately not
     cached: a rebuilt map inside the filesystem's timestamp resolution would be
-    served stale, and nothing needs the cache. A search reads the weights once,
-    at :class:`src.optim.evaluator.Evaluator` construction, and passes them to
-    every candidate; only a notebook or a re-score reaches this by leaving
-    ``weights`` at None, a handful of times per run.
+    served stale, and nothing needs the cache. A search reads the share once, at
+    :class:`src.optim.evaluator.Evaluator` construction, and passes it to every
+    candidate; only a notebook or a re-score reaches this by leaving ``share``
+    at None, a handful of times per run.
 
     Raises:
         FileNotFoundError: When the demand map has not been built, naming the
@@ -208,4 +136,4 @@ def load_weights(cfg: DictConfig) -> np.ndarray:
     if not path.is_file():
         raise FileNotFoundError(f"No {path}. Run `task preprocess` first.")
     with np.load(path, allow_pickle=False) as archive:
-        return archive[WEIGHT].astype(float)
+        return archive[SHARE].astype(float)

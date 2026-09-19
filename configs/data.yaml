@@ -9,22 +9,11 @@ output:
   # One row per cell-band pair: the configuration the radio map was solved at,
   # and the baseline every DeltaTilt is measured against.
   cell_file: data/processed/cell.parquet
-  # The MDT subset of the UE table, typed, carrying the PRBs each report
-  # required. The demand map is built from it; nothing else scores on it.
+  # The MDT subset of the UE table, typed. The demand map counts its rows per
+  # tile; nothing else scores on it.
   mdt_file: data/processed/mdt.parquet
-  # The demand map: median requested PRB per tile, and the KDE tile weights
-  # src/optim/objective.py averages its per-tile utility against.
+  # The demand map (src/data/demand.py, ADR 0007): MDT reports per tile, and
+  # those counts normalised to the tile shares src/optim/objective.py blends
+  # into each band's weights. It has no settings of its own; the blend is
+  # kpi.objective.alpha.
   demand_file: data/processed/demand.npz
-
-# The demand map (src/data/demand.py, ADR 0007). Changing either value changes
-# what the objective optimises, so runs either side of a change are not
-# comparable.
-demand:
-  # Standard deviation of the KDE's Gaussian kernel, in scene metres. Given
-  # explicitly rather than by Scott's or Silverman's rule: those scale with the
-  # spread of the samples, which here is the study area, and flatten the
-  # hotspots the map exists to find.
-  bandwidth_m: 150.0
-  # Share of the weight spread evenly over every tile, blended in after the
-  # KDE. Zero lets the objective ignore ground the MDT never reported.
-  uniform_share: 0.0

@@ -5,13 +5,17 @@ module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
 the objective (docs/adr/0007-demand-weighted-objective.md):
 
-    J = sum_g w_g * sigmoid((R_s - T_cov) / tau_R) * exp(-beta * m_g)
+    J = sum_b sum_g w_bg * sigmoid((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)
 
-with ``sum_g w_g = 1``. The weights are the demand map's
-(:mod:`src.data.demand`): a tile carries the share of the measured traffic that
-stands on and around it, so the search spends its effort where the UEs are. Set
-``data.demand.uniform_share`` to 1 and the weights are equal, which is the
-tile-uniform objective of ADR 0006.
+One term per band, summed, each with ``sum_g w_bg = 1``. Splitting by band is
+what lets the objective see a hole on one layer that another layer covers, and
+what gives every cell-band tilt a term it moves.
+
+``w_bg = (1 - alpha_b) / n + alpha_b * p_g`` blends the tile-uniform weight with
+the demand map's share ``p`` (:mod:`src.data.demand`). ``alpha_b`` is
+``kpi.objective.alpha`` for that band: 0 spends the band's effort evenly over the
+map, which is what a coverage layer wants, and 1 spends it where the UEs were
+measured, which is what a capacity layer wants.
 
 :data:`KPI_NAMES` are reported and no selection reads them; ``objective`` is
 stored beside them, so a history is ranked without re-reading a radio map.
@@ -84,34 +88,48 @@ class ObjectiveSpec:
         delta_r_db: Overlap margin ``Delta_R``, ``kpi.overlap_margin_db``.
         tau_r_db: Width ``tau_R`` of the coverage sigmoid.
         beta: Overlap penalty; each neighbour keeps ``q_ov = exp(-beta)``.
+        alpha: Demand share of each band's tile weights, keyed by band label.
     """
 
     t_cov_dbm: float
     delta_r_db: float
     tau_r_db: float
     beta: float
+    alpha: dict[str, float]
 
     @classmethod
-    def from_config(cls, cfg: DictConfig) -> ObjectiveSpec:
+    def from_config(cls, cfg: DictConfig, band_labels: Sequence[str]) -> ObjectiveSpec:
         """Read ``kpi.objective``, ``kpi.hole_dbm`` and ``kpi.overlap_margin_db``.
 
         Raises:
             ValueError: When ``kpi.objective`` is absent, ``tau_r_db`` is not
-                positive, or ``beta`` is negative.
+                positive, ``beta`` is negative, or a band has no ``alpha`` or one
+                outside ``[0, 1]``.
         """
         block = cfg.kpi.get("objective")
         if block is None:
             raise ValueError("configs/kpi.yaml has no `objective` block.")
+        alpha_block = block.get("alpha")
+        if alpha_block is None:
+            raise ValueError("configs/kpi.yaml has no `objective.alpha` block.")
+        missing = [label for label in band_labels if label not in alpha_block]
+        if missing:
+            raise ValueError(f"No kpi.objective.alpha entry for {', '.join(missing)}.")
+        alpha = {label: float(alpha_block[label]) for label in band_labels}
         spec = cls(
             t_cov_dbm=float(cfg.kpi.hole_dbm),
             delta_r_db=float(cfg.kpi.overlap_margin_db),
             tau_r_db=float(block.tau_r_db),
             beta=float(block.beta),
+            alpha=alpha,
         )
         if not spec.tau_r_db > 0:
             raise ValueError(f"kpi.objective.tau_r_db must be positive, got {spec.tau_r_db}")
         if not spec.beta >= 0:
             raise ValueError(f"kpi.objective.beta must be non-negative, got {spec.beta}")
+        outside = {label: value for label, value in alpha.items() if not 0.0 <= value <= 1.0}
+        if outside:
+            raise ValueError(f"kpi.objective.alpha must be in [0, 1], got {outside}")
         return spec
 
 
@@ -135,7 +153,7 @@ class KpiVector:
         prb_utilisation_max: Highest load any cell-band reaches in any interval,
             as a share of its limit.
         load_imbalance: Coefficient of variation of cell-band utilisation.
-        objective: See :func:`objective`.
+        objective: See :func:`objective`. In ``[0, n_band]``, not ``[0, 1]``.
     """
 
     hole_rate: float
@@ -170,68 +188,94 @@ class KpiVector:
         return cls(**{name: float(values[name]) for name in MEASURE_NAMES})
 
 
-def tile_weights(cfg: DictConfig, shape: tuple[int, int]) -> np.ndarray:
-    """The demand map's weights, checked against the radio map's grid.
+def tile_share(cfg: DictConfig, shape: tuple[int, int]) -> np.ndarray:
+    """The demand map's tile shares, checked against the radio map's grid.
 
     Side effect: reads ``data.output.demand_file``; see
-    :func:`src.data.demand.load_weights` for the caching.
+    :func:`src.data.demand.load_share`.
 
     Raises:
         FileNotFoundError: When the demand map has not been built.
         ValueError: When it was built on another grid, which would silently
             weight the wrong tiles.
     """
-    weights = demand.load_weights(cfg)
-    if weights.shape != tuple(shape):
+    share = demand.load_share(cfg)
+    if share.shape != tuple(shape):
         raise ValueError(
-            f"the demand map is {weights.shape[0]} x {weights.shape[1]} but the radio map is "
+            f"the demand map is {share.shape[0]} x {share.shape[1]} but the radio map is "
             f"{shape[0]} x {shape[1]}. The two were built on different grids; re-run "
             "`task preprocess`."
         )
-    return weights
+    return share
 
 
-def objective(rsrp: np.ndarray, cfg: DictConfig, weights: np.ndarray | None = None) -> float:
-    """Coverage utility discounted by co-band overlap, averaged over the demand map.
+def objective(
+    rsrp: np.ndarray,
+    band_labels: Sequence[str],
+    cfg: DictConfig,
+    share: np.ndarray | None = None,
+) -> float:
+    """Per-band coverage utility discounted by co-band overlap, summed over bands.
 
-    ``sum_g w_g * sigmoid((R_s - T_cov) / tau_R) * q_ov ** m_g``. ``R_s`` is the
-    strongest cell-band at the tile. ``m_g`` is
-    :func:`src.kpi.overlap.overlap_neighbors`, the count ``overlap_rate`` reads:
-    per band, the transmitters on that band above ``T_cov`` and within
-    ``Delta_R`` of that band's strongest, summed over bands. A no-path tile has
-    ``R_s = -inf`` and scores zero. ``w_g`` is the demand map's weight for the
-    tile, so a hole where nobody stands costs less than one in a hotspot.
+    ``sum_b sum_g w_bg * sigmoid((R_sb - T_cov) / tau_R) * q_ov ** m_bg``.
+    ``R_sb`` is the strongest transmitter on band ``b`` at the tile and ``m_bg``
+    is :func:`src.kpi.overlap.overlap_neighbors` on that band alone: the
+    transmitters above ``T_cov`` and within ``Delta_R`` of it. Both are taken on
+    one band's layers, so a hole on 700 MHz stays a hole however strong 2600 MHz
+    is there, and every cell-band tilt moves a term. A no-path tile has
+    ``R_sb = -inf`` and scores zero on that band.
+
+    ``w_bg = (1 - alpha_b) / n + alpha_b * p_g`` weights the band's tiles, with
+    ``p`` the demand map's share, so a hole where nobody stands costs a capacity
+    band little and a coverage band the same as anywhere else.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
+        band_labels: Band names aligned to axis 0 of ``rsrp``; they select the
+            ``alpha`` of each term.
         cfg: Composed config; see :meth:`ObjectiveSpec.from_config`.
-        weights: Tile weights, ``[n_rows, n_cols]``. Read from
+        share: Tile shares, ``[n_rows, n_cols]``. Read from
             ``data.output.demand_file`` when None, which is what every caller
-            but a test does.
+            but a test does. Normalised here, so it need not sum to one.
 
     Returns:
-        A value in ``[0, 1]``. Maximised.
+        A value in ``[0, n_band]``; each band contributes at most 1. Maximised.
 
     Raises:
-        FileNotFoundError: When ``weights`` is None and the demand map has not
+        FileNotFoundError: When ``share`` is None and the demand map has not
             been built.
-        ValueError: When the weights do not cover the radio map's grid, or sum
-            to nothing.
+        ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, the
+            shares do not cover the radio map's grid, or they sum to nothing.
     """
-    spec = ObjectiveSpec.from_config(cfg)
-    serving = max_rsrp(rsrp)
-    overlaps = overlap_neighbors(rsrp, cfg)
-    utility = expit((serving - spec.t_cov_dbm) / spec.tau_r_db) * np.exp(-spec.beta * overlaps)
-
-    weight = tile_weights(cfg, serving.shape) if weights is None else np.asarray(weights, float)
-    if weight.shape != serving.shape:
+    if len(band_labels) != rsrp.shape[0]:
         raise ValueError(
-            f"weights are {weight.shape} for a {serving.shape} grid; they must cover it exactly."
+            f"{len(band_labels)} band labels for a radio map with {rsrp.shape[0]} bands."
         )
-    total = float(weight.sum())
+    spec = ObjectiveSpec.from_config(cfg, band_labels)
+    grid = rsrp.shape[-2:]
+    p = tile_share(cfg, grid) if share is None else np.asarray(share, float)
+    if p.shape != grid:
+        raise ValueError(
+            f"the tile shares are {p.shape} for a {grid} grid; they must cover it exactly."
+        )
+    total = float(p.sum())
     if not total > 0:
-        raise ValueError("the tile weights sum to zero, so there is nothing to average over.")
-    return float(np.dot(utility.ravel(), weight.ravel()) / total)
+        raise ValueError("the tile shares sum to zero, so there is nothing to average over.")
+    p = (p / total).ravel()
+    uniform = 1.0 / p.size
+
+    score = 0.0
+    for index, label in enumerate(band_labels):
+        # A length-1 band axis, so max_rsrp and overlap_neighbors read one band's
+        # transmitters without either growing a band argument. The same slice
+        # src.evaluation.compare._band_view takes for the per-band KPIs.
+        layer = rsrp[index : index + 1]
+        serving = max_rsrp(layer)
+        overlaps = overlap_neighbors(layer, cfg)
+        utility = expit((serving - spec.t_cov_dbm) / spec.tau_r_db) * np.exp(-spec.beta * overlaps)
+        alpha = spec.alpha[label]
+        score += float(np.dot(utility.ravel(), (1.0 - alpha) * uniform + alpha * p))
+    return score
 
 
 def evaluate_kpis(
@@ -240,7 +284,7 @@ def evaluate_kpis(
     band_labels: Sequence[str],
     ue: pd.DataFrame,
     cfg: DictConfig,
-    weights: np.ndarray | None = None,
+    share: np.ndarray | None = None,
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
@@ -257,7 +301,7 @@ def evaluate_kpis(
         ue: The UE table; ``t_index``, ``t_s``, ``tile_row`` and ``tile_col``
             place the UEs the served rate counts.
         cfg: Composed config; the measures read ``cfg.kpi``.
-        weights: Passed to :func:`objective`.
+        share: Passed to :func:`objective`.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, or
@@ -283,7 +327,7 @@ def evaluate_kpis(
         served_rate=served_rate(served),
         prb_utilisation_max=prb_utilisation_max(prb, spec.max_prb),
         load_imbalance=load_imbalance(prb, spec.max_prb),
-        objective=objective(rsrp, cfg, weights),
+        objective=objective(rsrp, band_labels, cfg, share),
     )
 
 
