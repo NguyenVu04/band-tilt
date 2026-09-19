@@ -75,7 +75,7 @@ median RSRP and SINR, the served UE rate, peak PRB utilisation and cell load
 imbalance - are measured for every candidate through [`src/kpi/`](src/kpi/), over
 all bands and per band
 ([ADR 0007](docs/adr/0007-demand-weighted-objective.md)). The search maximises
-one objective, `J = sum_b sum_g w_bg * sigmoid((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)`:
+one objective, `J = sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)`:
 one term per band, each the band's coverage utility per tile discounted per
 overlapping co-band neighbour, so a hole on one layer is not hidden by another
 covering it. Each band weights the tiles by
@@ -246,7 +246,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (tau_R, beta, per-band alpha), and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. How to pick the `objective` values is in [ADR 0007](docs/adr/0007-demand-weighted-objective.md), "Choosing the parameters". The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (the softplus knee width tau_R, beta, per-band alpha), and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. How to pick the `objective` values is in [ADR 0007](docs/adr/0007-demand-weighted-objective.md), "Choosing the parameters". The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) and the demand map. The map has no settings of its own; the per-band blend is `kpi.objective.alpha` |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every

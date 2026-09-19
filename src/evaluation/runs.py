@@ -317,8 +317,14 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
 
     ``objective`` carries ``tau_r_db``, ``beta`` and the per-band ``alpha``
     (ADR 0007). The demand map has no settings of its own any more, so this
-    block is the whole of what defines the objective: two runs that differ on
-    any of it optimised different quantities, whatever else they share.
+    block is the whole of what the *config* says about the objective: two runs
+    that differ on any of it optimised different quantities, whatever else they
+    share.
+
+    It is not the whole definition. The coverage utility's functional form is
+    in code, not in config, so this check cannot see it: runs traced either
+    side of ADR 0008's softplus change carry an identical block and are still
+    incomparable. Archive the old runs rather than relying on this guard.
     """
     config = run.meta["config"]
     kpi = config["kpi"]

@@ -61,6 +61,11 @@ def _kpi(**overrides: float) -> KpiVector:
     return KpiVector(**{**values, **overrides})
 
 
+def _sp(x: float) -> float:
+    """The coverage utility: softplus of the threshold margin in tau_R units."""
+    return math.log1p(math.exp(x))
+
+
 def _map(values: list[list[float]]) -> np.ndarray:
     """A one-tile radio map from nested ``[band][tx]`` RSRP lists."""
     return np.array(values, dtype=float)[:, :, None, None]
@@ -125,7 +130,7 @@ def test_from_mapping_names_a_missing_measure() -> None:
     [("tau_r_db", 0.0), ("beta", -0.1)],
 )
 def test_unusable_objective_parameters_raise(cfg, key, value) -> None:
-    """Each bound keeps a band's term finite and inside [0, 1]."""
+    """Each bound keeps a band's term finite and non-negative."""
     cfg.kpi.objective[key] = value
     with pytest.raises(ValueError, match=key):
         ObjectiveSpec.from_config(cfg, ["hi"])
@@ -150,17 +155,17 @@ def test_band_labels_must_match_the_map(cfg) -> None:
         objective(_map([[-100.0]]), ["hi", "lo"], cfg, np.ones((1, 1)))
 
 
-def test_objective_is_half_on_the_coverage_threshold(cfg) -> None:
-    """At R_s = T_cov the sigmoid is a half, and a server not above T_cov has no neighbours."""
+def test_objective_is_ln_two_on_the_coverage_threshold(cfg) -> None:
+    """At R_s = T_cov softplus is ln 2, and a server not above T_cov has no neighbours."""
     rsrp = _map([[-120.0, -121.0]])
-    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(0.5)
+    assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(math.log(2.0))
 
 
 def test_objective_discounts_each_co_band_neighbour_by_q_ov(cfg) -> None:
     """A neighbour 4 dB down is inside the 6 dB margin; one 7 dB down is not."""
     inside = _score(_map([[-100.0, -104.0]]), cfg, np.ones((1, 1)))
     outside = _score(_map([[-100.0, -107.0]]), cfg, np.ones((1, 1)))
-    covered = 1.0 / (1.0 + math.exp(-2.0))
+    covered = _sp(2.0)
     assert inside == pytest.approx(covered * math.exp(-1.0))
     assert outside == pytest.approx(covered)
 
@@ -171,7 +176,7 @@ def test_each_band_is_scored_on_its_own_strongest_transmitter(cfg) -> None:
     Overlap stays co-band with it: neither cell is the other's neighbour.
     """
     rsrp = _map([[-100.0], [-101.0]])
-    expected = 1.0 / (1.0 + math.exp(-2.0)) + 1.0 / (1.0 + math.exp(-1.9))
+    expected = _sp(2.0) + _sp(1.9)
     assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(expected)
 
 
@@ -181,7 +186,7 @@ def test_a_hole_on_one_band_is_not_hidden_by_another_band_covering_it(cfg) -> No
     A band with no path scores zero on its own term however strong the other
     band is at that tile, so the hole costs a whole band's contribution.
     """
-    covered = 1.0 / (1.0 + math.exp(-3.0))
+    covered = _sp(3.0)
     assert _score(_map([[-90.0], [np.nan]]), cfg, np.ones((1, 1))) == pytest.approx(covered)
     assert _score(_map([[-90.0], [-90.0]]), cfg, np.ones((1, 1))) == pytest.approx(2.0 * covered)
 
@@ -193,7 +198,7 @@ def test_objective_counts_crowding_on_a_band_that_does_not_serve(cfg) -> None:
     own coverage term rather than being hidden behind 'hi'.
     """
     rsrp = _map([[-90.0, -130.0], [-100.0, -102.0]])
-    expected = 1.0 / (1.0 + math.exp(-3.0)) + 1.0 / (1.0 + math.exp(-2.0)) * math.exp(-1.0)
+    expected = _sp(3.0) + _sp(2.0) * math.exp(-1.0)
     assert _score(rsrp, cfg, _even(rsrp)) == pytest.approx(expected)
 
 
@@ -214,23 +219,23 @@ def _two_tiles() -> np.ndarray:
 def test_alpha_zero_weights_every_tile_equally(cfg) -> None:
     """A coverage layer spends its effort on the map, not on where the UEs were."""
     rsrp = _two_tiles()
-    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.25)
-    assert _score(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.25)
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.5 * _sp(0.0))
+    assert _score(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.5 * _sp(0.0))
 
 
 def test_alpha_one_weights_purely_by_the_demand_share(cfg) -> None:
     """A capacity layer scores only where the MDT reported."""
     cfg.kpi.objective.alpha.hi = 1.0
     rsrp = _two_tiles()
-    assert _score(rsrp, cfg, np.array([[1.0, 1.0]])) == pytest.approx(0.25)
-    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.5)
+    assert _score(rsrp, cfg, np.array([[1.0, 1.0]])) == pytest.approx(0.5 * _sp(0.0))
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(_sp(0.0))
     assert _score(rsrp, cfg, np.array([[0.0, 1.0]])) == pytest.approx(0.0)
 
 
 def test_alpha_between_the_two_blends_them(cfg) -> None:
     """Half of each at alpha = 0.5: w = (1 - alpha) / n + alpha * p."""
     cfg.kpi.objective.alpha.hi = 0.5
-    assert _score(_two_tiles(), cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.375)
+    assert _score(_two_tiles(), cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.75 * _sp(0.0))
 
 
 def test_each_band_blends_with_its_own_alpha(cfg) -> None:
@@ -239,13 +244,13 @@ def test_each_band_blends_with_its_own_alpha(cfg) -> None:
     cfg.kpi.objective.alpha.lo = 1.0
     rsrp = np.array([[[[-120.0, np.nan]]], [[[-120.0, np.nan]]]], dtype=float)
     # 'hi' averages the two tiles; 'lo' sees only the reported one.
-    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(0.25 + 0.5)
+    assert _score(rsrp, cfg, np.array([[1.0, 0.0]])) == pytest.approx(1.5 * _sp(0.0))
 
 
 def test_the_share_need_not_be_normalised(cfg) -> None:
     """It is normalised here, so a raw count raster works as well as a share."""
     cfg.kpi.objective.alpha.hi = 1.0
-    assert _score(_two_tiles(), cfg, np.array([[3.0, 1.0]])) == pytest.approx(0.375)
+    assert _score(_two_tiles(), cfg, np.array([[3.0, 1.0]])) == pytest.approx(0.75 * _sp(0.0))
 
 
 def test_a_share_that_does_not_cover_the_grid_raises(cfg) -> None:
@@ -267,7 +272,7 @@ def test_the_objective_reads_the_demand_map_when_given_no_share(cfg, tmp_path) -
     cfg.data = {"output": {"demand_file": str(path)}}
     cfg.kpi.objective.alpha.hi = 1.0
     assert tile_share(cfg, (1, 2)).tolist() == [[1.0, 0.0]]
-    assert objective(_two_tiles(), ["hi"], cfg) == pytest.approx(0.5)
+    assert objective(_two_tiles(), ["hi"], cfg) == pytest.approx(_sp(0.0))
 
 
 def test_a_demand_map_on_another_grid_is_refused(cfg, tmp_path) -> None:

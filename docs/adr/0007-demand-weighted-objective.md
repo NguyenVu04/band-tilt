@@ -1,12 +1,14 @@
 # 7. A per-band demand-weighted objective, a load ceiling, and the reported KPI set
 
-- **Status:** Accepted
+- **Status:** Superseded by 0008 (the coverage utility only)
 - **Date:** 2026-09-18
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** the tile-uniform objective and the reported KPI list of
   [ADR 0006](0006-radio-coverage-objective.md); the admission rule and the
   five-KPI list of [ADR 0001](0001-four-kpis-and-weighted-score.md)
-- **Superseded by:** —
+- **Superseded by:** [ADR 0008](0008-softplus-coverage-utility.md), for the
+  coverage utility alone — the logistic became a softplus and `J` lost its
+  `[0, n_band]` bound. Everything else in this record stands.
 - **Rewritten in place on 2026-09-19**, at the maintainer's direction, when the
   demand map moved from requested PRBs to report counts and the objective was
   split per band. The original text, which recorded the PRB-weighted map and the

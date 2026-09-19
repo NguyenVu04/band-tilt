@@ -5,11 +5,16 @@ module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
 the objective (docs/adr/0007-demand-weighted-objective.md):
 
-    J = sum_b sum_g w_bg * sigmoid((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)
+    J = sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)
 
 One term per band, summed, each with ``sum_g w_bg = 1``. Splitting by band is
 what lets the objective see a hole on one layer that another layer covers, and
 what gives every cell-band tilt a term it moves.
+
+``softplus`` does not saturate, so a term is not capped at 1 and ``J`` is not
+capped at ``n_band``: above ``T_cov`` the utility grows linearly in dB, and a
+tile keeps paying for signal it already has. Scores from before this change do
+not compare with scores after it.
 
 ``w_bg = (1 - alpha_b) / n + alpha_b * p_g`` blends the tile-uniform weight with
 the demand map's share ``p`` (:mod:`src.data.demand`). ``alpha_b`` is
@@ -29,7 +34,6 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
-from scipy.special import expit
 
 from src.data import demand
 from src.kpi.capacity import CapacitySpec, max_rsrp, serve_intervals
@@ -86,7 +90,7 @@ class ObjectiveSpec:
     Attributes:
         t_cov_dbm: Coverage threshold ``T_cov``, ``kpi.hole_dbm``.
         delta_r_db: Overlap margin ``Delta_R``, ``kpi.overlap_margin_db``.
-        tau_r_db: Width ``tau_R`` of the coverage sigmoid.
+        tau_r_db: Knee width ``tau_R`` of the coverage softplus, in dB.
         beta: Overlap penalty; each neighbour keeps ``q_ov = exp(-beta)``.
         alpha: Demand share of each band's tile weights, keyed by band label.
     """
@@ -153,7 +157,7 @@ class KpiVector:
         prb_utilisation_max: Highest load any cell-band reaches in any interval,
             as a share of its limit.
         load_imbalance: Coefficient of variation of cell-band utilisation.
-        objective: See :func:`objective`. In ``[0, n_band]``, not ``[0, 1]``.
+        objective: See :func:`objective`. Non-negative and unbounded above.
     """
 
     hole_rate: float
@@ -217,7 +221,7 @@ def objective(
 ) -> float:
     """Per-band coverage utility discounted by co-band overlap, summed over bands.
 
-    ``sum_b sum_g w_bg * sigmoid((R_sb - T_cov) / tau_R) * q_ov ** m_bg``.
+    ``sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * q_ov ** m_bg``.
     ``R_sb`` is the strongest transmitter on band ``b`` at the tile and ``m_bg``
     is :func:`src.kpi.overlap.overlap_neighbors` on that band alone: the
     transmitters above ``T_cov`` and within ``Delta_R`` of it. Both are taken on
@@ -239,7 +243,9 @@ def objective(
             but a test does. Normalised here, so it need not sum to one.
 
     Returns:
-        A value in ``[0, n_band]``; each band contributes at most 1. Maximised.
+        A non-negative value, unbounded above: ``softplus`` does not saturate,
+        so a band's term keeps growing with how far its coverage clears
+        ``T_cov``. Maximised.
 
     Raises:
         FileNotFoundError: When ``share`` is None and the demand map has not
@@ -272,7 +278,10 @@ def objective(
         layer = rsrp[index : index + 1]
         serving = max_rsrp(layer)
         overlaps = overlap_neighbors(layer, cfg)
-        utility = expit((serving - spec.t_cov_dbm) / spec.tau_r_db) * np.exp(-spec.beta * overlaps)
+        # logaddexp(0, x) is softplus(x) without overflowing exp on the strong
+        # tiles; -inf underflows to zero, which is what a no-path tile scores.
+        margin = np.logaddexp(0.0, (serving - spec.t_cov_dbm) / spec.tau_r_db)
+        utility = margin * np.exp(-spec.beta * overlaps)
         alpha = spec.alpha[label]
         score += float(np.dot(utility.ravel(), (1.0 - alpha) * uniform + alpha * p))
     return score
