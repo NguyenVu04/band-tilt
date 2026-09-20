@@ -69,24 +69,23 @@ and per-band radio maps, and keeps the UEs served at the committed tilts as
 MDT, which carries the PRBs each report required. The search and evaluation both
 count every UE. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Eleven reported KPIs - the hole, overlap and
+from the incumbent configuration. Ten reported KPIs - the hole, overlap and
 weak rates, overlapping neighbours per covered tile, the 5th-percentile and
-median RSRP and SINR, the served UE rate, peak PRB utilisation and cell load
-imbalance - are measured for every candidate through [`src/kpi/`](src/kpi/), over
-all bands and per band
+median RSRP and SINR, the served UE rate and cell load imbalance - are measured
+for every candidate through [`src/kpi/`](src/kpi/), over all bands and per band
 ([ADR 0007](docs/adr/0007-demand-weighted-objective.md)). The search maximises
 one objective,
-`J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g`
-([ADR 0009](docs/adr/0009-effective-coverage-objective.md)). `lambda_g` counts
-the cells contending to serve tile `g`: the strongest on the band that would
-actually serve it - the most preferred band above `kpi.hole_dbm` - plus every
-co-band cell within `kpi.overlap_margin_db` of it. `lambda e^(1 - lambda)` is
-worth exactly 1 when one cell dominates, 0.74 when a second crowds it, and 0
-where nothing covers the tile, so `J` is the demand-weighted share of the grid
-that is *effectively covered*, in `[0, 1]`. `w_g = 1 + r_g` weights each tile by
-`r_g`, its MDT reports over the busiest tile's
-([`src/data/demand.py`](src/data/demand.py)), so demand doubles a tile at most
-and silences none. The objective has no parameters of its own.
+`J = mean_g max_b lambda_bg * exp(1 - lambda_bg) * s_bg`
+([ADR 0010](docs/adr/0010-monotone-strength-aware-objective.md)). `lambda_bg`
+counts the cells contending to serve tile `g` on band `b`: that band's strongest
+above `kpi.hole_dbm`, plus every co-band cell within `kpi.overlap_margin_db` of
+it. `lambda e^(1 - lambda)` is worth exactly 1 when one cell dominates, 0.74 when
+a second crowds it, and 0 where nothing covers the tile. `s_bg` scales that by how
+far the band's strongest sits between `kpi.hole_dbm` and `kpi.weak_dbm`, clipped
+to `[0, 1]`, so a server barely out of a hole scores near nothing. Each tile takes
+its best band, which keeps `J` monotone in the layers present - no tilt can buy
+`J` by destroying coverage - so `J` is the share of the grid *effectively covered*,
+in `[0, 1]`. The objective has no parameters of its own.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE by
 band preference then RSRP, admitting UEs in report-time order and refusing any
 admission that would carry a cell-band past
@@ -113,7 +112,7 @@ flowchart TB
     cells["Cell layout<br/>configs/simulation.yaml, generated once"]
 
     sim["src/simulation<br/>scenario · radio map · MDT"]
-    prep["src/data<br/>schema verification · typed tables · demand map"]
+    prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · cell load"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
     ver["src/optim/report<br/>select · publish the shortlist"]
@@ -129,7 +128,7 @@ flowchart TB
     cells --> sim
     sim --> prep
     sim -->|ray-traced map| kpi
-    prep -->|UE table · demand weights| kpi
+    prep -->|UE table| kpi
     kpi --> opt
     opt -->|measured candidates| ver
     ver -->|published run| rep
@@ -153,8 +152,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
 | Simulation | UE population, radio-map ray tracing, MDT selection | [`src/simulation/`](src/simulation/) |
-| Data | Load the simulation output, verify it against its contract, write typed processed tables and the demand map the objective weights by | [`src/data/`](src/data/) |
-| KPI | The eleven reported KPI definitions, the reductions they share, and the serving-cell / cell-load model | [`src/kpi/`](src/kpi/) |
+| Data | Load the simulation output, verify it against its contract and write the typed processed tables | [`src/data/`](src/data/) |
+| KPI | The ten reported KPI definitions, the reductions they share, and the serving-cell / cell-load model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
@@ -249,8 +248,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. The objective has no block of its own: it reads `hole_dbm`, `overlap_margin_db` and `capacity.band_preference` ([ADR 0009](docs/adr/0009-effective-coverage-objective.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) and the demand map. The map has no settings of its own; how the objective weights by it is fixed in code |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. The objective has no block of its own: it reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`, and `objective_version` guards its functional form, which lives in code ([ADR 0010](docs/adr/0010-monotone-strength-aware-objective.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
@@ -393,7 +392,7 @@ band-tilt/
 |---|---|
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
 | `src/simulation/` — scenario, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
-| `src/data/` — load, schema verification, processed-table build, demand map | Implemented (`task preprocess`); the demand map is unit-tested (`tests/test_data_demand.py`) |
+| `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `overlap`, `served`, `weak`, `quality`, `load`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_kpi_load.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
@@ -408,8 +407,8 @@ band-tilt/
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only. The demand map is built from that one scenario's MDT, so the objective's tile weights come from it too |
-| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kTB over the band bandwidth, with no receiver noise figure modelled. The served rate and both load measures count the PRBs that rule requires, so every capacity figure inherits these. The demand map no longer does: it counts MDT reports, not their PRBs |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only |
+| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kTB over the band bandwidth, with no receiver noise figure modelled. The served rate and both load measures count the PRBs that rule requires, so every capacity figure inherits these. The objective does not: it reads the radio map alone |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards

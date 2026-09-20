@@ -34,7 +34,6 @@ LABELS = {
     "sinr_p05_db": "Cell-edge SINR, p05 [dB]",
     "sinr_p50_db": "Median SINR, p50 [dB]",
     "served_rate": "Served UE rate",
-    "prb_utilisation_max": "Peak PRB utilisation",
     "load_imbalance": "Cell load imbalance (CoV)",
     "objective": "Objective J",
     "all": "All bands",

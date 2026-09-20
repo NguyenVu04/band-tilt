@@ -70,7 +70,6 @@ def incumbent() -> KpiVector:
         sinr_p05_db=-3.0,
         sinr_p50_db=8.0,
         served_rate=0.009,
-        prb_utilisation_max=0.62,
         load_imbalance=0.44,
         objective=0.40,
     )
@@ -171,7 +170,6 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "sinr_p05_db": [-3.0] * n,
             "sinr_p50_db": [8.0] * n,
             "served_rate": [0.0] * n,
-            "prb_utilisation_max": [0.62] * n,
             "load_imbalance": [0.44] * n,
             "objective": coverage,
         }

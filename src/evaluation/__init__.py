@@ -29,10 +29,10 @@ This package reports coverage weighted by where UEs actually stand, alongside
 the tile-weighted rates. The two can disagree sharply, because a hole need not
 fall where anyone stands, and that difference is why both are printed.
 
-Which of them is the objective is settled in
-docs/adr/0009-effective-coverage-objective.md: the search maximises the
-demand-weighted one, and every reported KPI here stays tile-uniform, so a rate
-and the objective answer different questions on purpose. The thresholds
+Neither is the objective. The search maximises the tile-uniform effective
+coverage of docs/adr/0010-monotone-strength-aware-objective.md, which reads no
+demand at all, so the UE-weighted view here answers a question no score asks -
+which is why it is printed rather than optimised. The thresholds
 separating hole, weak and good are read from ``cfg.kpi``, never restated here,
 so a diagnostic and its KPI always cut the map at the same dBm.
 """

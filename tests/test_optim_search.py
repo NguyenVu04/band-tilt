@@ -102,7 +102,6 @@ class StubEvaluator:
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
                 served_rate=float(1.0 - np.mean((unit - 0.8) ** 2)),
-                prb_utilisation_max=float(0.8 * np.mean(unit)),
                 load_imbalance=float(0.5 * np.mean(unit)),
                 objective=float(1.0 - np.mean((unit - 0.3) ** 2)),
             ),

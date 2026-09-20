@@ -6,8 +6,7 @@ because only a served UE reports measurements. It is kept for later use: the
 search and evaluation both count every UE.
 
 ``rsrp_dbm`` is the serving cell-band's RSRP at the UE's tile, kept for
-reference and plots; no score reads it. The demand map (:mod:`src.data.demand`)
-counts the rows, not any column of them.
+reference and plots; no score reads it.
 """
 
 from __future__ import annotations

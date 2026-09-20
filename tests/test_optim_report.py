@@ -93,7 +93,6 @@ class StubEvaluator:
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
                 served_rate=float(1.0 - np.mean((unit - 0.75) ** 2)),
-                prb_utilisation_max=float(0.8 * np.mean(unit)),
                 load_imbalance=float(0.5 * np.mean(unit)),
                 objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
             ),
@@ -153,7 +152,6 @@ def _kpi(objective: float, rng: np.random.Generator | None = None) -> KpiVector:
         sinr_p05_db=-3.0,
         sinr_p50_db=8.0,
         served_rate=draw(),
-        prb_utilisation_max=draw(),
         load_imbalance=draw(),
         objective=objective,
     )

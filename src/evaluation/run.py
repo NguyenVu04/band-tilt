@@ -41,7 +41,7 @@ def load_runs(cfg: DictConfig) -> list[run_store.Run]:
     runs = run_store.latest_per_method_and_seed(run_store.discover(cfg.optim.output.dir))
     if not runs:
         raise FileNotFoundError(f"No runs under {cfg.optim.output.dir}. Run `task optim` first.")
-    run_store.require(run_store.verify(runs, run_store.baseline_map(cfg)))
+    run_store.require(run_store.verify(runs, run_store.baseline_map(cfg), cfg))
     return runs
 
 
@@ -73,7 +73,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
 
     runs = load_runs(cfg)
     baseline = run_store.baseline_map(cfg)
-    add("comparability_checks", run_store.verify(runs, baseline))
+    add("comparability_checks", run_store.verify(runs, baseline, cfg))
 
     ue = pd.read_parquet(cfg.data.output.ue_file)
     cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")

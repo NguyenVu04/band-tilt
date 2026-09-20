@@ -1,6 +1,6 @@
 # 9. An effective-coverage objective
 
-- **Status:** Proposed
+- **Status:** Superseded by 0010
 - **Date:** 2026-09-20
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** [ADR 0008](0008-softplus-coverage-utility.md) entirely, and
@@ -8,7 +8,10 @@
   utility, the per-band split, the per-band weights `w_bg` and the exponential
   overlap discount are all replaced. What survives from 0007 is the demand map
   itself, the admission ceiling and the eleven reported KPIs
-- **Superseded by:** —
+- **Superseded by:** [ADR 0010](0010-monotone-strength-aware-objective.md)
+  entirely. The measured consequences this ADR recorded and left open — the
+  unscored lower layers, the objective disagreeing with the KPI set — are what
+  0010 was written to fix, together with the demand map and one KPI
 
 ## Context
 

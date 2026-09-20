@@ -113,9 +113,8 @@ stages:
   # --- Stage 4: preprocessing (notebook 02) -----------------------------------
   # Verifies the simulation output against the contract named in each check
   # (configs/simulation.yaml or the scenario manifest), then writes the typed,
-  # verified tables everything downstream reads, and the demand map the objective
-  # weights its tiles by (ADR 0007). Nothing here learns from the data — see the
-  # notebook's boundary rule; the map is a count, not a fitted estimate.
+  # verified tables everything downstream reads. Nothing here learns from the
+  # data — see the notebook's boundary rule.
   #
   # `configs/simulation.yaml` params below are the sections `src/data/schema.py`
   # cross-checks the artifacts against; a change to them can invalidate the
@@ -125,7 +124,6 @@ stages:
     cmd: python -m src.data.build
     deps:
       - src/data/build.py
-      - src/data/demand.py
       - src/data/load.py
       - src/data/schema.py
       - src/simulation/transmitter.py
@@ -140,9 +138,7 @@ stages:
     params:
       - configs/kpi.yaml:
           - hole_dbm
-      # configs/data.yaml holds output paths only; the demand map has no
-      # settings of its own, and how the objective weights by it is fixed in code,
-      # which the optimization stage below tracks.
+      # configs/data.yaml holds output paths only.
       - configs/simulation.yaml:
           - scene
           - grid
@@ -154,7 +150,6 @@ stages:
       - data/processed/ue.parquet
       - data/processed/mdt.parquet
       - data/processed/cell.parquet
-      - data/processed/demand.npz
 
   # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
   # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
@@ -166,9 +161,9 @@ stages:
   # the config, and the parquet is that same table in another form.
   #
   # kpi is a param because the measures read the KPI thresholds and the capacity
-  # model, and the objective reads capacity.band_preference: change any and every
-  # previous run becomes incomparable. The demand map is a file dependency for the
-  # same reason — it sets every tile's weight (ADR 0009).
+  # model: change any and every previous run becomes incomparable. kpi.objective_version
+  # is in there too, and is what refuses to pool runs scored by different
+  # objectives, since the objective's form is in code (ADR 0010).
   optimization:
     cmd: python -m src.optim.run
     deps:
@@ -180,7 +175,6 @@ stages:
       - src/optim/run.py
       - src/optim/report.py
       - src/kpi
-      - src/data/demand.py
       - src/simulation/radio.py
       - src/simulation/materials.py
       - src/simulation/transmitter.py
@@ -191,7 +185,6 @@ stages:
       - data/external/scene
       - data/external/scenario.json
       - data/processed/ue.parquet
-      - data/processed/demand.npz
     params:
       - configs/optim/base.yaml:
           - seed

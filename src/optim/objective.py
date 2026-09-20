@@ -3,24 +3,20 @@
 The KPI definitions live in :mod:`src.kpi` and are not restated here. What this
 module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
-the objective (docs/adr/0009-effective-coverage-objective.md):
+the objective (docs/adr/0010-monotone-strength-aware-objective.md):
 
-    J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g
+    J = mean_g effective_coverage(g)
 
-``lambda_g`` is :func:`src.kpi.overlap.serving_multiplicity`: how many cells
-effectively serve tile ``g``, counted on the band that would serve it.
-``lambda * exp(1 - lambda)`` peaks at exactly 1 where one cell dominates, falls
-to 0.74 where a second sits within the overlap margin, and is 0 where nothing
-covers the tile. So J is the demand-weighted share of the grid served cleanly by
-one cell, bounded in ``[0, 1]``.
+:func:`src.kpi.overlap.effective_coverage` scores every band and keeps the tile's
+best layer: one dominant cell at or above ``kpi.weak_dbm`` is worth 1, a second
+cell inside the overlap margin costs a quarter, and a server barely above
+``kpi.hole_dbm`` is worth near nothing. So J is the share of the grid served
+cleanly and strongly by one cell, bounded in ``[0, 1]``.
 
-``w_g = 1 + r_g`` weights each tile by demand, ``r_g`` being its MDT reports
-over the busiest tile's (:mod:`src.data.demand`). Ground the MDT never saw still
-weighs 1, so a hole out there is scored, just not doubly.
-
-The objective has no parameters of its own: it reads ``kpi.hole_dbm``,
-``kpi.overlap_margin_db`` and ``kpi.capacity.band_preference``, each of which
-the KPIs or the serving rule already define.
+Taking the best layer rather than a preferred band is what stops a tilt buying J
+by destroying coverage; see the ADR. The objective has no parameters of its own:
+it reads ``kpi.hole_dbm``, ``kpi.weak_dbm`` and ``kpi.overlap_margin_db``, each
+of which the reported KPIs already define.
 
 :data:`KPI_NAMES` are reported and no selection reads them; ``objective`` is
 stored beside them, so a history is ranked without re-reading a radio map.
@@ -35,11 +31,10 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.data import demand
 from src.kpi.capacity import CapacitySpec, serve_intervals
 from src.kpi.hole import hole_rate
-from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max
-from src.kpi.overlap import overlap_neighbor_mean, overlap_rate, serving_multiplicity
+from src.kpi.load import load_imbalance, prb_by_cell_interval
+from src.kpi.overlap import effective_coverage, overlap_neighbor_mean, overlap_rate
 from src.kpi.quality import (
     LOW_PERCENTILE,
     MEDIAN_PERCENTILE,
@@ -62,7 +57,6 @@ KPI_NAMES = (
     "sinr_p05_db",
     "sinr_p50_db",
     "served_rate",
-    "prb_utilisation_max",
     "load_imbalance",
 )
 
@@ -100,8 +94,6 @@ class KpiVector:
         sinr_p05_db: Cell-edge best-server SINR over the same locations.
         sinr_p50_db: Median best-server SINR over the same locations.
         served_rate: Share of UE reports admitted to a cell-band.
-        prb_utilisation_max: Highest load any cell-band reaches in any interval,
-            as a share of its limit.
         load_imbalance: Coefficient of variation of cell-band utilisation.
         objective: See :func:`objective`. In ``[0, 1]``.
     """
@@ -115,7 +107,6 @@ class KpiVector:
     sinr_p05_db: float
     sinr_p50_db: float
     served_rate: float
-    prb_utilisation_max: float
     load_imbalance: float
     objective: float
 
@@ -138,80 +129,25 @@ class KpiVector:
         return cls(**{name: float(values[name]) for name in MEASURE_NAMES})
 
 
-def tile_share(cfg: DictConfig, shape: tuple[int, int]) -> np.ndarray:
-    """The demand map's tile shares, checked against the radio map's grid.
+def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
+    """Share of the grid served cleanly and strongly by exactly one cell.
 
-    Side effect: reads ``data.output.demand_file``; see
-    :func:`src.data.demand.load_share`.
-
-    Raises:
-        FileNotFoundError: When the demand map has not been built.
-        ValueError: When it was built on another grid, which would silently
-            weight the wrong tiles.
-    """
-    share = demand.load_share(cfg)
-    if share.shape != tuple(shape):
-        raise ValueError(
-            f"the demand map is {share.shape[0]} x {share.shape[1]} but the radio map is "
-            f"{shape[0]} x {shape[1]}. The two were built on different grids; re-run "
-            "`task preprocess`."
-        )
-    return share
-
-
-def objective(
-    rsrp: np.ndarray,
-    band_labels: Sequence[str],
-    cfg: DictConfig,
-    share: np.ndarray | None = None,
-) -> float:
-    """Demand-weighted share of the grid served cleanly by exactly one cell.
-
-    ``sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g``, over every tile of
-    the grid. ``lambda_g`` is :func:`src.kpi.overlap.serving_multiplicity` and
-    ``w_g = 1 + r_g``, with ``r_g`` the tile's demand relative to the busiest
-    tile's.
-
-    A tile scores its full 1 only when one cell clears ``kpi.hole_dbm`` on the
-    band that would serve it and nothing else on that band comes within
-    ``kpi.overlap_margin_db``. A second cell inside the margin costs it a
-    quarter, a third nearly two thirds. A hole scores 0, and so does a tile the
-    ray tracer found no path to.
+    The mean of :func:`src.kpi.overlap.effective_coverage` over every tile of the
+    grid. A tile scores its full 1 only when one cell reaches ``kpi.weak_dbm`` on
+    some band with nothing else on that band within ``kpi.overlap_margin_db``. A
+    second cell inside the margin costs it a quarter and a third nearly two
+    thirds; a server just above ``kpi.hole_dbm`` keeps almost none of it. A hole
+    scores 0, and so does a tile the ray tracer found no path to.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        band_labels: Band names aligned to axis 0 of ``rsrp``; they carry
-            ``kpi.capacity.band_preference`` onto the array.
-        cfg: Composed config; see :func:`src.kpi.overlap.serving_multiplicity`.
-        share: Tile demand, ``[n_rows, n_cols]``. Read from
-            ``data.output.demand_file`` when None, which is what every caller
-            but a test does. Only each tile's ratio to the largest is read, so
-            any positive scaling of one map gives one J.
+        cfg: Composed config; see :func:`src.kpi.overlap.effective_coverage`.
 
     Returns:
-        A value in ``[0, 1]``, reaching 1 only if every tile of the grid is
-        served by exactly one cell. Maximised.
-
-    Raises:
-        FileNotFoundError: When ``share`` is None and the demand map has not
-            been built.
-        ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, the
-            demand does not cover the radio map's grid, or it is zero
-            everywhere, leaving nothing to weight by.
+        A value in ``[0, 1]``, reaching 1 only if every tile of the grid has one
+        server at or above ``kpi.weak_dbm``. Maximised.
     """
-    multiplicity = serving_multiplicity(rsrp, cfg, band_labels)
-    grid = rsrp.shape[-2:]
-    p = tile_share(cfg, grid) if share is None else np.asarray(share, float)
-    if p.shape != grid:
-        raise ValueError(
-            f"the tile shares are {p.shape} for a {grid} grid; they must cover it exactly."
-        )
-    peak = float(p.max())
-    if not peak > 0:
-        raise ValueError("the tile demand is zero everywhere, so there is nothing to weight by.")
-    weight = 1.0 + p / peak
-    utility = multiplicity * np.exp(1.0 - multiplicity)
-    return float((weight * utility).sum() / weight.sum())
+    return float(effective_coverage(rsrp, cfg).mean())
 
 
 def evaluate_kpis(
@@ -220,7 +156,6 @@ def evaluate_kpis(
     band_labels: Sequence[str],
     ue: pd.DataFrame,
     cfg: DictConfig,
-    share: np.ndarray | None = None,
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
@@ -237,11 +172,10 @@ def evaluate_kpis(
         ue: The UE table; ``t_index``, ``t_s``, ``tile_row`` and ``tile_col``
             place the UEs the served rate counts.
         cfg: Composed config; the measures read ``cfg.kpi``.
-        share: Passed to :func:`objective`.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, or
-            as :func:`src.kpi.capacity.serve_intervals` and :func:`objective`.
+            as :func:`src.kpi.capacity.serve_intervals`.
     """
     if len(band_labels) != rsrp.shape[0]:
         raise ValueError(
@@ -261,9 +195,8 @@ def evaluate_kpis(
         sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
         sinr_p50_db=sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
         served_rate=served_rate(served),
-        prb_utilisation_max=prb_utilisation_max(prb, spec.max_prb),
         load_imbalance=load_imbalance(prb, spec.max_prb),
-        objective=objective(rsrp, band_labels, cfg, share),
+        objective=objective(rsrp, cfg),
     )
 
 

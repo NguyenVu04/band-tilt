@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.objective import MEASURE_NAMES
@@ -22,7 +23,6 @@ KPI = {
     "sinr_p05_db": -3.0,
     "sinr_p50_db": 8.0,
     "served_rate": 0.009,
-    "prb_utilisation_max": 0.62,
     "load_imbalance": 0.44,
     "objective": 0.40,
 }
@@ -58,6 +58,15 @@ def radio_archive(**overrides: object) -> dict[str, np.ndarray]:
     return archive
 
 
+# The version the running code implements; a run that disagrees is refused.
+_OBJECTIVE_VERSION = 2
+
+
+def _cfg(objective_version: int = _OBJECTIVE_VERSION):
+    """The running config, as far as :func:`run_store.verify` reads it."""
+    return OmegaConf.create({"kpi": {"objective_version": objective_version}})
+
+
 def make_run(
     root: Path,
     method: str,
@@ -68,6 +77,7 @@ def make_run(
     throughput_per_ue_bps: float = 1e6,
     band_preference: list[str] | None = None,
     bandwidth: int = 10000000,
+    objective_version: int = _OBJECTIVE_VERSION,
     **radio: object,
 ) -> Path:
     """Write a run directory the way src.optim.history does."""
@@ -109,6 +119,7 @@ def make_run(
                 "config": {
                     "optim": {"seed": seed},
                     "kpi": {
+                        "objective_version": objective_version,
                         "hole_dbm": -120.0,
                         "weak_dbm": -90.0,
                         "overlap_margin_db": 6.0,
@@ -194,7 +205,7 @@ def test_latest_per_method_and_seed_keeps_one_run_per_seed(tmp_path) -> None:
 def test_verify_passes_when_everything_matches(tmp_path) -> None:
     """The happy path must not raise."""
     runs = [run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00"))]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     assert checks["holds"].all()
     run_store.require(checks)  # must not raise
 
@@ -204,7 +215,7 @@ def test_verify_catches_a_different_scenario(tmp_path) -> None:
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
     ]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     failed = checks[~checks["holds"]]["check"].tolist()
     assert "every run optimized the baseline's scenario" in failed
 
@@ -212,7 +223,7 @@ def test_verify_catches_a_different_scenario(tmp_path) -> None:
 def test_verify_catches_a_different_fidelity(tmp_path) -> None:
     """A map solved at another sample count is a different experiment."""
     runs = [run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", samples_per_tx=99))]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     assert (
         "solver samples_per_tx matches the baseline" in checks[~checks["holds"]]["check"].tolist()
     )
@@ -226,7 +237,7 @@ def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
             make_run(tmp_path, "random", "2026-01-01_00-00-00", throughput_per_ue_bps=2e6)
         ),
     ]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     failed = checks[~checks["holds"]]
     assert failed["check"].tolist() == ["KPI definition agrees across runs"]
     assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
@@ -237,7 +248,7 @@ def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", band_hz=[3500000000]))
     ]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     failed = checks[~checks["holds"]]["check"].tolist()
     assert "band carrier frequencies match the baseline, in order" in failed
 
@@ -255,7 +266,7 @@ def test_verify_catches_a_different_band_priority(tmp_path) -> None:
             )
         ),
     ]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     failed = checks[~checks["holds"]]
     assert failed["check"].tolist() == ["KPI definition agrees across runs"]
     assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
@@ -267,8 +278,28 @@ def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
     ]
-    checks = run_store.verify(runs, radio_archive())
+    checks = run_store.verify(runs, radio_archive(), _cfg())
     assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]
+
+
+def test_verify_catches_a_run_scored_by_another_objective(tmp_path) -> None:
+    """The objective's form is in code, so only the version says which one scored a run."""
+    runs = [run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", objective_version=1))]
+    checks = run_store.verify(runs, radio_archive(), _cfg())
+    failed = checks[~checks["holds"]]["check"].tolist()
+    assert "every run was scored by the objective this code implements" in failed
+
+
+def test_verify_catches_a_uniformly_stale_set(tmp_path) -> None:
+    """Runs agreeing with each other is not enough: they can all predate the code."""
+    runs = [
+        run_store.load(make_run(tmp_path, m, "2026-01-01_00-00-00", objective_version=1))
+        for m in ("turbo", "rule")
+    ]
+    checks = run_store.verify(runs, radio_archive(), _cfg())
+    assert checks.set_index("check").loc["KPI definition agrees across runs", "holds"]
+    with pytest.raises(run_store.RunError, match="objective this code implements"):
+        run_store.require(checks)
 
 
 def test_require_names_the_offender(tmp_path) -> None:
@@ -277,7 +308,7 @@ def test_require_names_the_offender(tmp_path) -> None:
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
     ]
     with pytest.raises(run_store.RunError, match="turbo/2026-01-01_00-00-00"):
-        run_store.require(run_store.verify(runs, radio_archive()))
+        run_store.require(run_store.verify(runs, radio_archive(), _cfg()))
 
 
 def test_a_single_evaluation_run_still_loads(tmp_path) -> None:

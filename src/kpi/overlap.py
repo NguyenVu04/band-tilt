@@ -4,19 +4,17 @@ The overlap rule is CO-BAND: within one band, the strongest transmitter serves
 and the other transmitters on that same band are its neighbours. Two carriers of
 one cell are therefore never neighbours of each other.
 
-:func:`serving_multiplicity` reads those same counts on the one band a tile
-would be served on. It is what the objective scores
-(docs/adr/0009-effective-coverage-objective.md).
+:func:`effective_coverage` reads those same counts on every band and keeps the
+best layer. It is what the objective scores
+(docs/adr/0010-monotone-strength-aware-objective.md).
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import band_rank, finite, max_rsrp
+from src.kpi.capacity import finite, max_rsrp
 
 
 def overlap_neighbors_per_band(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -63,50 +61,36 @@ def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     return overlap_neighbors_per_band(rsrp, cfg).sum(axis=0)
 
 
-def serving_multiplicity(
-    rsrp: np.ndarray, cfg: DictConfig, band_labels: Sequence[str]
-) -> np.ndarray:
-    """Cells effectively serving each tile, on the band that would serve it.
+def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
+    """How well each tile is served, on its best layer, in ``[0, 1]``.
 
-    ``lambda(g)``: the band is the most preferred one whose strongest cell clears
-    ``cfg.kpi.hole_dbm``, and the count is that band's serving transmitter plus
-    its overlapping neighbours. One is the ideal: a single cell dominating the
-    tile, with nothing else within the margin to contend with it.
+    Per band, ``lambda_b = 1 + `` :func:`overlap_neighbors_per_band` where the band
+    clears ``cfg.kpi.hole_dbm``, and ``lambda_b e^(1 - lambda_b)`` peaks at exactly
+    1 for a single dominant cell. That is scaled by how far the band's strongest
+    cell sits between ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``, so a server
+    barely above the hole threshold scores near nothing and one at or above the
+    weak threshold scores in full. The tile takes its best band.
 
-    The band is picked by ``kpi.capacity.band_preference``, which is also how
-    :func:`src.kpi.capacity.serve_intervals` admits UEs. The two agree only
-    while ``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the
-    committed config has it; raise the threshold and the serving rule starts
-    skipping a preferred band that this count would still score.
+    Taking the maximum rather than a preferred band is what makes the measure
+    monotone in the layers present: losing a layer can only lower a tile's score,
+    and no tilt can pay by destroying coverage. Scoring the preferred band instead
+    made the score depend on which band the tilts left standing
+    (docs/adr/0010-monotone-strength-aware-objective.md).
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.hole_dbm``,
-            ``cfg.kpi.overlap_margin_db`` and ``cfg.kpi.capacity.band_preference``.
-        band_labels: Band names aligned to axis 0 of ``rsrp``; they carry the
-            preference order onto the array.
+        cfg: Composed config; reads ``cfg.kpi.hole_dbm``, ``cfg.kpi.weak_dbm`` and
+            ``cfg.kpi.overlap_margin_db``.
 
     Returns:
-        ``[n_rows, n_cols]``, at least one where any band is covered and zero
-        where none is, which includes every location the ray tracer found no
-        path to.
-
-    Raises:
-        ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, or
-            as :func:`src.kpi.capacity.band_rank`.
+        ``[n_rows, n_cols]`` in ``[0, 1]``, zero where no band is covered, which
+        includes every location the ray tracer found no path to.
     """
-    if len(band_labels) != rsrp.shape[0]:
-        raise ValueError(
-            f"{len(band_labels)} band labels for a radio map with {rsrp.shape[0]} bands."
-        )
-    available = finite(rsrp).max(axis=1) > float(cfg.kpi.hole_dbm)
-    # An unavailable band is ranked past every real one rather than dropped, so
-    # argmin returns a valid band axis position even where nothing is covered;
-    # the `available.any` below is what zeroes those tiles.
-    rank = np.where(available, band_rank(cfg, band_labels)[:, None, None], len(band_labels))
-    served_on = rank.argmin(axis=0)
-    neighbors = np.take_along_axis(overlap_neighbors_per_band(rsrp, cfg), served_on[None], axis=0)
-    return np.where(available.any(axis=0), neighbors[0] + 1.0, 0.0)
+    hole_dbm = float(cfg.kpi.hole_dbm)
+    strongest = finite(rsrp).max(axis=1)
+    multiplicity = np.where(strongest > hole_dbm, overlap_neighbors_per_band(rsrp, cfg) + 1.0, 0.0)
+    strength = np.clip((strongest - hole_dbm) / (float(cfg.kpi.weak_dbm) - hole_dbm), 0.0, 1.0)
+    return (multiplicity * np.exp(1.0 - multiplicity) * strength).max(axis=0)
 
 
 def overlap_neighbor_mean(rsrp: np.ndarray, cfg: DictConfig) -> float:

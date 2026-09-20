@@ -2,27 +2,35 @@
 # Thresholds defining the KPIs and the capacity model behind the serving rule,
 # the served rate, the load measures and the PRB demand map.
 #
-# The objective has no parameters of its own. It reads the two thresholds below
-# and capacity.band_preference, and weights each tile by the demand map
-# (configs/data.yaml `demand_file`):
+# The objective has no parameters of its own. It reads the three thresholds
+# below and nothing else:
 #
-#   J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g
+#   J = mean_g max_b lambda_bg * exp(1 - lambda_bg) * s_bg
 #
-# lambda_g counts the cells within overlap_margin_db of the strongest on the
-# band that would serve tile g; w_g = 1 + r_g with r_g the tile's MDT reports
-# over the busiest tile's. See src/optim/objective.py and
-# docs/adr/0009-effective-coverage-objective.md.
+# lambda_bg counts the cells on band b within overlap_margin_db of that band's
+# strongest at tile g, and s_bg is how far that strongest sits between hole_dbm
+# and weak_dbm, clipped to [0, 1]. Taking the best band rather than a preferred
+# one keeps J monotone in the layers present, so no tilt can buy J by destroying
+# coverage. See src/optim/objective.py and
+# docs/adr/0010-monotone-strength-aware-objective.md.
+
+# Bumped by hand whenever the objective's functional form changes. The form is
+# in code, so this is the only thing src/evaluation/runs.py can compare to stop
+# two runs on different scales being pooled. 2 is ADR 0010.
+objective_version: 2
 
 # Strongest signal at or below which a location is a coverage hole. Also the
-# RSRP a cell-band must exceed to serve a UE, and the cut below which the
-# objective counts neither a serving cell nor a neighbour.
+# RSRP a cell-band must exceed to serve a UE, and the objective's zero: a tile
+# is worth nothing there and counts neither a serving cell nor a neighbour.
 hole_dbm: -120.0
 
-# Upper bound of weak coverage; the lower bound is hole_dbm.
+# Upper bound of weak coverage; the lower bound is hole_dbm. Also where the
+# objective's strength factor reaches 1, so a server at or above this scores in
+# full and one just above hole_dbm scores near nothing.
 weak_dbm: -90.0
 
 # Inclusive margin within which a co-band neighbour overlaps the serving cell.
-# The objective's lambda counts those neighbours.
+# The objective's lambda counts those neighbours, per band.
 overlap_margin_db: 6.0
 
 # The RSRP and SINR percentiles are not configured: the measures are named
@@ -33,8 +41,8 @@ overlap_margin_db: 6.0
 # Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
   # Serving band preference, most preferred first. Must list every band. The
-  # objective reads it too: lambda is counted on the most preferred band whose
-  # strongest cell clears hole_dbm.
+  # serving rule alone reads it; the objective scores every band and keeps the
+  # best (ADR 0010).
   band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one. Equal to
   # hole_dbm here, which makes that skip unreachable: a layer that low is not a

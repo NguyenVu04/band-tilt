@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,7 +18,7 @@ from src.kpi import (
     weak_rate,
 )
 from src.kpi.capacity import _tile_index, serve_intervals
-from src.kpi.overlap import overlap_neighbors, overlap_neighbors_per_band, serving_multiplicity
+from src.kpi.overlap import effective_coverage, overlap_neighbors, overlap_neighbors_per_band
 
 
 @pytest.fixture
@@ -197,39 +199,66 @@ def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
     assert per_band.sum(axis=0).tolist() == overlap_neighbors(rsrp, cfg).tolist()
 
 
-# --- serving multiplicity ---------------------------------------------------
+# --- effective coverage, the quantity the objective scores --------------------
 
 
-def test_serving_multiplicity_counts_on_the_preferred_covered_band(cfg) -> None:
-    """'hi' covers both tiles, so 'lo' never decides, however crowded it is.
+def _u(multiplicity: float) -> float:
+    """``lambda e^(1 - lambda)``, before the strength factor scales it."""
+    return multiplicity * math.exp(1.0 - multiplicity)
 
-    Tile 0 has a second 'hi' transmitter within the margin, tile 1 does not.
+
+def test_effective_coverage_takes_the_best_band_not_the_preferred_one(cfg) -> None:
+    """'hi' is preferred and crowded on tile 0; 'lo' is clean there and wins it.
+
+    Both bands sit at or above weak_dbm, so the strength factor is 1 throughout
+    and the comparison is between the multiplicities alone.
     """
     rsrp = _map(
         [
             [[-80.0, -80.0], [-84.0, -130.0]],
-            [[-90.0, -100.0], [-94.0, -130.0]],
+            [[-90.0, -100.0], [-110.0, -130.0]],
         ]
     )
-    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[2.0, 1.0]]
+    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([_u(1.0), _u(1.0)])
 
 
-def test_serving_multiplicity_falls_through_a_band_below_the_hole_threshold(cfg) -> None:
-    """With 'hi' a hole the tile is judged on 'lo', the band that would serve it."""
-    rsrp = _map([[[-130.0], [-130.0]], [[-90.0], [-94.0]]])
-    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[2.0]]
+def test_effective_coverage_counts_neighbours_within_the_winning_band(cfg) -> None:
+    """Every band crowded means no clean layer to escape to."""
+    rsrp = _map([[[-80.0], [-84.0]], [[-90.0], [-94.0]]])
+    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([_u(2.0)])
 
 
-def test_serving_multiplicity_is_zero_where_no_band_is_covered(cfg) -> None:
+def test_effective_coverage_is_zero_where_no_band_is_covered(cfg) -> None:
     """A hole has no serving cell to count, which is what scores it zero."""
     rsrp = _map([[[-130.0], [-130.0]], [[np.nan], [-140.0]]])
-    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[0.0]]
+    assert effective_coverage(rsrp, cfg).tolist() == [[0.0]]
 
 
-def test_serving_multiplicity_needs_a_label_for_every_band(cfg) -> None:
-    """Without one the preference would be applied to the wrong layer."""
-    with pytest.raises(ValueError, match="band labels"):
-        serving_multiplicity(_map([[[-80.0]], [[-90.0]]]), cfg, ["hi"])
+def test_effective_coverage_scales_with_strength_between_the_thresholds(cfg) -> None:
+    """A lone server just above hole_dbm keeps almost none of its utility."""
+    at_weak = effective_coverage(_map([[[-90.0]]]), cfg)
+    halfway = effective_coverage(_map([[[-105.0]]]), cfg)
+    marginal = effective_coverage(_map([[[-119.7]]]), cfg)
+    assert at_weak.ravel().tolist() == pytest.approx([1.0])
+    assert halfway.ravel().tolist() == pytest.approx([0.5])
+    assert marginal.ravel().tolist() == pytest.approx([0.01])
+
+
+def test_effective_coverage_does_not_reward_strength_above_the_weak_threshold(cfg) -> None:
+    """The factor is clipped at 1, so power beyond weak_dbm buys nothing."""
+    assert effective_coverage(_map([[[-40.0]]]), cfg).ravel().tolist() == pytest.approx([1.0])
+
+
+def test_losing_a_layer_never_raises_effective_coverage(cfg) -> None:
+    """The monotonicity ADR 0010 exists for: a tilt must not pay by killing a band.
+
+    Stripping the crowded preferred band would once have moved the tile onto a
+    clean lower band and scored it higher.
+    """
+    crowded = _map([[[-80.0], [-82.0]], [[-100.0], [-130.0]]])
+    stripped = crowded.copy()
+    stripped[0] = -130.0
+    assert effective_coverage(stripped, cfg) <= effective_coverage(crowded, cfg)
 
 
 # --- tiles -----------------------------------------------------------------

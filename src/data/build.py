@@ -3,10 +3,8 @@
 ``cell.parquet`` is the configuration the radio map was solved at — the
 pre-optimization tilt every ``DeltaTilt`` is reported against.
 ``ue.parquet`` is the UE population, typed, with every drawn UE kept; evaluation
-scores on it, as the search does. ``mdt.parquet`` is the served subset.
-``demand.npz`` is built by counting its rows per tile: the report counts and the
-tile shares the objective blends into its per-band weights
-(:mod:`src.data.demand`, ADR 0009).
+scores on it, as the search does. ``mdt.parquet`` is the served subset, kept for
+reference and plots; no score reads it.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ import hydra
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.data import demand, schema
+from src.data import schema
 from src.data.load import Artifacts, load_artifacts, save
 from src.simulation import transmitter
 from src.simulation.mdt import MDT_COLUMNS
@@ -118,21 +116,8 @@ def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def build_demand(mdt: pd.DataFrame, artifacts: Artifacts) -> dict:
-    """The demand map, on the radio map's grid. See :mod:`src.data.demand`.
-
-    Args:
-        mdt: The typed MDT, as :func:`build_mdt` returns it.
-        artifacts: The loaded artifacts, for the grid.
-
-    Returns:
-        The arrays :func:`src.data.demand.save` writes.
-    """
-    return demand.build(mdt, artifacts.shape, float(artifacts.radio["tile_size_m"]))
-
-
-def run(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
-    """Load, verify and write every table. Returns the four paths written.
+def run(cfg: DictConfig) -> tuple[Path, Path, Path]:
+    """Load, verify and write every table. Returns the three paths written.
 
     Raises:
         FileNotFoundError: When a simulation stage has not been run.
@@ -146,23 +131,16 @@ def run(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
     ue = build_ue(artifacts)
     mdt = build_mdt(artifacts)
     cells = build_cells(cfg, artifacts)
-    demand_map = build_demand(mdt, artifacts)
     ue_path = save(ue, cfg.data.output.ue_file)
     mdt_path = save(mdt, cfg.data.output.mdt_file)
     cell_path = save(cells, cfg.data.output.cell_file)
-    demand_path = demand.save(demand_map, cfg.data.output.demand_file)
 
-    reported = demand_map[demand.REPORTS] > 0
     print(f"scenario:  {artifacts.scenario_id}")
     print(f"checks:    {len(checks)} passed")
     print(f"ue:        {len(ue):,} rows x {ue.shape[1]} columns  ->  {ue_path}")
     print(f"mdt:       {len(mdt):,} rows x {mdt.shape[1]} columns  ->  {mdt_path}")
     print(f"cells:     {len(cells)} cell-band pairs  ->  {cell_path}")
-    print(
-        f"demand:    {int(reported.sum()):,} of {reported.size:,} tiles reported, "
-        f"{int(demand_map[demand.REPORTS].sum()):,} reports  ->  {demand_path}"
-    )
-    return ue_path, mdt_path, cell_path, demand_path
+    return ue_path, mdt_path, cell_path
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
