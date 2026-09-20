@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "objective": {"tau_r_db": 10.0, "beta": 1.0},
+        "capacity": {"band_preference": ["high", "low"]},
     },
     "optim": {
         # `rule` rather than `turbo`: deterministic, no model, and it still

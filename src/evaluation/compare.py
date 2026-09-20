@@ -553,11 +553,9 @@ def experiment_setup(
             "Admission ceiling [share of max_prb]",
             f"{float(cfg.kpi.capacity.max_admission_utilisation):g}",
         ),
-        ("Objective tau_R [dB]", f"{float(cfg.kpi.objective.tau_r_db):g}"),
-        ("Objective beta", f"{float(cfg.kpi.objective.beta):g}"),
-        *(
-            (f"Objective alpha, {display_name(str(band))}", f"{float(value):g}")
-            for band, value in cfg.kpi.objective.alpha.items()
+        (
+            "Objective band priority",
+            ", ".join(display_name(str(band)) for band in cfg.kpi.capacity.band_preference),
         ),
     ]
     for run in runs:

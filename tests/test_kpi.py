@@ -16,7 +16,7 @@ from src.kpi import (
     weak_rate,
 )
 from src.kpi.capacity import _tile_index, serve_intervals
-from src.kpi.overlap import overlap_neighbors
+from src.kpi.overlap import overlap_neighbors, overlap_neighbors_per_band, serving_multiplicity
 
 
 @pytest.fixture
@@ -182,6 +182,54 @@ def test_overlap_neighbor_mean_averages_over_covered_tiles_only(cfg) -> None:
 def test_overlap_neighbor_mean_of_a_dead_map_is_nan(cfg) -> None:
     """No coverage is not the same statement as no crowding."""
     assert np.isnan(overlap_neighbor_mean(_map([[[np.nan, np.nan]]]), cfg))
+
+
+def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
+    """The objective reads one band's column of the same array the KPI sums."""
+    rsrp = _map(
+        [
+            [[-80.0, -80.0], [-84.0, -130.0]],
+            [[-90.0, -100.0], [-94.0, -130.0]],
+        ]
+    )
+    per_band = overlap_neighbors_per_band(rsrp, cfg)
+    assert per_band.tolist() == [[[1, 0]], [[1, 0]]]
+    assert per_band.sum(axis=0).tolist() == overlap_neighbors(rsrp, cfg).tolist()
+
+
+# --- serving multiplicity ---------------------------------------------------
+
+
+def test_serving_multiplicity_counts_on_the_preferred_covered_band(cfg) -> None:
+    """'hi' covers both tiles, so 'lo' never decides, however crowded it is.
+
+    Tile 0 has a second 'hi' transmitter within the margin, tile 1 does not.
+    """
+    rsrp = _map(
+        [
+            [[-80.0, -80.0], [-84.0, -130.0]],
+            [[-90.0, -100.0], [-94.0, -130.0]],
+        ]
+    )
+    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[2.0, 1.0]]
+
+
+def test_serving_multiplicity_falls_through_a_band_below_the_hole_threshold(cfg) -> None:
+    """With 'hi' a hole the tile is judged on 'lo', the band that would serve it."""
+    rsrp = _map([[[-130.0], [-130.0]], [[-90.0], [-94.0]]])
+    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[2.0]]
+
+
+def test_serving_multiplicity_is_zero_where_no_band_is_covered(cfg) -> None:
+    """A hole has no serving cell to count, which is what scores it zero."""
+    rsrp = _map([[[-130.0], [-130.0]], [[np.nan], [-140.0]]])
+    assert serving_multiplicity(rsrp, cfg, ["hi", "lo"]).tolist() == [[0.0]]
+
+
+def test_serving_multiplicity_needs_a_label_for_every_band(cfg) -> None:
+    """Without one the preference would be applied to the wrong layer."""
+    with pytest.raises(ValueError, match="band labels"):
+        serving_multiplicity(_map([[[-80.0]], [[-90.0]]]), cfg, ["hi"])
 
 
 # --- tiles -----------------------------------------------------------------

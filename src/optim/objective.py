@@ -3,24 +3,24 @@
 The KPI definitions live in :mod:`src.kpi` and are not restated here. What this
 module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
-the objective (docs/adr/0007-demand-weighted-objective.md):
+the objective (docs/adr/0009-effective-coverage-objective.md):
 
-    J = sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)
+    J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g
 
-One term per band, summed, each with ``sum_g w_bg = 1``. Splitting by band is
-what lets the objective see a hole on one layer that another layer covers, and
-what gives every cell-band tilt a term it moves.
+``lambda_g`` is :func:`src.kpi.overlap.serving_multiplicity`: how many cells
+effectively serve tile ``g``, counted on the band that would serve it.
+``lambda * exp(1 - lambda)`` peaks at exactly 1 where one cell dominates, falls
+to 0.74 where a second sits within the overlap margin, and is 0 where nothing
+covers the tile. So J is the demand-weighted share of the grid served cleanly by
+one cell, bounded in ``[0, 1]``.
 
-``softplus`` does not saturate, so a term is not capped at 1 and ``J`` is not
-capped at ``n_band``: above ``T_cov`` the utility grows linearly in dB, and a
-tile keeps paying for signal it already has. Scores from before this change do
-not compare with scores after it.
+``w_g = 1 + r_g`` weights each tile by demand, ``r_g`` being its MDT reports
+over the busiest tile's (:mod:`src.data.demand`). Ground the MDT never saw still
+weighs 1, so a hole out there is scored, just not doubly.
 
-``w_bg = (1 - alpha_b) / n + alpha_b * p_g`` blends the tile-uniform weight with
-the demand map's share ``p`` (:mod:`src.data.demand`). ``alpha_b`` is
-``kpi.objective.alpha`` for that band: 0 spends the band's effort evenly over the
-map, which is what a coverage layer wants, and 1 spends it where the UEs were
-measured, which is what a capacity layer wants.
+The objective has no parameters of its own: it reads ``kpi.hole_dbm``,
+``kpi.overlap_margin_db`` and ``kpi.capacity.band_preference``, each of which
+the KPIs or the serving rule already define.
 
 :data:`KPI_NAMES` are reported and no selection reads them; ``objective`` is
 stored beside them, so a history is ranked without re-reading a radio map.
@@ -36,10 +36,10 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.data import demand
-from src.kpi.capacity import CapacitySpec, max_rsrp, serve_intervals
+from src.kpi.capacity import CapacitySpec, serve_intervals
 from src.kpi.hole import hole_rate
 from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max
-from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
+from src.kpi.overlap import overlap_neighbor_mean, overlap_rate, serving_multiplicity
 from src.kpi.quality import (
     LOW_PERCENTILE,
     MEDIAN_PERCENTILE,
@@ -84,60 +84,6 @@ MAXIMISED = frozenset(
 
 
 @dataclass(frozen=True)
-class ObjectiveSpec:
-    """``kpi.objective``, plus the thresholds it shares with the KPIs.
-
-    Attributes:
-        t_cov_dbm: Coverage threshold ``T_cov``, ``kpi.hole_dbm``.
-        delta_r_db: Overlap margin ``Delta_R``, ``kpi.overlap_margin_db``.
-        tau_r_db: Knee width ``tau_R`` of the coverage softplus, in dB.
-        beta: Overlap penalty; each neighbour keeps ``q_ov = exp(-beta)``.
-        alpha: Demand share of each band's tile weights, keyed by band label.
-    """
-
-    t_cov_dbm: float
-    delta_r_db: float
-    tau_r_db: float
-    beta: float
-    alpha: dict[str, float]
-
-    @classmethod
-    def from_config(cls, cfg: DictConfig, band_labels: Sequence[str]) -> ObjectiveSpec:
-        """Read ``kpi.objective``, ``kpi.hole_dbm`` and ``kpi.overlap_margin_db``.
-
-        Raises:
-            ValueError: When ``kpi.objective`` is absent, ``tau_r_db`` is not
-                positive, ``beta`` is negative, or a band has no ``alpha`` or one
-                outside ``[0, 1]``.
-        """
-        block = cfg.kpi.get("objective")
-        if block is None:
-            raise ValueError("configs/kpi.yaml has no `objective` block.")
-        alpha_block = block.get("alpha")
-        if alpha_block is None:
-            raise ValueError("configs/kpi.yaml has no `objective.alpha` block.")
-        missing = [label for label in band_labels if label not in alpha_block]
-        if missing:
-            raise ValueError(f"No kpi.objective.alpha entry for {', '.join(missing)}.")
-        alpha = {label: float(alpha_block[label]) for label in band_labels}
-        spec = cls(
-            t_cov_dbm=float(cfg.kpi.hole_dbm),
-            delta_r_db=float(cfg.kpi.overlap_margin_db),
-            tau_r_db=float(block.tau_r_db),
-            beta=float(block.beta),
-            alpha=alpha,
-        )
-        if not spec.tau_r_db > 0:
-            raise ValueError(f"kpi.objective.tau_r_db must be positive, got {spec.tau_r_db}")
-        if not spec.beta >= 0:
-            raise ValueError(f"kpi.objective.beta must be non-negative, got {spec.beta}")
-        outside = {label: value for label, value in alpha.items() if not 0.0 <= value <= 1.0}
-        if outside:
-            raise ValueError(f"kpi.objective.alpha must be in [0, 1], got {outside}")
-        return spec
-
-
-@dataclass(frozen=True)
 class KpiVector:
     """One configuration's measurement: the KPIs, then the objective.
 
@@ -157,7 +103,7 @@ class KpiVector:
         prb_utilisation_max: Highest load any cell-band reaches in any interval,
             as a share of its limit.
         load_imbalance: Coefficient of variation of cell-band utilisation.
-        objective: See :func:`objective`. Non-negative and unbounded above.
+        objective: See :func:`objective`. In ``[0, 1]``.
     """
 
     hole_rate: float
@@ -219,72 +165,53 @@ def objective(
     cfg: DictConfig,
     share: np.ndarray | None = None,
 ) -> float:
-    """Per-band coverage utility discounted by co-band overlap, summed over bands.
+    """Demand-weighted share of the grid served cleanly by exactly one cell.
 
-    ``sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * q_ov ** m_bg``.
-    ``R_sb`` is the strongest transmitter on band ``b`` at the tile and ``m_bg``
-    is :func:`src.kpi.overlap.overlap_neighbors` on that band alone: the
-    transmitters above ``T_cov`` and within ``Delta_R`` of it. Both are taken on
-    one band's layers, so a hole on 700 MHz stays a hole however strong 2600 MHz
-    is there, and every cell-band tilt moves a term. A no-path tile has
-    ``R_sb = -inf`` and scores zero on that band.
+    ``sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g``, over every tile of
+    the grid. ``lambda_g`` is :func:`src.kpi.overlap.serving_multiplicity` and
+    ``w_g = 1 + r_g``, with ``r_g`` the tile's demand relative to the busiest
+    tile's.
 
-    ``w_bg = (1 - alpha_b) / n + alpha_b * p_g`` weights the band's tiles, with
-    ``p`` the demand map's share, so a hole where nobody stands costs a capacity
-    band little and a coverage band the same as anywhere else.
+    A tile scores its full 1 only when one cell clears ``kpi.hole_dbm`` on the
+    band that would serve it and nothing else on that band comes within
+    ``kpi.overlap_margin_db``. A second cell inside the margin costs it a
+    quarter, a third nearly two thirds. A hole scores 0, and so does a tile the
+    ray tracer found no path to.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        band_labels: Band names aligned to axis 0 of ``rsrp``; they select the
-            ``alpha`` of each term.
-        cfg: Composed config; see :meth:`ObjectiveSpec.from_config`.
-        share: Tile shares, ``[n_rows, n_cols]``. Read from
+        band_labels: Band names aligned to axis 0 of ``rsrp``; they carry
+            ``kpi.capacity.band_preference`` onto the array.
+        cfg: Composed config; see :func:`src.kpi.overlap.serving_multiplicity`.
+        share: Tile demand, ``[n_rows, n_cols]``. Read from
             ``data.output.demand_file`` when None, which is what every caller
-            but a test does. Normalised here, so it need not sum to one.
+            but a test does. Only each tile's ratio to the largest is read, so
+            any positive scaling of one map gives one J.
 
     Returns:
-        A non-negative value, unbounded above: ``softplus`` does not saturate,
-        so a band's term keeps growing with how far its coverage clears
-        ``T_cov``. Maximised.
+        A value in ``[0, 1]``, reaching 1 only if every tile of the grid is
+        served by exactly one cell. Maximised.
 
     Raises:
         FileNotFoundError: When ``share`` is None and the demand map has not
             been built.
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, the
-            shares do not cover the radio map's grid, or they sum to nothing.
+            demand does not cover the radio map's grid, or it is zero
+            everywhere, leaving nothing to weight by.
     """
-    if len(band_labels) != rsrp.shape[0]:
-        raise ValueError(
-            f"{len(band_labels)} band labels for a radio map with {rsrp.shape[0]} bands."
-        )
-    spec = ObjectiveSpec.from_config(cfg, band_labels)
+    multiplicity = serving_multiplicity(rsrp, cfg, band_labels)
     grid = rsrp.shape[-2:]
     p = tile_share(cfg, grid) if share is None else np.asarray(share, float)
     if p.shape != grid:
         raise ValueError(
             f"the tile shares are {p.shape} for a {grid} grid; they must cover it exactly."
         )
-    total = float(p.sum())
-    if not total > 0:
-        raise ValueError("the tile shares sum to zero, so there is nothing to average over.")
-    p = (p / total).ravel()
-    uniform = 1.0 / p.size
-
-    score = 0.0
-    for index, label in enumerate(band_labels):
-        # A length-1 band axis, so max_rsrp and overlap_neighbors read one band's
-        # transmitters without either growing a band argument. The same slice
-        # src.evaluation.compare._band_view takes for the per-band KPIs.
-        layer = rsrp[index : index + 1]
-        serving = max_rsrp(layer)
-        overlaps = overlap_neighbors(layer, cfg)
-        # logaddexp(0, x) is softplus(x) without overflowing exp on the strong
-        # tiles; -inf underflows to zero, which is what a no-path tile scores.
-        margin = np.logaddexp(0.0, (serving - spec.t_cov_dbm) / spec.tau_r_db)
-        utility = margin * np.exp(-spec.beta * overlaps)
-        alpha = spec.alpha[label]
-        score += float(np.dot(utility.ravel(), (1.0 - alpha) * uniform + alpha * p))
-    return score
+    peak = float(p.max())
+    if not peak > 0:
+        raise ValueError("the tile demand is zero everywhere, so there is nothing to weight by.")
+    weight = 1.0 + p / peak
+    utility = multiplicity * np.exp(1.0 - multiplicity)
+    return float((weight * utility).sum() / weight.sum())
 
 
 def evaluate_kpis(

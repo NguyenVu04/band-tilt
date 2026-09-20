@@ -6,7 +6,7 @@ pre-optimization tilt every ``DeltaTilt`` is reported against.
 scores on it, as the search does. ``mdt.parquet`` is the served subset.
 ``demand.npz`` is built by counting its rows per tile: the report counts and the
 tile shares the objective blends into its per-band weights
-(:mod:`src.data.demand`, ADR 0007).
+(:mod:`src.data.demand`, ADR 0009).
 """
 
 from __future__ import annotations

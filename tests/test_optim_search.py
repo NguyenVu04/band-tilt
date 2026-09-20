@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "objective": {"tau_r_db": 10.0, "beta": 0.6},
+        "capacity": {"band_preference": ["high", "low"]},
     },
     "optim": {
         "output": {
@@ -324,7 +324,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
-    assert run["config"]["kpi"]["objective"]["beta"] == 0.6
+    assert run["config"]["kpi"]["capacity"]["band_preference"] == ["high", "low"]
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

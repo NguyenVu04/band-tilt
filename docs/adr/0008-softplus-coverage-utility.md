@@ -1,6 +1,6 @@
 # 8. A softplus coverage utility
 
-- **Status:** Proposed
+- **Status:** Superseded by 0009
 - **Date:** 2026-09-19
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** the coverage utility of
@@ -8,7 +8,7 @@
   bound on `J`. Everything else in 0007 — the per-band split, the demand blend
   `w_bg`, the co-band overlap discount, the admission ceiling and the eleven
   reported KPIs — is carried over unchanged
-- **Superseded by:** —
+- **Superseded by:** [ADR 0009](0009-effective-coverage-objective.md)
 
 ## Context
 

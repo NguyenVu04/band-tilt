@@ -74,7 +74,7 @@ def write_solution_options(
 ) -> tuple[Path, Path]:
     """Republish the shortlist as the two tables an operator chooses from.
 
-    The objective (``kpi.objective``) marks one row ``recommended``; the
+    The highest objective marks one row ``recommended``; the
     runners-up are published beside it rather than discarded.
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is

@@ -75,15 +75,18 @@ median RSRP and SINR, the served UE rate, peak PRB utilisation and cell load
 imbalance - are measured for every candidate through [`src/kpi/`](src/kpi/), over
 all bands and per band
 ([ADR 0007](docs/adr/0007-demand-weighted-objective.md)). The search maximises
-one objective, `J = sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)`:
-one term per band, each the band's coverage utility per tile discounted per
-overlapping co-band neighbour, so a hole on one layer is not hidden by another
-covering it. Each band weights the tiles by
-`w_bg = (1 - alpha_b) / n + alpha_b * p_g`, blending a uniform weight with the
-demand map's share `p` ([`src/data/demand.py`](src/data/demand.py)): MDT reports
-per tile, normalised. `kpi.objective.alpha` states each band's role - 0 for a
-coverage layer that must hold the whole map, 1 for a capacity layer scored where
-the measured traffic is.
+one objective,
+`J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g`
+([ADR 0009](docs/adr/0009-effective-coverage-objective.md)). `lambda_g` counts
+the cells contending to serve tile `g`: the strongest on the band that would
+actually serve it - the most preferred band above `kpi.hole_dbm` - plus every
+co-band cell within `kpi.overlap_margin_db` of it. `lambda e^(1 - lambda)` is
+worth exactly 1 when one cell dominates, 0.74 when a second crowds it, and 0
+where nothing covers the tile, so `J` is the demand-weighted share of the grid
+that is *effectively covered*, in `[0, 1]`. `w_g = 1 + r_g` weights each tile by
+`r_g`, its MDT reports over the busiest tile's
+([`src/data/demand.py`](src/data/demand.py)), so demand doubles a tile at most
+and silences none. The objective has no parameters of its own.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE by
 band preference then RSRP, admitting UEs in report-time order and refusing any
 admission that would carry a cell-band past
@@ -246,8 +249,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds, the `objective` parameters (the softplus knee width tau_R, beta, per-band alpha), and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. How to pick the `objective` values is in [ADR 0007](docs/adr/0007-demand-weighted-objective.md), "Choosing the parameters". The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) and the demand map. The map has no settings of its own; the per-band blend is `kpi.objective.alpha` |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. The objective has no block of its own: it reads `hole_dbm`, `overlap_margin_db` and `capacity.band_preference` ([ADR 0009](docs/adr/0009-effective-coverage-objective.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) and the demand map. The map has no settings of its own; how the objective weights by it is fixed in code |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
@@ -352,7 +355,7 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 (the solutions offered for choice). `src/evaluation/` compares those.
 
 The solutions offered are the incumbent plus the highest objectives
-(`kpi.objective`, ADR 0007). `optim.n_solutions` sets how many, 4 by default,
+(ADR 0009). `optim.n_solutions` sets how many, 4 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
@@ -405,7 +408,7 @@ band-tilt/
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only. The demand map is built from that one scenario's MDT, so the objective's weights are tuned on it too |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only. The demand map is built from that one scenario's MDT, so the objective's tile weights come from it too |
 | The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kTB over the band bandwidth, with no receiver noise figure modelled. The served rate and both load measures count the PRBs that rule requires, so every capacity figure inherits these. The demand map no longer does: it counts MDT reports, not their PRBs |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 

@@ -5,7 +5,7 @@ measurement serves the UE table once and reduces it several times. Only admitted
 UEs load a cell-band: a blocked UE's PRBs are demand, and
 :func:`src.kpi.capacity.demand_prb` is where they are counted.
 
-Load is not in the objective (docs/adr/0006-radio-coverage-objective.md); these
+Load is not in the objective (docs/adr/0009-effective-coverage-objective.md); these
 are reported beside it.
 """
 

@@ -23,7 +23,9 @@ Shares land in ``[0, 1]``: the three grid rates are minimised,
 are in dBm and dB, :func:`~src.kpi.overlap.overlap_neighbor_mean` is a count and
 :func:`~src.kpi.load.load_imbalance` a coefficient of variation. None of them is
 the search objective; that is :mod:`src.optim.objective`,
-docs/adr/0006-radio-coverage-objective.md.
+docs/adr/0009-effective-coverage-objective.md, built on
+:func:`~src.kpi.overlap.serving_multiplicity`, which this package exports beside
+the KPIs because it is the same co-band count read on one band.
 
 :mod:`src.kpi.capacity` sits beside them: the serving-cell rule the served rate
 counts by, and the PRB demand map.
@@ -31,7 +33,7 @@ counts by, and the PRB demand map.
 
 from src.kpi.hole import hole_rate
 from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max, utilisation
-from src.kpi.overlap import overlap_neighbor_mean, overlap_rate
+from src.kpi.overlap import overlap_neighbor_mean, overlap_rate, serving_multiplicity
 from src.kpi.quality import rsrp_percentile_dbm, sinr_percentile_db
 from src.kpi.served import served_rate
 from src.kpi.weak import weak_rate
@@ -45,6 +47,7 @@ __all__ = [
     "prb_utilisation_max",
     "rsrp_percentile_dbm",
     "served_rate",
+    "serving_multiplicity",
     "sinr_percentile_db",
     "utilisation",
     "weak_rate",

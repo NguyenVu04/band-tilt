@@ -12,8 +12,9 @@ output:
   # The MDT subset of the UE table, typed. The demand map counts its rows per
   # tile; nothing else scores on it.
   mdt_file: data/processed/mdt.parquet
-  # The demand map (src/data/demand.py, ADR 0007): MDT reports per tile, and
-  # those counts normalised to the tile shares src/optim/objective.py blends
-  # into each band's weights. It has no settings of its own; the blend is
-  # kpi.objective.alpha.
+  # The demand map (src/data/demand.py): MDT reports per tile, and those counts
+  # normalised. It has no settings of its own. src/optim/objective.py reads each
+  # tile's count relative to the busiest tile's and weights the tile 1 + that
+  # ratio, so the map decides where a hole costs double and nowhere costs
+  # nothing.
   demand_file: data/processed/demand.npz

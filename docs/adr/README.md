@@ -95,7 +95,8 @@ is the thing these records exist to preserve.
 | [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
 | [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
 | [0006](0006-radio-coverage-objective.md) | A radio coverage objective | Superseded by 0007 | 2026-09-17 | 2026-09-17 |
-| [0007](0007-demand-weighted-objective.md) | A per-band demand-weighted objective, a load ceiling, and the reported KPI set | Superseded by 0008 (coverage utility only) | 2026-09-18 | 2026-09-19 |
-| [0008](0008-softplus-coverage-utility.md) | A softplus coverage utility | Proposed | 2026-09-19 | — |
+| [0007](0007-demand-weighted-objective.md) | A per-band demand-weighted objective, a load ceiling, and the reported KPI set | Superseded by 0009 (objective only) | 2026-09-18 | 2026-09-19 |
+| [0008](0008-softplus-coverage-utility.md) | A softplus coverage utility | Superseded by 0009 | 2026-09-19 | — |
+| [0009](0009-effective-coverage-objective.md) | An effective-coverage objective | Proposed | 2026-09-20 | — |
 
 0002, 0004 and 0005 are deleted; the numbers are not reused.

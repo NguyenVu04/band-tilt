@@ -43,6 +43,24 @@ from src.core.cell import Cell
 _SUBCARRIERS_PER_PRB = 12
 
 
+def band_rank(cfg: DictConfig, band_labels: Sequence[str]) -> np.ndarray:
+    """Serving preference of each band, 0 most preferred, aligned to ``band_labels``.
+
+    The serving rule, :func:`src.evaluation.maps.serving_band` and the
+    objective's :func:`src.kpi.overlap.serving_multiplicity` all rank bands by
+    ``kpi.capacity.band_preference``, so it is read in one place.
+
+    Raises:
+        ValueError: When a band is absent from ``band_preference``, which would
+            leave its rank undefined.
+    """
+    preference = [str(label) for label in cfg.kpi.capacity.band_preference]
+    missing = [label for label in band_labels if label not in preference]
+    if missing:
+        raise ValueError(f"No kpi.capacity.band_preference entry for {', '.join(missing)}.")
+    return np.array([preference.index(label) for label in band_labels])
+
+
 @dataclass(frozen=True)
 class CapacitySpec:
     """The serving and PRB settings, aligned to the radio map's bands and cells.
@@ -75,8 +93,8 @@ class CapacitySpec:
         preprocessing checks ``tx_name`` against the config.
 
         Raises:
-            ValueError: When a band is absent from ``band_preference`` or has no
-                capacity entry, the config holds other than ``n_tx`` cells, or
+            ValueError: As :func:`band_rank`, or when a band has no capacity
+                entry, the config holds other than ``n_tx`` cells, or
                 ``max_admission_utilisation`` is outside ``(0, 1]``.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
@@ -86,15 +104,10 @@ class CapacitySpec:
             raise ValueError(
                 f"kpi.capacity.max_admission_utilisation must be in (0, 1], got {admission}"
             )
-        preference = [str(label) for label in capacity.band_preference]
-        missing = [
-            label for label in band_labels if label not in preference or label not in capacity.bands
-        ]
+        rank = band_rank(cfg, band_labels)
+        missing = [label for label in band_labels if label not in capacity.bands]
         if missing:
-            raise ValueError(
-                "No kpi.capacity.band_preference or kpi.capacity.bands entry for "
-                f"{', '.join(missing)}."
-            )
+            raise ValueError(f"No kpi.capacity.bands entry for {', '.join(missing)}.")
         cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
         if len(cells) != n_tx:
             raise ValueError(
@@ -102,7 +115,7 @@ class CapacitySpec:
                 f"{n_tx} transmitters."
             )
         return cls(
-            band_rank=np.array([preference.index(label) for label in band_labels]),
+            band_rank=rank,
             rsrp_threshold_dbm=float(capacity.rsrp_threshold_dbm),
             max_admission_utilisation=admission,
             min_rsrp_dbm=float(cfg.kpi.hole_dbm),

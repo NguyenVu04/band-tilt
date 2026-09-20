@@ -139,7 +139,7 @@ LABELS = {
     "median_sinr_db": "Median SINR [dB]",
     "share": "Demand share",
     "tiles_reported": "Tiles with an MDT report",
-    "alpha": "Objective alpha",
+    "tile_weight": "Objective tile weight",
     "coverage_share": "Share of area covered by the band",
     "mean_band_rsrp_dbm": "Mean band RSRP where covered [dBm]",
     "serving_tile_share": "Share of area served on the band",

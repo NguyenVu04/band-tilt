@@ -2,10 +2,11 @@
 
 One step, deterministic, read from the MDT alone: count the reports that landed
 on each tile over the whole horizon, and normalise the raster to sum to one.
-That share is ``p`` in the objective's tile weight
-``w_g = (1 - alpha) / n + alpha * p_g`` (:mod:`src.optim.objective`, ADR 0007),
-where ``alpha`` is per band, so the map itself carries no band: a UE standing on
-a tile is a UE standing on a tile whichever layer ends up serving it.
+:mod:`src.optim.objective` reads each tile's count relative to the busiest
+tile's and weights the tile ``w_g = 1 + r_g``, so the busiest tile counts twice
+and ground the MDT never saw still counts once. The map carries no band: a UE
+standing on a tile is a UE standing on a tile whichever layer ends up serving
+it.
 
 Counting rows rather than the PRBs they required is what keeps the map
 independent of tilt. The PRB a report needs is a function of its SINR, which is

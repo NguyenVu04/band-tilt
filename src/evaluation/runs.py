@@ -304,27 +304,26 @@ def require(checks: pd.DataFrame) -> None:
 def _kpi_definition(run: Run) -> dict[str, Any]:
     """Everything a reported measure reads, from the run's own config snapshot.
 
-    The thresholds, the capacity model and the objective parameters, plus each
-    cell's PRB limit: the KPIs and the objective depend on all of them, so two
-    runs that differ on any one did not measure the same thing. The RSRP and
-    SINR percentiles are not here because they are constants in
-    :mod:`src.kpi.quality` and no run can differ on them.
+    The thresholds, the capacity model and each cell's PRB limit: the KPIs and
+    the objective depend on all of them, so two runs that differ on any one did
+    not measure the same thing. The RSRP and SINR percentiles are not here
+    because they are constants in :mod:`src.kpi.quality` and no run can differ
+    on them. ``capacity`` covers the objective too, since ``band_preference``
+    decides which band its ``lambda`` is counted on.
 
     ``bandwidth`` and ``temperature`` are here because kTB over the band
     bandwidth is the noise floor behind every SINR, and SINR sets the PRBs a UE
     needs and therefore the served rate. Neither is stored in the archive, so
     the config snapshot is the only place they can be checked.
 
-    ``objective`` carries ``tau_r_db``, ``beta`` and the per-band ``alpha``
-    (ADR 0007). The demand map has no settings of its own any more, so this
-    block is the whole of what the *config* says about the objective: two runs
-    that differ on any of it optimised different quantities, whatever else they
-    share.
+    ``objective`` is kept although ADR 0009 left the objective with no settings
+    of its own: a run traced before it carries the old ``tau_r_db`` / ``beta`` /
+    ``alpha`` block and a run traced after carries nothing, and that difference
+    is what refuses to pool two scores that are not on one scale.
 
-    It is not the whole definition. The coverage utility's functional form is
-    in code, not in config, so this check cannot see it: runs traced either
-    side of ADR 0008's softplus change carry an identical block and are still
-    incomparable. Archive the old runs rather than relying on this guard.
+    It is not the whole definition. The utility's functional form is in code,
+    not in config, so a change that leaves the block alone is invisible here.
+    Archive the old runs rather than relying on this guard.
     """
     config = run.meta["config"]
     kpi = config["kpi"]

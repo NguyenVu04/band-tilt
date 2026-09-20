@@ -1,52 +1,29 @@
 # @package kpi
-# Thresholds defining the KPIs, the objective's parameters, and the capacity
-# model behind the serving rule, the served rate, the load measures and the PRB
-# demand map.
+# Thresholds defining the KPIs and the capacity model behind the serving rule,
+# the served rate, the load measures and the PRB demand map.
+#
+# The objective has no parameters of its own. It reads the two thresholds below
+# and capacity.band_preference, and weights each tile by the demand map
+# (configs/data.yaml `demand_file`):
+#
+#   J = sum_g w_g * lambda_g * exp(1 - lambda_g) / sum_g w_g
+#
+# lambda_g counts the cells within overlap_margin_db of the strongest on the
+# band that would serve tile g; w_g = 1 + r_g with r_g the tile's MDT reports
+# over the busiest tile's. See src/optim/objective.py and
+# docs/adr/0009-effective-coverage-objective.md.
 
 # Strongest signal at or below which a location is a coverage hole. Also the
-# RSRP a cell-band must exceed to serve a UE, and the objective's coverage
-# threshold T_cov.
+# RSRP a cell-band must exceed to serve a UE, and the cut below which the
+# objective counts neither a serving cell nor a neighbour.
 hole_dbm: -120.0
 
 # Upper bound of weak coverage; the lower bound is hole_dbm.
 weak_dbm: -90.0
 
 # Inclusive margin within which a co-band neighbour overlaps the serving cell.
-# Also the objective's Delta_R.
+# The objective's lambda counts those neighbours.
 overlap_margin_db: 6.0
-
-# J = sum_b sum_g w_bg * softplus((R_sb - T_cov) / tau_R) * exp(-beta * m_bg)
-# (src/optim/objective.py, ADR 0007), one term per band, summed. R_sb is the
-# strongest transmitter on band b at the tile and m_bg its co-band overlapping
-# neighbours, so a hole on one band is not hidden by another band covering it.
-# Each band's weights sum to one, but softplus does not saturate, so a term is
-# not capped at 1 and J is non-negative and unbounded above.
-#
-# How to choose the three below: see docs/adr/0007-demand-weighted-objective.md,
-# "Choosing the parameters".
-objective:
-  # tau_R: knee width of the coverage softplus on (R_s - T_cov), in dB. Below
-  # T_cov the utility decays to nothing over a few tau_R; above it the utility
-  # grows as (R_s - T_cov) / tau_R, so tau_R is the dB that buys one unit of
-  # utility. Scale it to the spread the map actually has: tau_R ~ IQR(RSRP) /
-  # 1.349, the normal-scale robust sigma, over the per-band serving RSRP at
-  # reached tiles. Notebook 01's rsrp_statistics table reports it. Re-derive it
-  # per scenario, never per run, or two runs on one scenario stop being
-  # comparable.
-  tau_r_db: 17.0
-  # Each co-band overlapping neighbour keeps q_ov = exp(-beta) of the utility,
-  # so beta is the price of one neighbour: beta = -ln(1 - f) gives away the
-  # fraction f of a tile per neighbour.
-  beta: 1.0
-  # Demand share of a band's tile weights: w_g = (1 - alpha) / n + alpha * p_g,
-  # with n the tile count and p the demand map's share (configs/data.yaml
-  # `demand_file`). 0 weights every tile equally, which is what a coverage layer
-  # wants; 1 weights purely by where the traffic was measured, which is what a
-  # capacity layer wants. Must cover every band.
-  alpha:
-    b2600: 1.0
-    b1800: 0.5
-    b700: 0.0
 
 # The RSRP and SINR percentiles are not configured: the measures are named
 # rsrp_p05_dbm, rsrp_p50_dbm, sinr_p05_db and sinr_p50_db, so the points they
@@ -55,7 +32,9 @@ objective:
 
 # Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
-  # Serving band preference, most preferred first. Must list every band.
+  # Serving band preference, most preferred first. Must list every band. The
+  # objective reads it too: lambda is counted on the most preferred band whose
+  # strongest cell clears hole_dbm.
   band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one. Equal to
   # hole_dbm here, which makes that skip unreachable: a layer that low is not a
