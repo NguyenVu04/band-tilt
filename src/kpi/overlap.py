@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import finite, max_rsrp
+from src.kpi.capacity import covered, finite
 
 
 def overlap_neighbors_per_band(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -87,9 +87,12 @@ def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
         includes every location the ray tracer found no path to.
     """
     hole_dbm = float(cfg.kpi.hole_dbm)
+    weak_dbm = float(cfg.kpi.weak_dbm)
+    if weak_dbm <= hole_dbm:
+        raise ValueError(f"kpi.weak_dbm ({weak_dbm}) must exceed kpi.hole_dbm ({hole_dbm}).")
     strongest = finite(rsrp).max(axis=1)
     multiplicity = np.where(strongest > hole_dbm, overlap_neighbors_per_band(rsrp, cfg) + 1.0, 0.0)
-    strength = np.clip((strongest - hole_dbm) / (float(cfg.kpi.weak_dbm) - hole_dbm), 0.0, 1.0)
+    strength = np.clip((strongest - hole_dbm) / (weak_dbm - hole_dbm), 0.0, 1.0)
     return (multiplicity * np.exp(1.0 - multiplicity) * strength).max(axis=0)
 
 
@@ -112,10 +115,10 @@ def overlap_neighbor_mean(rsrp: np.ndarray, cfg: DictConfig) -> float:
         scoring it a perfect zero.
     """
     counts = overlap_neighbors(rsrp, cfg)
-    covered = max_rsrp(rsrp) > float(cfg.kpi.hole_dbm)
-    if not covered.any():
+    mask = covered(rsrp, cfg)
+    if not mask.any():
         return float("nan")
-    return float(counts[covered].mean())
+    return float(counts[mask].mean())
 
 
 def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:

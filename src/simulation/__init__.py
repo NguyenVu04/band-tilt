@@ -46,7 +46,7 @@ Supporting modules, each with one reason to change:
 ``sample``
     Drawing UE positions from that density, and writing them.
 ``seeds``
-    The named random streams, all offsets of the one configured seed.
+    The named random streams, each hashed from the one configured seed and its name.
 ``transmitter``
     The node layout and the transmitters built from it. Its own entry point
     generates the layout; that is a one-off, not part of the chain.

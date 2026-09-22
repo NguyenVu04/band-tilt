@@ -1,5 +1,5 @@
 # @package optim.method
-# TuRBO-1 on the objective (configs/kpi.yaml `objective`, ADR 0006).
+# TuRBO-1 on the objective (src/optim/objective.py `objective`, ADR 0010).
 # Budget matched to random.yaml, so the two differ only in where they look.
 
 name: turbo

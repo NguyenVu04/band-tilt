@@ -19,6 +19,7 @@ from omegaconf import DictConfig
 from src.data.load import Artifacts
 from src.simulation import transmitter
 from src.simulation.mdt import MDT_COLUMNS
+from src.simulation.radio import baseline_tilts
 from src.simulation.sample import CSV_COLUMNS
 
 _CONFIG = "configs/simulation.yaml"
@@ -103,7 +104,8 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     record(
         "z equals the configured UE height",
         _CONFIG,
-        *_count(ue["z"].to_numpy() != float(cfg.simulation.ue.height_m)),
+        # To the CSV's precision: src.simulation.sample.write_csv rounds z to 3 decimals.
+        *_count(~np.isclose(ue["z"].to_numpy(), float(cfg.simulation.ue.height_m), atol=5e-4)),
     )
     record(
         "0 <= tile_row < n_rows",
@@ -170,21 +172,16 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         )
         record("no duplicate mdt rows", _MDT, *_count(mdt.duplicated().to_numpy()))
 
-    # The cell table the map was solved at.
-    tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)
-    configured = np.array(
-        [[cell.tilt_for(band).baseline_deg for cell in cells] for band in artifacts.band_labels]
-    )
-    record(
-        "npz tilt_deg equals the configured baseline tilts",
-        _CONFIG,
-        tilt_deg.shape == configured.shape and bool(np.allclose(tilt_deg, configured)),
-    )
-    record(
-        "every cell carries a tilt for every band",
-        _CONFIG,
-        all(band in cell.tilt for cell in cells for band in artifacts.band_labels),
-    )
+    # The cell table the map was solved at. The tilt comparison needs a tilt
+    # for every pair, so it only runs when the completeness check holds.
+    complete = all(band in cell.tilt for cell in cells for band in artifacts.band_labels)
+    tilts_match = False
+    if complete and "tilt_deg" in artifacts.radio:
+        tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)
+        configured = baseline_tilts(cells, artifacts.band_labels)
+        tilts_match = tilt_deg.shape == configured.shape and bool(np.allclose(tilt_deg, configured))
+    record("npz tilt_deg equals the configured baseline tilts", _CONFIG, tilts_match)
+    record("every cell carries a tilt for every band", _CONFIG, complete)
 
     return pd.DataFrame(checks, columns=["check", "source", "holds", "violations"])
 

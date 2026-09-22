@@ -22,7 +22,9 @@ Modules, each with one reason to change:
     The figures, following the conventions ``notebooks/01_eda.ipynb``
     established.
 ``export``
-    Writing tables and figures to ``reports/``.
+    Writing tables to ``reports/``.
+``run``
+    Every table and figure notebook 04 presents; the ``task evaluate`` entry point.
 
 Two views of the same cut:
 This package reports coverage weighted by where UEs actually stand, alongside

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 from omegaconf import DictConfig
 
-from src.simulation.grid import Raster
+from src.simulation.grid import Raster, disc_offsets
 
 
 @dataclass(frozen=True)
@@ -163,13 +163,10 @@ def neighbourhood_volume(volume: np.ndarray, raster: Raster, radius_m: float) ->
     n_rows, n_cols = volume.shape
 
     total = np.zeros_like(volume, dtype=np.float64)
-    for d_row in range(-radius_tiles, radius_tiles + 1):
-        for d_col in range(-radius_tiles, radius_tiles + 1):
-            if d_row * d_row + d_col * d_col > radius_tiles * radius_tiles:
-                continue
-            row0 = radius_tiles + d_row
-            col0 = radius_tiles + d_col
-            total += padded[row0 : row0 + n_rows, col0 : col0 + n_cols]
+    for d_row, d_col in disc_offsets(radius_tiles):
+        row0 = radius_tiles + d_row
+        col0 = radius_tiles + d_col
+        total += padded[row0 : row0 + n_rows, col0 : col0 + n_cols]
     return total
 
 

@@ -17,7 +17,7 @@ from src.core.cell import Cell, Tilt
 from src.simulation import grid as grid_module
 from src.simulation import scene as scene_module
 from src.simulation import seeds
-from src.simulation.grid import GridSpec, Raster
+from src.simulation.grid import GridSpec, Raster, disc_offsets
 from src.simulation.scene import SceneBounds, SceneSpec
 
 # Three nodes on the corners of an equilateral triangle whose side is
@@ -357,13 +357,10 @@ def _tiles_are_clear(
     col, row = raster.tile_indices(x, y)
 
     clear = np.ones(np.shape(x), dtype=bool)
-    for d_row in range(-radius_tiles, radius_tiles + 1):
-        for d_col in range(-radius_tiles, radius_tiles + 1):
-            if d_row * d_row + d_col * d_col > radius_tiles * radius_tiles:
-                continue
-            neighbour_row = np.clip(row + d_row, 0, raster.n_rows - 1)
-            neighbour_col = np.clip(col + d_col, 0, raster.n_cols - 1)
-            clear &= raster.free_fraction[neighbour_row, neighbour_col] >= spec.min_free_fraction
+    for d_row, d_col in disc_offsets(radius_tiles):
+        neighbour_row = np.clip(row + d_row, 0, raster.n_rows - 1)
+        neighbour_col = np.clip(col + d_col, 0, raster.n_cols - 1)
+        clear &= raster.free_fraction[neighbour_row, neighbour_col] >= spec.min_free_fraction
     return clear
 
 

@@ -31,8 +31,13 @@ FIGURES_DIR = Path("reports/figures/04_evaluation")
 TABLES_DIR = Path("reports/tables/04_evaluation")
 
 
-def load_runs(cfg: DictConfig) -> list[run_store.Run]:
+def load_runs(
+    cfg: DictConfig, baseline: dict[str, np.ndarray] | None = None
+) -> tuple[list[run_store.Run], pd.DataFrame]:
     """The newest run of each method and seed, verified comparable with the baseline.
+
+    Returns the runs and the comparability checks they passed. ``baseline`` is
+    read from ``cfg`` when None.
 
     Raises:
         FileNotFoundError: When ``optim.output.dir`` holds no finished run.
@@ -41,8 +46,11 @@ def load_runs(cfg: DictConfig) -> list[run_store.Run]:
     runs = run_store.latest_per_method_and_seed(run_store.discover(cfg.optim.output.dir))
     if not runs:
         raise FileNotFoundError(f"No runs under {cfg.optim.output.dir}. Run `task optim` first.")
-    run_store.require(run_store.verify(runs, run_store.baseline_map(cfg), cfg))
-    return runs
+    if baseline is None:
+        baseline = run_store.baseline_map(cfg)
+    checks = run_store.verify(runs, baseline, cfg)
+    run_store.require(checks)
+    return runs, checks
 
 
 def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFrame | Figure]:
@@ -71,9 +79,9 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
             plt.close(item)
         results[name] = item
 
-    runs = load_runs(cfg)
     baseline = run_store.baseline_map(cfg)
-    add("comparability_checks", run_store.verify(runs, baseline, cfg))
+    runs, checks = load_runs(cfg, baseline)
+    add("comparability_checks", checks)
 
     ue = pd.read_parquet(cfg.data.output.ue_file)
     cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")
@@ -237,7 +245,7 @@ def main(cfg: DictConfig) -> None:
     """Compare the runs. Entry point for ``task evaluate``."""
     matplotlib.use("Agg")
     evaluate(cfg)
-    summary = compare.seed_summary(load_runs(cfg))
+    summary = compare.seed_summary(load_runs(cfg)[0])
     log_stage(
         cfg,
         "evaluation",

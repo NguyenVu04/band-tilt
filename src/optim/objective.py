@@ -156,6 +156,7 @@ def evaluate_kpis(
     band_labels: Sequence[str],
     ue: pd.DataFrame,
     cfg: DictConfig,
+    spec: CapacitySpec | None = None,
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
@@ -172,6 +173,7 @@ def evaluate_kpis(
         ue: The UE table; ``t_index``, ``t_s``, ``tile_row`` and ``tile_col``
             place the UEs the served rate counts.
         cfg: Composed config; the measures read ``cfg.kpi``.
+        spec: The capacity model already read from ``cfg``; built here when None.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, or
@@ -181,8 +183,9 @@ def evaluate_kpis(
         raise ValueError(
             f"{len(band_labels)} band labels for a radio map with {rsrp.shape[0]} bands."
         )
-    spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
-    served = serve_intervals(rsrp, sinr, band_labels, ue, cfg)
+    if spec is None:
+        spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
+    served = serve_intervals(rsrp, sinr, band_labels, ue, cfg, spec=spec)
     _t_values, prb = prb_by_cell_interval(served, rsrp.shape[0], rsrp.shape[1])
 
     return KpiVector(
@@ -207,8 +210,12 @@ def best_by_objective(kpis: Sequence[KpiVector]) -> int:
     candidate actually scores higher.
 
     Raises:
-        ValueError: When ``kpis`` is empty.
+        ValueError: When ``kpis`` is empty, or an objective is not finite —
+            ``np.argmax`` would otherwise pick a NaN as the best.
     """
     if not kpis:
         raise ValueError("no candidates to choose from")
-    return int(np.argmax([kpi.objective for kpi in kpis]))
+    scores = np.array([kpi.objective for kpi in kpis], dtype=float)
+    if not np.isfinite(scores).all():
+        raise ValueError(f"non-finite objective at index {np.flatnonzero(~np.isfinite(scores))}")
+    return int(np.argmax(scores))

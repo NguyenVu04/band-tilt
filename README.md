@@ -292,7 +292,7 @@ same functions in `src/`, so they cannot diverge on what they compute. Notebook
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the processed tables | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |
-| 5 — TuRBO, and the solver-noise re-trace | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` (the re-trace is notebook-only) |
+| 5 — TuRBO | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
 | 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, writes `reports/`) |
 
 ```bash

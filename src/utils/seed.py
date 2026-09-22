@@ -13,11 +13,17 @@ import numpy as np
 
 
 def set_seed(seed: int) -> None:
-    """Seed the ``random`` and NumPy global generators.
+    """Seed the ``random``, NumPy and, when installed, torch global generators.
 
     This does not make the simulation reproducible. Every stage draws from its
     own generator, seeded through :func:`src.simulation.seeds.stream`; change
-    ``seed`` in the config to move those.
+    ``seed`` in the config to move those. TuRBO likewise seeds torch per
+    proposal, so its draws do not depend on this either.
     """
     random.seed(seed)
     np.random.seed(seed)
+    try:
+        import torch
+    except ImportError:
+        return
+    torch.manual_seed(seed)

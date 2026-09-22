@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import max_rsrp, serving_sinr
+from src.kpi.capacity import covered, max_rsrp, serving_sinr
 
 # The two points every reported percentile is read at. Constants and not
 # config values: the measures are named after them (rsrp_p05_dbm, sinr_p50_db),
@@ -19,11 +19,6 @@ from src.kpi.capacity import max_rsrp, serving_sinr
 # throughput to RSRP and SINR. 50%: the median, which needs no authority.
 LOW_PERCENTILE = 5.0
 MEDIAN_PERCENTILE = 50.0
-
-
-def _covered(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
-    """Mask of locations receiving something above ``cfg.kpi.hole_dbm``."""
-    return max_rsrp(rsrp) > float(cfg.kpi.hole_dbm)
 
 
 def rsrp_percentile_dbm(rsrp: np.ndarray, cfg: DictConfig, percentile: float) -> float:
@@ -50,7 +45,7 @@ def rsrp_percentile_dbm(rsrp: np.ndarray, cfg: DictConfig, percentile: float) ->
         the total outage case ordered below every configuration that covers
         something.
     """
-    values = max_rsrp(rsrp)[_covered(rsrp, cfg)]
+    values = max_rsrp(rsrp)[covered(rsrp, cfg)]
     if values.size == 0:
         return float("-inf")
     return float(np.percentile(values, float(percentile)))
@@ -81,7 +76,7 @@ def sinr_percentile_db(
         location whose SINR the solver left undefined is dropped, so a
         percentile is never NaN while anything is covered.
     """
-    values = serving_sinr(rsrp, sinr)[_covered(rsrp, cfg)]
+    values = serving_sinr(rsrp, sinr)[covered(rsrp, cfg)]
     values = values[np.isfinite(values)]
     if values.size == 0:
         return float("-inf")

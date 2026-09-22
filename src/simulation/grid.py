@@ -149,3 +149,13 @@ def build(mi_scene: Any, bounds: SceneBounds, spec: GridSpec, seed: int) -> Rast
         free_fraction=free.mean(axis=(2, 3)).astype(np.float64),
         mean_built_height=mean_built_height,
     )
+
+
+def disc_offsets(radius_tiles: int) -> list[tuple[int, int]]:
+    """Tile offsets ``(d_row, d_col)`` within ``radius_tiles`` of the origin, row-major."""
+    return [
+        (d_row, d_col)
+        for d_row in range(-radius_tiles, radius_tiles + 1)
+        for d_col in range(-radius_tiles, radius_tiles + 1)
+        if d_row * d_row + d_col * d_col <= radius_tiles * radius_tiles
+    ]

@@ -171,6 +171,11 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
     return finite(rsrp).max(axis=(0, 1))
 
 
+def covered(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
+    """Mask of locations receiving something above ``cfg.kpi.hole_dbm``: not a hole."""
+    return max_rsrp(rsrp) > float(cfg.kpi.hole_dbm)
+
+
 def serving_sinr(rsrp: np.ndarray, sinr: np.ndarray) -> np.ndarray:
     """SINR of the strongest layer at each location.
 
@@ -380,6 +385,7 @@ def serve_intervals(
     band_labels: Sequence[str],
     ue: pd.DataFrame,
     cfg: DictConfig,
+    spec: CapacitySpec | None = None,
 ) -> pd.DataFrame:
     """Serve every UE row from the radio map, via :func:`serve_rows`.
 
@@ -390,6 +396,8 @@ def serve_intervals(
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         ue: Supplies ``t_index``, ``t_s``, ``tile_row`` and ``tile_col`` only.
         cfg: Composed config; see :meth:`CapacitySpec.from_config`.
+        spec: The capacity model already read from ``cfg``, to skip re-reading
+            it when serving many maps of the same network.
 
     Returns:
         One row per UE row, index aligned: ``t_index``, ``tile_row``,
@@ -400,7 +408,8 @@ def serve_intervals(
         ValueError: When the UE table is off the map's grid or the config does not
             cover the map's bands and cells.
     """
-    spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
+    if spec is None:
+        spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
     row, col = _tile_index(ue, rsrp.shape[-2:])
     t_index = ue["t_index"].to_numpy()
 

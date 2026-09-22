@@ -17,9 +17,9 @@ from omegaconf import DictConfig
 
 from src.kpi.capacity import finite, max_rsrp
 
-# Display range for RSRP images. The lower bound is the hole threshold, so the
-# darkest colour and "uncovered" mean the same thing to the eye; the upper bound
-# is chosen for contrast and carries no meaning.
+# Display range for RSRP images. The lower bound mirrors kpi.hole_dbm in
+# configs/kpi.yaml, so the darkest colour and "uncovered" mean the same thing to
+# the eye; the upper bound is chosen for contrast and carries no meaning.
 RSRP_LIMITS = (-120.0, -60.0)
 
 # Coverage classes, worst first. The order is the one a stacked bar or a legend

@@ -28,6 +28,7 @@ SWEEP = "sweep"
 
 ATTACHED = "attached"
 SOBOL = "Sobol"
+COORDINATE = "coordinate"
 
 
 def sobol(dim: int, n: int, seed: int) -> np.ndarray:

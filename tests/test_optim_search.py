@@ -330,3 +330,54 @@ def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:
     """Better than a zero-row frame that reads as a run which found nothing."""
     with pytest.raises(ValueError, match="no evaluations"):
         History(evaluator.space).frame()
+
+
+def test_the_rule_sweep_keeps_the_incumbent_when_nothing_improves(make_cfg) -> None:
+    """A band whose sweep beats nothing stays where it was."""
+
+    @dataclass
+    class Flat(StubEvaluator):
+        def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
+            result = super().evaluate(tilt_deg)
+            is_baseline = np.allclose(tilt_deg, self.space.baseline)
+            kpi = KpiVector.from_mapping({**result.kpi.as_dict(), "objective": float(is_baseline)})
+            return EvaluationResult(tilt_deg=result.tilt_deg, kpi=kpi, seconds=0.0)
+
+    cfg = make_cfg("rule")
+    evaluator = Flat(TiltSpace.from_config(cfg))
+    history = run_search(evaluator, cfg)
+    assert history.best_index() == 0
+    # Every proposal differs from the baseline on exactly one band.
+    space = evaluator.space
+    for proposal in evaluator.seen[1:]:
+        moved = {
+            name
+            for (_c, name), a, b in zip(space.pairs, proposal, space.baseline, strict=True)
+            if a != b
+        }
+        assert len(moved) == 1
+
+
+def test_the_rule_sweep_spans_the_intersection_of_its_cells_bounds(make_cfg) -> None:
+    """A shared tilt must be feasible for every cell on the band."""
+    cfg = make_cfg("rule")
+    cfg.simulation.transmitters.cells[0].tilt.high.bounds_deg = [2.0, 16.0]
+    cfg.simulation.transmitters.cells[1].tilt.high.bounds_deg = [0.0, 10.0]
+    evaluator = StubEvaluator(TiltSpace.from_config(cfg))
+    run_search(evaluator, cfg)
+    axis = [i for i, (_cell, name) in enumerate(evaluator.space.pairs) if name == "high"]
+    swept = {round(float(p[axis][0]), 9) for p in evaluator.seen[1:]}
+    assert min(swept) >= 2.0 and max(swept) <= 10.0
+    assert {2.0, 10.0} <= swept
+
+
+def test_the_rule_sweep_refuses_disjoint_band_bounds(make_cfg) -> None:
+    """No shared tilt is feasible, so the sweep says so before evaluating anything."""
+    cfg = make_cfg("rule")
+    cfg.simulation.transmitters.cells[0].tilt.high.bounds_deg = [0.0, 4.0]
+    cfg.simulation.transmitters.cells[0].tilt.high.baseline_deg = 2.0
+    cfg.simulation.transmitters.cells[1].tilt.high.bounds_deg = [6.0, 16.0]
+    evaluator = StubEvaluator(TiltSpace.from_config(cfg))
+    with pytest.raises(ValueError, match="do not overlap"):
+        run_search(evaluator, cfg)
+    assert evaluator.seen == []

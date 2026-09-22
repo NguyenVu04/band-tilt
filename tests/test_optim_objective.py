@@ -218,3 +218,16 @@ def test_choosing_from_nothing_raises() -> None:
     """An empty run has no winner to report."""
     with pytest.raises(ValueError, match="no candidates"):
         best_by_objective([])
+
+
+def test_a_nan_objective_is_refused_rather_than_picked() -> None:
+    """``np.argmax`` would rank a NaN first; the pick must not."""
+    with pytest.raises(ValueError, match="non-finite"):
+        best_by_objective([_kpi(), _kpi(objective=float("nan"))])
+
+
+def test_a_weak_threshold_at_the_hole_threshold_is_refused(cfg) -> None:
+    """The strength factor divides by their gap."""
+    cfg.kpi.weak_dbm = cfg.kpi.hole_dbm
+    with pytest.raises(ValueError, match="weak_dbm"):
+        _score(_map([[-90.0]]), cfg)

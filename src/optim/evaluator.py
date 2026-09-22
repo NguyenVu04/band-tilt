@@ -4,7 +4,7 @@ The expensive half of every optimization run, and the reason a run is feasible
 at all: the scene and the antenna arrays do not depend on tilt, so they are
 built once at construction and reused for every candidate.
 Only the transmitters are rebuilt per evaluation, which is what
-:func:`src.simulation.radio.solve_band` already does.
+:func:`src.simulation.radio.solve_bands` already does.
 
 The served rate counts every UE in ``data.output.ue_file``.
 
@@ -24,12 +24,10 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.kpi.capacity import CapacitySpec
 from src.optim.objective import KpiVector, evaluate_kpis
 from src.optim.space import TiltSpace
-from src.simulation import radio, seeds, transmitter
-from src.simulation import scene as scene_module
-from src.simulation.grid import GridSpec
-from src.simulation.scene import SceneSpec
+from src.simulation import radio, seeds
 
 
 @dataclass(frozen=True)
@@ -100,32 +98,31 @@ class Evaluator:
     solver_seed: int | None = None
 
     space: TiltSpace = field(init=False)
+    _setup: radio.RadioSetup = field(init=False, repr=False)
+    _capacity: CapacitySpec = field(init=False, repr=False)
+    _ue: pd.DataFrame = field(init=False, repr=False)
+    _centres: np.ndarray | None = field(init=False, default=None, repr=False)
+    _scene: Any | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        """Build the scene and everything else that does not depend on tilt."""
+        """Build the scene and everything else that does not depend on tilt.
+
+        Raises:
+            FileNotFoundError: When the scenario manifest or ``data.output.ue_file``
+                is missing.
+        """
         cfg = self.cfg
         self.space = TiltSpace.from_config(cfg)
-        self._manifest = radio.read_manifest(cfg)
-        self._grid_meta = self._manifest["grid"]
-        self._bands = tuple(
-            radio.Band.from_config(entry) for entry in cfg.simulation.radio_map.bands
-        )
-        self._solver = radio.SolverSpec.from_config(cfg)
+        self._setup = radio.RadioSetup.from_config(cfg)
         # Shared seed: common Monte-Carlo noise cancels, so KPI *differences* are much cleaner.
         if self.solver_seed is None:
             self.solver_seed = seeds.stream(cfg, "solver")
-        self._height_m = float(cfg.simulation.ue.height_m)
-        self._power_dbm = float(cfg.simulation.antenna.power_rs)
-        self._ue = pd.read_parquet(cfg.data.output.ue_file)
-        self._centres: np.ndarray | None = None
-
-        scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
-        for problem in transmitter.validate(
-            scene.mi_scene, bounds, self.space.cells, GridSpec.from_config(cfg).free_height_tol_m
-        ):
-            print(f"WARNING transmitter {problem}")
-        radio.configure_arrays(scene, cfg)
-        self._scene: Any | None = scene
+        ue_file = Path(cfg.data.output.ue_file)
+        if not ue_file.is_file():
+            raise FileNotFoundError(f"No UE table at {ue_file}. Run `task preprocess` first.")
+        self._ue = pd.read_parquet(ue_file)
+        self._capacity = CapacitySpec.from_config(cfg, self.band_labels, len(self.space.cells))
+        self._scene = radio.load_scene(cfg, self.space.cells)
 
     def __enter__(self) -> Evaluator:
         """Return the evaluator, ready to score."""
@@ -142,12 +139,12 @@ class Evaluator:
     @property
     def band_labels(self) -> tuple[str, ...]:
         """Band names in the radio map's band-axis order."""
-        return tuple(band.name for band in self._bands)
+        return tuple(band.name for band in self._setup.bands)
 
     @property
     def scenario_id(self) -> str:
         """The scenario every evaluation here belongs to."""
-        return str(self._manifest["scenario_id"])
+        return self._setup.scenario_id
 
     def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
         """Ray-trace this tilt vector and score it.
@@ -160,30 +157,18 @@ class Evaluator:
         if self._scene is None:
             raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
 
-        tilt_deg = np.asarray(tilt_deg, dtype=float).reshape(-1)
+        # A copy, so the result never aliases an array the caller goes on to mutate.
+        tilt_deg = np.array(tilt_deg, dtype=float).reshape(-1)
         cells = self.space.to_cells(tilt_deg)
 
-        # Time here, not from solve_band's elapsed: Dr.Jit is lazy, so work
-        # lands on the first `.rss` read — after solve_band's timer has stopped.
+        # Timed around the whole loop, so per-band scene setup counts as simulator time.
         started = time.perf_counter()
-        rsrp_maps, sinr_maps = [], []
-        for band in self._bands:
-            rsrp, sinr, _elapsed, self._centres, _radio_map = radio.solve_band(
-                self._scene,
-                cells,
-                band,
-                self._solver,
-                self.solver_seed,
-                self._grid_meta,
-                self._height_m,
-                self._power_dbm,
-            )
-            rsrp_maps.append(rsrp)
-            sinr_maps.append(sinr)
+        rsrp, sinr, self._centres, _elapsed = radio.solve_bands(
+            self._scene, cells, self._setup, int(self.solver_seed)
+        )
         seconds = time.perf_counter() - started
 
-        rsrp, sinr = np.stack(rsrp_maps), np.stack(sinr_maps)
-        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg)
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg, spec=self._capacity)
 
         return EvaluationResult(
             tilt_deg=tilt_deg,
@@ -203,23 +188,24 @@ class Evaluator:
             ValueError: When the result carries no map, which means the
                 evaluator was built with ``keep_rsrp=False``.
         """
-        if result.rsrp is None or result.sinr is None:
+        if result.rsrp is None or result.sinr is None or self._centres is None:
             raise ValueError(
                 "this result carries no radio map. Build the Evaluator with keep_rsrp=True, "
                 "or re-evaluate the winning tilt with one that does."
             )
 
+        setup = self._setup
         return radio.write_radio_map(
             path,
             rsrp=result.rsrp,
             sinr=result.sinr,
-            bands=self._bands,
+            bands=setup.bands,
             cells=self.space.to_cells(result.tilt_deg),
-            grid_meta=self._grid_meta,
-            solver_spec=self._solver,
-            solver_seed=self.solver_seed,
-            height_m=self._height_m,
-            power_dbm=self._power_dbm,
-            scenario_id=self.scenario_id,
+            grid_meta=setup.grid_meta,
+            solver_spec=setup.solver,
+            solver_seed=int(self.solver_seed),
+            height_m=setup.height_m,
+            power_dbm=setup.power_dbm,
+            scenario_id=setup.scenario_id,
             centres=self._centres,
         )

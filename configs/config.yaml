@@ -13,7 +13,7 @@ seed: 42
 # in .env wins. SQLite, not ./mlruns: MLflow 3.x refuses the file store unless
 # MLFLOW_ALLOW_FILE_STORE is set. Artifacts still land in ./mlruns.
 mlflow:
-  enabled: true
+  enabled: false
   tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,sqlite:///mlflow.db}
   experiment_name: band-tilt
 

@@ -4,6 +4,6 @@
 name: rule
 
 # Tilt values tried per band, per pass, spanning that band's bounds.
-n_steps: 5
+n_steps: 10
 # Coordinate-descent passes over the bands.
-n_rounds: 2
+n_rounds: 4

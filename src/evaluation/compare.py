@@ -12,7 +12,13 @@ from scipy import stats
 
 from src.evaluation import maps
 from src.evaluation.runs import Run
-from src.kpi.capacity import CapacitySpec, finite, max_rsrp, prb_by_interval, serve_intervals
+from src.kpi.capacity import (
+    CapacitySpec,
+    covered,
+    finite,
+    prb_by_interval,
+    serve_intervals,
+)
 from src.kpi.hole import hole_rate
 from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max, utilisation
 from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
@@ -554,7 +560,7 @@ def experiment_setup(
             f"{float(cfg.kpi.capacity.max_admission_utilisation):g}",
         ),
         (
-            "Objective band priority",
+            "Serving band priority",
             ", ".join(display_name(str(band)) for band in cfg.kpi.capacity.band_preference),
         ),
     ]
@@ -688,18 +694,18 @@ def overlap_neighbour_summary(
     rows = []
     for name, config in configurations.items():
         counts = overlap_neighbors(config.rsrp, cfg)
-        covered = counts[max_rsrp(config.rsrp) > float(cfg.kpi.hole_dbm)]
-        if covered.size == 0:
-            covered = np.array([np.nan])
+        on_covered = counts[covered(config.rsrp, cfg)]
+        if on_covered.size == 0:
+            on_covered = np.array([np.nan])
         rows.append(
             {
                 "configuration": name,
-                "mean_neighbours_covered": float(covered.mean()),
+                "mean_neighbours_covered": float(on_covered.mean()),
                 "mean_neighbours_all": float(counts.mean()),
-                "share_0_neighbours": float((covered == 0).mean()),
-                "share_1_neighbours": float((covered == 1).mean()),
-                "share_2_neighbours": float((covered == 2).mean()),
-                "share_3plus_neighbours": float((covered >= 3).mean()),
+                "share_0_neighbours": float((on_covered == 0).mean()),
+                "share_1_neighbours": float((on_covered == 1).mean()),
+                "share_2_neighbours": float((on_covered == 2).mean()),
+                "share_3plus_neighbours": float((on_covered >= 3).mean()),
             }
         )
     return pd.DataFrame(rows)

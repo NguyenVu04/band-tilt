@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -122,70 +123,127 @@ class SolverSpec:
         )
 
 
-def solve(cfg: DictConfig) -> Path:
-    """Solve every band's radio map and write them. Returns the output path."""
-    manifest = read_manifest(cfg)
-    grid_meta = manifest["grid"]
-    cells = transmitter.load(cfg)
-    bands = tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands)
-    solver_spec = SolverSpec.from_config(cfg)
-    power_dbm = float(cfg.simulation.antenna.power_rs)
-    height_m = float(cfg.simulation.ue.height_m)
+@dataclass(frozen=True)
+class RadioSetup:
+    """Everything a solve reads from the config and the manifest; none of it depends on tilt.
 
+    Shared by :func:`solve` and :class:`src.optim.evaluator.Evaluator`, so the
+    baseline map and every candidate are solved under the same settings.
+
+    Attributes:
+        scenario_id: The scenario the manifest describes.
+        grid_meta: The manifest's ``grid`` block: origin, tile size, shape.
+        bands: ``simulation.radio_map.bands``, in radio-map band-axis order.
+        solver: The ray-tracing settings.
+        height_m: UE height, where the map is measured.
+        power_dbm: Per-resource-element reference power.
+    """
+
+    scenario_id: str
+    grid_meta: dict[str, Any]
+    bands: tuple[Band, ...]
+    solver: SolverSpec
+    height_m: float
+    power_dbm: float
+
+    @classmethod
+    def from_config(cls, cfg: DictConfig) -> RadioSetup:
+        """Read the manifest and ``simulation``; raises as :func:`read_manifest`."""
+        manifest = read_manifest(cfg)
+        return cls(
+            scenario_id=str(manifest["scenario_id"]),
+            grid_meta=manifest["grid"],
+            bands=tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands),
+            solver=SolverSpec.from_config(cfg),
+            height_m=float(cfg.simulation.ue.height_m),
+            power_dbm=float(cfg.simulation.antenna.power_rs),
+        )
+
+
+def load_scene(cfg: DictConfig, cells: tuple[Cell, ...]) -> Any:
+    """Load the scene, warn about masts off open ground, and attach the antenna arrays."""
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
-
-    _check_tilt_table(cells, bands)
-
-    problems = transmitter.validate(
+    for problem in transmitter.validate(
         scene.mi_scene, bounds, cells, GridSpec.from_config(cfg).free_height_tol_m
-    )
-    for problem in problems:
+    ):
         print(f"WARNING transmitter {problem}")
-
     configure_arrays(scene, cfg)
-    maps = []
-    sinr_maps = []
-    centres = None
-    for band in bands:
-        rsrp, sinr, elapsed, centres, _radio_map = solve_band(
+    return scene
+
+
+def solve_bands(
+    scene: Any, cells: tuple[Cell, ...], setup: RadioSetup, solver_seed: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[float]]:
+    """Solve every band with :func:`solve_band`.
+
+    Returns RSRP and SINR stacked to ``[n_band, n_tx, n_rows, n_cols]``, the
+    solver's tile centres, and each band's elapsed seconds.
+    """
+    rsrp_maps, sinr_maps, elapsed = [], [], []
+    centres = np.empty(0)
+    for band in setup.bands:
+        rsrp, sinr, seconds, centres = solve_band(
             scene,
             cells,
             band,
-            solver_spec,
-            seeds.stream(cfg, "solver"),
-            grid_meta,
-            height_m,
-            power_dbm,
+            setup.solver,
+            solver_seed,
+            setup.grid_meta,
+            setup.height_m,
+            setup.power_dbm,
         )
-        maps.append(rsrp)
+        rsrp_maps.append(rsrp)
         sinr_maps.append(sinr)
+        elapsed.append(seconds)
+    return np.stack(rsrp_maps), np.stack(sinr_maps), centres, elapsed
+
+
+def solve(cfg: DictConfig) -> Path:
+    """Solve every band's radio map and write them. Returns the output path."""
+    setup = RadioSetup.from_config(cfg)
+    cells = transmitter.load(cfg)
+    _check_tilt_table(cells, setup.bands)
+    solver_seed = seeds.stream(cfg, "solver")
+
+    scene = load_scene(cfg, cells)
+    rsrp, sinr, centres, elapsed = solve_bands(scene, cells, setup, solver_seed)
+    for band, band_rsrp, seconds in zip(setup.bands, rsrp, elapsed, strict=True):
+        tilts = [cell.tilt_for(band.name).baseline_deg for cell in cells]
         # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
-        served = np.isfinite(rsrp).any(axis=0)
-        best = np.nanmax(rsrp[:, served], axis=0)
-        tilts = [cell.tilt_for(band.name).baseline_deg for cell in cells]
+        served = np.isfinite(band_rsrp).any(axis=0)
+        best = np.nanmax(band_rsrp[:, served], axis=0)
+        span = f"{best.min():6.1f} to {best.max():6.1f} dBm" if best.size else "none"
         print(
-            f"{band.name:>8s}  tilt {min(tilts):4.1f}-{max(tilts):4.1f} deg  {elapsed:6.1f}s  "
-            f"tiles reached {served.mean():6.1%}  "
-            f"best server {best.min():6.1f} to {best.max():6.1f} dBm"
+            f"{band.name:>8s}  tilt {min(tilts):4.1f}-{max(tilts):4.1f} deg  {seconds:6.1f}s  "
+            f"tiles reached {served.mean():6.1%}  best server {span}"
         )
 
     path = write_radio_map(
         cfg.simulation.output.radio_map_file,
-        rsrp=np.stack(maps),
-        sinr=np.stack(sinr_maps),
-        bands=bands,
+        rsrp=rsrp,
+        sinr=sinr,
+        bands=setup.bands,
         cells=cells,
-        grid_meta=grid_meta,
-        solver_spec=solver_spec,
-        solver_seed=seeds.stream(cfg, "solver"),
-        height_m=height_m,
-        power_dbm=power_dbm,
-        scenario_id=str(manifest["scenario_id"]),
+        grid_meta=setup.grid_meta,
+        solver_spec=setup.solver,
+        solver_seed=solver_seed,
+        height_m=setup.height_m,
+        power_dbm=setup.power_dbm,
+        scenario_id=setup.scenario_id,
         centres=centres,
     )
-    print(f"radio map: {path}  shape {np.stack(maps).shape} [band, tx, row, col]")
+    print(f"radio map: {path}  shape {rsrp.shape} [band, tx, row, col]")
     return path
+
+
+def baseline_tilts(cells: tuple[Cell, ...], band_names: Sequence[str]) -> np.ndarray:
+    """Each cell's baseline tilt, ``[n_band, n_tx]``: a radio map's ``tilt_deg`` array.
+
+    Raises:
+        KeyError: When a cell carries no tilt for one of the bands.
+    """
+    return np.array([[cell.tilt_for(band).baseline_deg for cell in cells] for band in band_names])
 
 
 def write_radio_map(
@@ -201,7 +259,7 @@ def write_radio_map(
     height_m: float,
     power_dbm: float,
     scenario_id: str,
-    centres: np.ndarray | None,
+    centres: np.ndarray,
 ) -> Path:
     """Write one radio map archive; the one schema every map in the project uses.
 
@@ -219,9 +277,7 @@ def write_radio_map(
         # One tilt per cell-band pair, [band, tx], matching rsrp_dbm's leading
         # two axes. This is the configuration the map was solved at, so a stored
         # map carries the decision vector that produced it.
-        tilt_deg=np.array(
-            [[cell.tilt_for(band.name).baseline_deg for cell in cells] for band in bands]
-        ),
+        tilt_deg=baseline_tilts(cells, [band.name for band in bands]),
         tx_name=np.array([cell.name for cell in cells]),
         origin_x=grid_meta["origin_x"],
         origin_y=grid_meta["origin_y"],
@@ -264,18 +320,12 @@ def solve_band(
     grid_meta: dict[str, Any],
     height_m: float,
     power_dbm: float,
-) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, Any]:
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     """Solve one band.
 
-    Public so that a renderer can re-solve a band against the same scene and
-    keep the live :class:`sionna.rt.RadioMap` the solver returns — the array
-    written by :func:`solve` is a numpy copy that cannot be rendered with
-    :meth:`sionna.rt.Scene.render`.
-
     Returns RSRP ``[n_tx, n_rows, n_cols]`` in dBm, SINR of the same shape in
-    dB, the elapsed seconds, the solver's own tile centres for the alignment
-    check, and the solver's :class:`sionna.rt.RadioMap`. Both maps are NaN
-    where no path reached the tile.
+    dB, the elapsed seconds, and the solver's own tile centres. Both maps are
+    NaN where no path reached the tile.
 
     SINR is :attr:`sionna.rt.RadioMap.sinr`: every other transmitter in the
     scene is interference at full power, plus ``k * T * B`` noise. The scene
@@ -348,7 +398,6 @@ def solve_band(
         np.where(reached, sinr, _NO_PATH),
         elapsed,
         centres,
-        radio_map,
     )
 
 
