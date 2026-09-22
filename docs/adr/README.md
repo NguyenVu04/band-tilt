@@ -84,6 +84,17 @@ On 2026-09-19, again at the maintainer's direction, 0007 was rewritten in place
 and retitled when the demand map moved from requested PRBs to MDT report counts,
 the KDE was removed, and the objective was split into one term per band.
 
+On 2026-09-22, again at the maintainer's direction, every superseded record was
+deleted and the survivors renumbered. The objective records 0006, 0007, 0008,
+0009 and 0010 were deleted, and so was 0011, which had superseded 0010's maximum
+over bands with a contraharmonic mean. What was still in force from 0007 (the
+admission ceiling, the reported KPI set, the capacity model) and from 0010 (the
+per-band utility and `objective_version`) was folded, with 0011, into a new
+0003. The former 0003 became 0002, and the headers of 0001 and 0002 were
+amended to point at the new 0003. This reuses numbers, which departs from the
+rule under *How*: a reference to "ADR 0003" written before this date means the
+TuRBO record, now 0002.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -92,12 +103,9 @@ is the thing these records exist to preserve.
 | # | Title | Status | Date | Rewritten |
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
-| [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted | 2026-08-28 | 2026-09-14 |
-| [0003](0003-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted | 2026-09-13 | 2026-09-14 |
-| [0006](0006-radio-coverage-objective.md) | A radio coverage objective | Superseded by 0007 | 2026-09-17 | 2026-09-17 |
-| [0007](0007-demand-weighted-objective.md) | A per-band demand-weighted objective, a load ceiling, and the reported KPI set | Superseded by 0009 (objective), then 0010 (demand map) | 2026-09-18 | 2026-09-19 |
-| [0008](0008-softplus-coverage-utility.md) | A softplus coverage utility | Superseded by 0009 | 2026-09-19 | — |
-| [0009](0009-effective-coverage-objective.md) | An effective-coverage objective | Superseded by 0010 | 2026-09-20 | — |
-| [0010](0010-monotone-strength-aware-objective.md) | A monotone, strength-aware objective | Proposed | 2026-09-20 | — |
+| [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted, partly superseded by 0003 | 2026-08-28 | 2026-09-14 |
+| [0002](0002-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0003 | 2026-09-13 | 2026-09-14 |
+| [0003](0003-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set | Proposed | 2026-09-22 | — |
 
-0002, 0004 and 0005 are deleted; the numbers are not reused.
+Every other record is deleted and lives in Git history. Numbers were reused
+once, on 2026-09-22; see above.

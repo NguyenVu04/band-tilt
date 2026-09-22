@@ -3,20 +3,22 @@
 The KPI definitions live in :mod:`src.kpi` and are not restated here. What this
 module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
-the objective (docs/adr/0010-monotone-strength-aware-objective.md):
+the objective (docs/adr/0003-contraharmonic-objective-and-kpi-set.md):
 
     J = mean_g effective_coverage(g)
 
-:func:`src.kpi.overlap.effective_coverage` scores every band and keeps the tile's
-best layer: one dominant cell at or above ``kpi.weak_dbm`` is worth 1, a second
-cell inside the overlap margin costs a quarter, and a server barely above
-``kpi.hole_dbm`` is worth near nothing. So J is the share of the grid served
-cleanly and strongly by one cell, bounded in ``[0, 1]``.
+:func:`src.kpi.overlap.effective_coverage` scores every band and takes the
+contraharmonic mean over the tile's layers: one dominant cell at or above
+``kpi.weak_dbm`` is worth 1, a second cell inside the overlap margin costs a
+quarter, and a server barely above ``kpi.hole_dbm`` is worth near nothing. So J
+is the share of the grid served cleanly and strongly by one cell, bounded in
+``[0, 1]``.
 
-Taking the best layer rather than a preferred band is what stops a tilt buying J
-by destroying coverage; see the ADR. The objective has no parameters of its own:
-it reads ``kpi.hole_dbm``, ``kpi.weak_dbm`` and ``kpi.overlap_margin_db``, each
-of which the reported KPIs already define.
+The mean is bounded by the best layer but, unlike a maximum over bands, it is not
+monotone in the layers present: a weak extra layer lowers a tile's score. The
+objective has no parameters of its own: it reads ``kpi.hole_dbm``,
+``kpi.weak_dbm`` and ``kpi.overlap_margin_db``, each of which the reported KPIs
+already define.
 
 :data:`KPI_NAMES` are reported and no selection reads them; ``objective`` is
 stored beside them, so a history is ranked without re-reading a radio map.
@@ -44,7 +46,7 @@ from src.kpi.quality import (
 from src.kpi.served import served_rate
 from src.kpi.weak import weak_rate
 
-# What a deployment reads, in ADR 0007's reporting order: where coverage fails,
+# What a deployment reads, in ADR 0003's reporting order: where coverage fails,
 # how crowded it is, how strong it is, whether the traffic got served, and how
 # the load sits.
 KPI_NAMES = (
@@ -133,19 +135,20 @@ def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
     """Share of the grid served cleanly and strongly by exactly one cell.
 
     The mean of :func:`src.kpi.overlap.effective_coverage` over every tile of the
-    grid. A tile scores its full 1 only when one cell reaches ``kpi.weak_dbm`` on
-    some band with nothing else on that band within ``kpi.overlap_margin_db``. A
-    second cell inside the margin costs it a quarter and a third nearly two
-    thirds; a server just above ``kpi.hole_dbm`` keeps almost none of it. A hole
-    scores 0, and so does a tile the ray tracer found no path to.
+    grid. A band scores its full 1 only when one cell reaches ``kpi.weak_dbm`` on
+    it with nothing else on that band within ``kpi.overlap_margin_db``. A second
+    cell inside the margin costs it a quarter and a third nearly two thirds; a
+    server just above ``kpi.hole_dbm`` keeps almost none of it. The tile takes the
+    contraharmonic mean over bands. A hole scores 0, and so does a tile the ray
+    tracer found no path to.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
         cfg: Composed config; see :func:`src.kpi.overlap.effective_coverage`.
 
     Returns:
-        A value in ``[0, 1]``, reaching 1 only if every tile of the grid has one
-        server at or above ``kpi.weak_dbm``. Maximised.
+        A value in ``[0, 1]``, reaching 1 only if every covered band on every
+        tile has one server at or above ``kpi.weak_dbm``. Maximised.
     """
     return float(effective_coverage(rsrp, cfg).mean())
 

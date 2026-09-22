@@ -73,19 +73,20 @@ from the incumbent configuration. Ten reported KPIs - the hole, overlap and
 weak rates, overlapping neighbours per covered tile, the 5th-percentile and
 median RSRP and SINR, the served UE rate and cell load imbalance - are measured
 for every candidate through [`src/kpi/`](src/kpi/), over all bands and per band
-([ADR 0007](docs/adr/0007-demand-weighted-objective.md)). The search maximises
+([ADR 0003](docs/adr/0003-contraharmonic-objective-and-kpi-set.md)). The search maximises
 one objective,
-`J = mean_g max_b lambda_bg * exp(1 - lambda_bg) * s_bg`
-([ADR 0010](docs/adr/0010-monotone-strength-aware-objective.md)). `lambda_bg`
+`J = mean_g sum_b u_bg^2 / sum_b u_bg` with
+`u_bg = lambda_bg * exp(1 - lambda_bg) * s_bg`
+([ADR 0003](docs/adr/0003-contraharmonic-objective-and-kpi-set.md)). `lambda_bg`
 counts the cells contending to serve tile `g` on band `b`: that band's strongest
 above `kpi.hole_dbm`, plus every co-band cell within `kpi.overlap_margin_db` of
 it. `lambda e^(1 - lambda)` is worth exactly 1 when one cell dominates, 0.74 when
 a second crowds it, and 0 where nothing covers the tile. `s_bg` scales that by how
 far the band's strongest sits between `kpi.hole_dbm` and `kpi.weak_dbm`, clipped
 to `[0, 1]`, so a server barely out of a hole scores near nothing. Each tile takes
-its best band, which keeps `J` monotone in the layers present - no tilt can buy
-`J` by destroying coverage - so `J` is the share of the grid *effectively covered*,
-in `[0, 1]`. The objective has no parameters of its own.
+the contraharmonic mean of its bands' `u_bg`, which is bounded by its best band
+but, unlike a maximum over bands, is not monotone in the layers present: a weak extra layer lowers it. `J`
+is the share of the grid *effectively covered*, in `[0, 1]`. The objective has no parameters of its own.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE by
 band preference then RSRP, admitting UEs in report-time order and refusing any
 admission that would carry a cell-band past
@@ -248,7 +249,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. The objective has no block of its own: it reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`, and `objective_version` guards its functional form, which lives in code ([ADR 0010](docs/adr/0010-monotone-strength-aware-objective.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the served rate, the load measures and PRB demand. The objective has no block of its own: it reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`, and `objective_version` guards its functional form, which lives in code ([ADR 0003](docs/adr/0003-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the three processed tables (UE, MDT, cell) |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -354,7 +355,7 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 (the solutions offered for choice). `src/evaluation/` compares those.
 
 The solutions offered are the incumbent plus the highest objectives
-(ADR 0009). `optim.n_solutions` sets how many, 4 by default,
+(ADR 0002). `optim.n_solutions` sets how many, 4 by default,
 always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row

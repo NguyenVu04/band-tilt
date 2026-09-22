@@ -325,7 +325,7 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     not measure the same thing. The RSRP and SINR percentiles are not here
     because they are constants in :mod:`src.kpi.quality` and no run can differ
     on them. ``capacity`` is here for the serving rule behind the served rate and
-    both load measures; the objective no longer reads it (ADR 0010).
+    both load measures; the objective does not read it (ADR 0003).
 
     ``bandwidth`` and ``temperature`` are here because kTB over the band
     bandwidth is the noise floor behind every SINR, and SINR sets the PRBs a UE
@@ -335,8 +335,8 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     ``objective_version`` is the guard for the objective's functional form, which
     lives in code and not in config: the config alone cannot tell two utilities
     apart, so the version is bumped by hand whenever the form changes and that
-    difference is what refuses to pool two scores on different scales. ADR 0009
-    relied instead on its parameter block disappearing, which only worked by
+    difference is what refuses to pool two scores on different scales. An earlier
+    objective relied instead on its parameter block disappearing, which only worked by
     accident. ``objective`` is still read so runs predating the version key,
     which carry the old ``tau_r_db`` / ``beta`` / ``alpha`` block, are refused too.
     """

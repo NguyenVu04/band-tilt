@@ -1,17 +1,18 @@
-# 3. TuRBO on a weighted KPI score
+# 2. TuRBO on a weighted KPI score
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Rewritten:** 2026-09-14 — amendments folded in; the superseded ADR 0002
-  (multi-objective BO on Ax) is removed and lives in Git history.
+- **Rewritten:** 2026-09-14 — amendments folded in; the superseded record on
+  multi-objective BO on Ax is removed and lives in Git history.
+- **Renumbered:** 2026-09-22 — formerly 0003; see [the README](README.md).
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0006](0006-radio-coverage-objective.md) — TuRBO, the matched budgets
+  [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md) — TuRBO, the matched budgets
   and highest-score selection stand; the weighted score it optimizes and
-  selects by is replaced by the coverage objective, and `kpi.weights`
-  and the weight-sensitivity table are deleted. The intermediate ADRs 0004 and
-  0005 are in Git history.
+  selects by is replaced by that record's objective, and `kpi.weights`
+  and the weight-sensitivity table are deleted. The intermediate objective
+  records are in Git history.
 
 ## Context
 

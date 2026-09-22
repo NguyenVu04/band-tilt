@@ -368,7 +368,9 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
     axes[0].set_title("Proposed against current tilt")
     axes[0].legend(fontsize=8, title="Band")
 
-    order = best_tilt.sort_values("delta_tilt_deg")
+    # Band in table order, then cell; a stable sort keeps the table's cell order.
+    bands = list(dict.fromkeys(best_tilt["band"]))
+    order = best_tilt.sort_values("band", key=lambda s: s.map(bands.index), kind="stable")
     axes[1].barh(
         range(len(order)),
         order["delta_tilt_deg"],
@@ -379,6 +381,7 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
         [f"{cell} {label(band)}" for cell, band in zip(order["cell"], order["band"], strict=True)],
         fontsize=6,
     )
+    axes[1].invert_yaxis()
     axes[1].axvline(0, color="0.4", lw=1)
     axes[1].set_xlabel("Tilt change [°] (negative: uptilt, positive: downtilt)")
     axes[1].set_title("Tilt change per cell and band")

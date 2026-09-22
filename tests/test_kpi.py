@@ -207,11 +207,10 @@ def _u(multiplicity: float) -> float:
     return multiplicity * math.exp(1.0 - multiplicity)
 
 
-def test_effective_coverage_takes_the_best_band_not_the_preferred_one(cfg) -> None:
-    """'hi' is preferred and crowded on tile 0; 'lo' is clean there and wins it.
+def test_effective_coverage_is_the_contraharmonic_mean_over_bands(cfg) -> None:
+    """Tile 0: 'hi' crowded, 'lo' clean. Tile 1: 'hi' clean, 'lo' at two-thirds strength.
 
-    Both bands sit at or above weak_dbm, so the strength factor is 1 throughout
-    and the comparison is between the multiplicities alone.
+    Each band is weighted by its own utility, so neither tile reaches its best band.
     """
     rsrp = _map(
         [
@@ -219,7 +218,10 @@ def test_effective_coverage_takes_the_best_band_not_the_preferred_one(cfg) -> No
             [[-90.0, -100.0], [-110.0, -130.0]],
         ]
     )
-    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([_u(1.0), _u(1.0)])
+    crowded, clean, weaker = _u(2.0), _u(1.0), _u(1.0) * 2.0 / 3.0
+    tile_0 = (crowded**2 + clean**2) / (crowded + clean)
+    tile_1 = (clean**2 + weaker**2) / (clean + weaker)
+    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([tile_0, tile_1])
 
 
 def test_effective_coverage_counts_neighbours_within_the_winning_band(cfg) -> None:
@@ -250,10 +252,11 @@ def test_effective_coverage_does_not_reward_strength_above_the_weak_threshold(cf
 
 
 def test_losing_a_layer_never_raises_effective_coverage(cfg) -> None:
-    """The monotonicity ADR 0010 exists for: a tilt must not pay by killing a band.
+    """Losing a band that scores at or above the tile's score never raises it.
 
     Stripping the crowded preferred band would once have moved the tile onto a
-    clean lower band and scored it higher.
+    clean lower band and scored it higher. Under ADR 0003, shedding a band that
+    scores below the tile's score does raise it.
     """
     crowded = _map([[[-80.0], [-82.0]], [[-100.0], [-130.0]]])
     stripped = crowded.copy()

@@ -8,14 +8,13 @@
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0006](0006-radio-coverage-objective.md) — the four definitions below
-  stand and are reported, but the objective is no longer built from them. See
-  Amendment. Then by
-  [ADR 0007](0007-demand-weighted-objective.md) — the served ratio is renamed
-  `served_rate`, `edge_rsrp_dbm` becomes `rsrp_p05_dbm` beside a median and two
-  SINR percentiles, six more measures join them, and the admission cap becomes a
-  ceiling; see Amendment 2. The amendments for the deleted ADRs 0004 and 0005
-  are in Git history.
+  [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md) — the four definitions below
+  stand and are reported, but the objective is not built from them, the served
+  ratio is renamed `served_rate`, six more measures join them, and the admission
+  cap is a ceiling; see the Amendments. The amendments for deleted records are
+  in Git history.
+- **Amended:** 2026-09-22 — references repointed when the superseded objective
+  records were deleted and the survivors renumbered; see [the README](README.md).
 
 ## Context
 
@@ -46,15 +45,14 @@ The objective is exactly four KPIs, defined in `src/kpi/` and nowhere else:
 
 The column order, **Hole > Overlap > Served > Weak**, is the reporting order
 and the order of the default weights. Selection is the weighted score of
-[ADR 0003](0003-turbo-on-a-weighted-kpi-score.md), not a lexicographic rule.
+[ADR 0002](0002-turbo-on-a-weighted-kpi-score.md), not a lexicographic rule.
 
-## Amendment (2026-09-17, ADR 0006)
+## Amendment (2026-09-17)
 
 The four definitions above are unchanged. What changed around them:
 
-- **None of them is the objective.** The search maximises the coverage
-  objective of [ADR 0006](0006-radio-coverage-objective.md); the KPIs are
-  measured and reported beside it.
+- **None of them is the objective.** The search maximises the objective of
+  [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md); the KPIs are measured and reported beside it.
 - **A fifth KPI is measured**: `edge_rsrp_dbm`, the 5th-percentile serving
   RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). It is conditional
   on coverage, so it is read beside the hole rate.
@@ -76,7 +74,7 @@ three rates are shares of the map; the served ratio is a share of the traffic.
 **Accessibility is excluded** as a KPI: synthetic MDT carries RSRP and position,
 not connection outcomes, and Sionna-RT models propagation, not random access.
 
-## Amendment 2 (2026-09-18, ADR 0007)
+## Amendment 2 (2026-09-18)
 
 The four definitions above still stand; what is reported around them changed.
 
@@ -86,13 +84,14 @@ The four definitions above still stand; what is reported around them changed.
   after it.
 - **Six more measures**: `overlap_neighbor_mean`, `rsrp_p50_dbm`,
   `sinr_p05_db`, `sinr_p50_db`, `prb_utilisation_max` and `load_imbalance`.
-  Every one of the eleven is also reported per frequency layer.
+  Every one is also reported per frequency layer. `prb_utilisation_max` has
+  since left the reported set ([ADR 0003](0003-contraharmonic-objective-and-kpi-set.md)).
 - **The admission rule** is a ceiling, not a gate: a cell-band refuses a UE
   whose PRBs would carry it past `kpi.capacity.max_admission_utilisation` of
   `max_prb`, so no cell-band ever ends an interval above that share. The
   paragraph above describing a cell-band "already loaded past" the share
   describes the superseded rule.
-- **The objective** is demand-weighted. See ADR 0007.
+- **The objective** is [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md)'s.
 
 ## Consequences
 
@@ -124,7 +123,7 @@ than *whether* the UE was served.
 
 **Full multi-objective optimization, reporting a Pareto front.** Rejected
 because the deliverable is one tilt configuration, and picking from a
-four-dimensional front needs a preference anyway; see ADR 0003.
+four-dimensional front needs a preference anyway; see ADR 0002.
 
 **Constrained optimization** (maximise served ratio subject to a hole-rate cap).
 Clean and directly deployable, but the sensible cap is not known before seeing

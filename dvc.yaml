@@ -163,7 +163,7 @@ stages:
   # kpi is a param because the measures read the KPI thresholds and the capacity
   # model: change any and every previous run becomes incomparable. kpi.objective_version
   # is in there too, and is what refuses to pool runs scored by different
-  # objectives, since the objective's form is in code (ADR 0010).
+  # objectives, since the objective's form is in code (ADR 0003).
   optimization:
     cmd: python -m src.optim.run
     deps:

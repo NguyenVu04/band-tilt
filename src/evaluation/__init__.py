@@ -32,7 +32,7 @@ the tile-weighted rates. The two can disagree sharply, because a hole need not
 fall where anyone stands, and that difference is why both are printed.
 
 Neither is the objective. The search maximises the tile-uniform effective
-coverage of docs/adr/0010-monotone-strength-aware-objective.md, which reads no
+coverage of docs/adr/0003-contraharmonic-objective-and-kpi-set.md, which reads no
 demand at all, so the UE-weighted view here answers a question no score asks -
 which is why it is printed rather than optimised. The thresholds
 separating hole, weak and good are read from ``cfg.kpi``, never restated here,

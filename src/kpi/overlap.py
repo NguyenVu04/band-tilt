@@ -4,9 +4,9 @@ The overlap rule is CO-BAND: within one band, the strongest transmitter serves
 and the other transmitters on that same band are its neighbours. Two carriers of
 one cell are therefore never neighbours of each other.
 
-:func:`effective_coverage` reads those same counts on every band and keeps the
-best layer. It is what the objective scores
-(docs/adr/0010-monotone-strength-aware-objective.md).
+:func:`effective_coverage` reads those same counts on every band and takes their
+contraharmonic mean. It is what the objective scores
+(docs/adr/0003-contraharmonic-objective-and-kpi-set.md).
 """
 
 from __future__ import annotations
@@ -62,20 +62,21 @@ def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
 
 
 def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
-    """How well each tile is served, on its best layer, in ``[0, 1]``.
+    """How well each tile is served, over its layers, in ``[0, 1]``.
 
     Per band, ``lambda_b = 1 + `` :func:`overlap_neighbors_per_band` where the band
     clears ``cfg.kpi.hole_dbm``, and ``lambda_b e^(1 - lambda_b)`` peaks at exactly
     1 for a single dominant cell. That is scaled by how far the band's strongest
     cell sits between ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``, so a server
     barely above the hole threshold scores near nothing and one at or above the
-    weak threshold scores in full. The tile takes its best band.
+    weak threshold scores in full. The tile takes the contraharmonic mean of those
+    per-band utilities, ``sum_b u_b^2 / sum_b u_b``.
 
-    Taking the maximum rather than a preferred band is what makes the measure
-    monotone in the layers present: losing a layer can only lower a tile's score,
-    and no tilt can pay by destroying coverage. Scoring the preferred band instead
-    made the score depend on which band the tilts left standing
-    (docs/adr/0010-monotone-strength-aware-objective.md).
+    Each band is weighted by its own utility, so the result never exceeds the best
+    band and an uncovered band carries no weight.
+    Unlike a maximum over bands, it is not monotone in the layers present: a
+    covered layer weaker than the rest lowers the tile's score, so removing it
+    can raise it.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
@@ -93,7 +94,10 @@ def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     strongest = finite(rsrp).max(axis=1)
     multiplicity = np.where(strongest > hole_dbm, overlap_neighbors_per_band(rsrp, cfg) + 1.0, 0.0)
     strength = np.clip((strongest - hole_dbm) / (weak_dbm - hole_dbm), 0.0, 1.0)
-    return (multiplicity * np.exp(1.0 - multiplicity) * strength).max(axis=0)
+    utility = multiplicity * np.exp(1.0 - multiplicity) * strength
+    total = utility.sum(axis=0)
+    # 0/0 on a tile no band covers; it scores 0.
+    return np.divide((utility**2).sum(axis=0), total, out=np.zeros_like(total), where=total > 0.0)
 
 
 def overlap_neighbor_mean(rsrp: np.ndarray, cfg: DictConfig) -> float:

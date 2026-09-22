@@ -139,15 +139,15 @@ def test_a_neighbour_below_the_hole_threshold_does_not_count(cfg) -> None:
     assert _score(marginal, cfg) == pytest.approx(_u(1.0) * (120.0 - 118.0) / 30.0)
 
 
-def test_the_best_band_is_scored_not_the_preferred_one(cfg) -> None:
-    """Strength and cleanliness pick the layer, not kpi.capacity.band_preference.
+def test_bands_are_weighted_by_utility_not_preference(cfg) -> None:
+    """Strength and cleanliness weight the layers, not kpi.capacity.band_preference.
 
-    'hi' is barely covered and alone; 'lo' is 49 dB stronger and crowded. ADR 0009
-    scored 'hi' because it is preferred and covered, which is the asymmetry that
-    let a tilt pay for killing a layer. ADR 0010 takes whichever scores higher.
+    'hi' is barely covered and alone; 'lo' is 49 dB stronger and crowded. The
+    contraharmonic mean leans on 'lo', and the marginal 'hi' still pulls it down.
     """
     rsrp = _map([[-119.0, -130.0], [-70.0, -71.0]])
-    assert _score(rsrp, cfg) == pytest.approx(_u(2.0))
+    hi, lo = _u(1.0) / 30.0, _u(2.0)
+    assert _score(rsrp, cfg) == pytest.approx((hi**2 + lo**2) / (hi + lo))
 
 
 def test_a_band_that_goes_dark_leaves_the_other_untouched(cfg) -> None:
@@ -172,15 +172,15 @@ def test_the_objective_is_bounded_by_one(cfg) -> None:
     assert _score(rsrp, cfg) == pytest.approx(1.0)
 
 
-# --- what ADR 0010 changed --------------------------------------------------
+# --- losing a layer ----------------------------------------------------------
 
 
 def test_losing_a_band_never_raises_the_objective(cfg) -> None:
-    """A tilt must not buy J by destroying coverage.
+    """Losing a band that scores at or above the tile's score never raises it.
 
-    Under the ADR 0009 objective this map scored on the preferred band alone, so
-    stripping a crowded 'hi' layer moved the tile onto a clean 'lo' and paid for
-    it. Scoring the best band instead makes the loss of a layer weakly negative.
+    Scoring the preferred band alone would have moved this tile onto a clean 'lo'
+    and paid for stripping the crowded 'hi'. The general property does not hold
+    under ADR 0003: shedding a band that scores below the tile's score raises it.
     """
     crowded = _map([[-80.0, -82.0, -84.0], [-118.0, -130.0, -130.0]])
     stripped = crowded.copy()

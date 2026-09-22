@@ -7,7 +7,7 @@ else. Adding one is a folder and a registry entry, not an edit to a dispatch
 chain.
 
 ``turbo`` and ``random`` are kept matched on budget and on what they record, so
-where they looked is the only difference between them; ADR 0003.
+where they looked is the only difference between them; ADR 0002.
 """
 
 from __future__ import annotations

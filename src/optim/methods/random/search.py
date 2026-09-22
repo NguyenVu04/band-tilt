@@ -3,7 +3,7 @@
 Matched to :mod:`src.optim.methods.turbo` on evaluations and on what is recorded
 per evaluation, and drawn from the same seeded Sobol sequence as TuRBO's initial
 design, so a difference between the two runs is a difference in where they
-looked; ADR 0003.
+looked; ADR 0002.
 """
 
 from __future__ import annotations

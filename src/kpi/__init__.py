@@ -23,7 +23,7 @@ Shares land in ``[0, 1]``: the three grid rates are minimised,
 are in dBm and dB, :func:`~src.kpi.overlap.overlap_neighbor_mean` is a count and
 :func:`~src.kpi.load.load_imbalance` a coefficient of variation. None of them is
 the search objective; that is :mod:`src.optim.objective`,
-docs/adr/0010-monotone-strength-aware-objective.md, built on
+docs/adr/0003-contraharmonic-objective-and-kpi-set.md, built on
 :func:`~src.kpi.overlap.effective_coverage`, which this package exports beside
 the KPIs because it is the same co-band count read on every band at once.
 

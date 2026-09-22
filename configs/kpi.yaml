@@ -5,19 +5,21 @@
 # The objective has no parameters of its own. It reads the three thresholds
 # below and nothing else:
 #
-#   J = mean_g max_b lambda_bg * exp(1 - lambda_bg) * s_bg
+#   u_bg = lambda_bg * exp(1 - lambda_bg) * s_bg
+#   J    = mean_g sum_b u_bg^2 / sum_b u_bg
 #
 # lambda_bg counts the cells on band b within overlap_margin_db of that band's
 # strongest at tile g, and s_bg is how far that strongest sits between hole_dbm
-# and weak_dbm, clipped to [0, 1]. Taking the best band rather than a preferred
-# one keeps J monotone in the layers present, so no tilt can buy J by destroying
-# coverage. See src/optim/objective.py and
-# docs/adr/0010-monotone-strength-aware-objective.md.
+# and weak_dbm, clipped to [0, 1]. The contraharmonic mean over bands is bounded
+# by the best band but, unlike a maximum over bands, is not monotone in the layers
+# present. See src/optim/objective.py and
+# docs/adr/0003-contraharmonic-objective-and-kpi-set.md.
 
 # Bumped by hand whenever the objective's functional form changes. The form is
 # in code, so this is the only thing src/evaluation/runs.py can compare to stop
-# two runs on different scales being pooled. 2 is ADR 0010.
-objective_version: 2
+# two runs on different scales being pooled. 2 was the maximum over bands; 3
+# is ADR 0003's contraharmonic mean over bands.
+objective_version: 3
 
 # Strongest signal at or below which a location is a coverage hole. Also the
 # RSRP a cell-band must exceed to serve a UE, and the objective's zero: a tile
@@ -41,8 +43,7 @@ overlap_margin_db: 6.0
 # Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
   # Serving band preference, most preferred first. Must list every band. The
-  # serving rule alone reads it; the objective scores every band and keeps the
-  # best (ADR 0010).
+  # serving rule alone reads it; the objective scores every band (ADR 0003).
   band_preference: [b2600, b1800, b700]
   # Below this the preferred band is skipped for the next one. Equal to
   # hole_dbm here, which makes that skip unreachable: a layer that low is not a
