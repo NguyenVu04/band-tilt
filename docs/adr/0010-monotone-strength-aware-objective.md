@@ -182,6 +182,44 @@ non-priority layers drifted worse under every method. Cell load imbalance improv
 under TuRBO (0.9098 → 0.8818), the first configuration in the study to move it the
 right way.
 
+**`s` inverts the hole-versus-crowding exchange rate, and nobody intended that.**
+ADR 0009's utility paid the full 1.000 for any covered tile, so closing a hole
+bought 1.000 against the 0.264 that splitting a clean tile costs — 3.78 holes to
+the crowded tile, strongly hole-seeking. With `s`, a tile that has just crossed
+`T_cov` sits near −120 dBm where `s` is near 0. Measured on this run the average
+newly covered tile is worth **0.09**, so the rate runs the other way: one newly
+crowded strong tile costs about three closed holes.
+
+Decomposing each method's gain against the incumbent shows how little hole-closing
+now contributes:
+
+| | ΔJ | from newly covered | from lost coverage | from stronger `s` | from cleaner `lambda` |
+|---|---:|---:|---:|---:|---:|
+| random | +0.0169 | +0.0003 | −0.0005 | +0.0114 | +0.0058 |
+| rule | +0.0177 | +0.0007 | −0.0000 | +0.0169 | +0.0001 |
+| turbo | +0.0317 | +0.0005 | −0.0002 | +0.0176 | +0.0138 |
+
+Hole-closing is under 2 % of TuRBO's gain and 4 % of the sweep's. This is why the
+sweep beats TuRBO on `hole_rate` (+7.2 % against +3.8 %): it closes 820 tiles to
+TuRBO's 559 as a *side effect* of uptilting whole bands uniformly, not because the
+objective asked. TuRBO takes +0.0138 from reducing contention on each tile's best
+band instead — a move a three-variable sweep cannot make at all, and the whole of
+its margin. `J` is now more a signal-strength measure than a coverage one: rho
+0.918 against `rsrp_p05_dbm` and 0.877 against `weak_rate`, but 0.738 against
+`hole_rate`.
+
+**The reported overlap rate punishes spreading crowding out, which is not
+obviously wrong of the searches.** TuRBO has the *least* total co-band crowding of
+all four configurations (per-band rates summing to 0.6213 against the incumbent's
+0.6472 and the sweep's 0.6449) and the best `overlap_neighbor_mean`. Its
+band-collapsed rate is nonetheless the worst, because the three bands' crowded
+regions stop coinciding: their redundancy — how much the same ground is crowded on
+more than one band — falls from 0.3308 to 0.2613. `overlap_rate` counts tiles
+touched by any crowding, so thinning the same crowding over more tiles scores
+worse. Whether a tile crowded on one band of three is better or worse than a tile
+crowded on all three is a question the KPI cannot express and
+`overlap_neighbor_mean` can.
+
 **One measure went backwards, and it is the one this change was always going to
 cost.** Rho against the band-collapsed `overlap_rate` fell from 0.347 to **0.251**,
 and against `overlap_neighbor_mean` from 0.381 to **0.235** — the two weakest of
