@@ -147,10 +147,12 @@ def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
         cfg: Composed config; see :func:`src.kpi.overlap.effective_coverage`.
 
     Returns:
-        A value in ``[0, 1]``, reaching 1 only if every covered band on every
-        tile has one server at or above ``kpi.weak_dbm``. Maximised.
+        A value in ``[0, 1]``, rounded to 1e-6, reaching 1 only if every covered
+        band on every tile has one server at or above ``kpi.weak_dbm``. Maximised.
     """
-    return float(effective_coverage(rsrp, cfg).mean())
+    # GPU ray-map accumulation order varies the trailing digits, and TuRBO's GP
+    # fit turns any difference in J into a different proposal.
+    return round(float(effective_coverage(rsrp, cfg).mean()), 6)
 
 
 def evaluate_kpis(

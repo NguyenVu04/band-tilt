@@ -189,6 +189,8 @@ same scenario, the same solver settings and the same budgets. Random search
 draws the same seeded Sobol sequence under both objectives. Its 145 candidates
 are therefore **the same tilt configurations with identical KPIs**, so the
 correlations below are a paired comparison of the two objectives on one sample.
+The contraharmonic column's TuRBO figures are from the 2026-09-23 rerun, with
+J rounded to 1e-6. The best-band maximum column was not rerun.
 
 | | best-band maximum | contraharmonic mean |
 |---|---:|---:|
@@ -199,10 +201,10 @@ correlations below are a paired comparison of the two objectives on one sample.
 | rho vs hole rate / served rate | 0.738 / 0.565 | 0.770 / 0.612 |
 | rho vs weak rate / RSRP p05 / SINR p05 | 0.877 / 0.918 / 0.902 | 0.787 / 0.872 / 0.860 |
 | rho vs RSRP p50 / SINR p50 / load imbalance | 0.861 / 0.878 / 0.385 | 0.773 / 0.789 / 0.351 |
-| Tiles where dropping one covered band raises the score, TuRBO winner² | 0 by construction | 0.5003 |
-| Ceiling on that gain, `mean_g (max_b u_bg - J(g))`, TuRBO winner² | 0.0000 | 0.0555 |
-| TuRBO band-collapsed overlap rate (incumbent 0.3164) | 0.3546 | **0.3070** |
-| TuRBO − rule sweep on `J` | +0.0136 | +0.0086 |
+| Tiles where dropping one covered band raises the score, TuRBO winner² | 0 by construction | 0.4934 |
+| Ceiling on that gain, `mean_g (max_b u_bg - J(g))`, TuRBO winner² | 0.0000 | 0.0542 |
+| TuRBO band-collapsed overlap rate (incumbent 0.3164) | 0.3546 | **0.3090** |
+| TuRBO − rule sweep on `J` | +0.0136 | +0.0091 |
 | Rule sweep vs TuRBO, head to head on the 10 KPIs | 8–2 | 6–4 |
 
 ¹ The rank score is the mean over the ten KPIs of each candidate's percentile
@@ -219,11 +221,11 @@ six strength and SINR measures. `J` now tracks crowding better and signal
 strength worse, and its rank-score correlation is marginally lower.
 
 **On the search, overlap is the measure that moved.** TuRBO lowers the
-band-collapsed overlap rate by 3.0 %, where under the maximum it raised it by
-12.1 %. It improves all three bands: 2600 MHz 0.2010 → 0.1899, 1800 MHz
-0.2067 → 0.1976 and 700 MHz 0.2396 → 0.2171. It improves 8 of the 10 KPIs,
+band-collapsed overlap rate by 2.3 %, where under the maximum it raised it by
+12.1 %. It improves all three bands: 2600 MHz 0.2010 → 0.1913, 1800 MHz
+0.2067 → 0.1940 and 700 MHz 0.2396 → 0.2237. It improves 8 of the 10 KPIs,
 against 7 under the maximum, and worsens overlap neighbours per covered tile
-(+3.0 %) and load imbalance (+7.1 %). Random search and the rule sweep still
+(+3.8 %) and load imbalance (+10.7 %). Random search and the rule sweep still
 raise the band-collapsed rate.
 
 **TuRBO's margin comes from contention.** Each winner's gain over the incumbent
@@ -236,19 +238,19 @@ remainder.
 |---|---:|---:|---:|---:|---:|
 | random | +0.0260 | +0.0004 | −0.0001 | +0.0284 | −0.0027 |
 | rule | +0.0312 | +0.0007 | −0.0000 | +0.0459 | −0.0155 |
-| turbo | +0.0398 | +0.0005 | −0.0002 | +0.0384 | +0.0010 |
+| turbo | +0.0402 | +0.0005 | −0.0001 | +0.0394 | +0.0004 |
 
 The sweep's uniform uptilts buy the most strength and pay for it in crowding,
 now that crowding on every layer counts. TuRBO buys less strength and does not
 pay. Hole-closing stays negligible, because a newly covered tile is worth about
-0.09: 598 tiles under TuRBO, 818 under the sweep.
+0.09: 588 tiles under TuRBO, 818 under the sweep.
 
 **What was lost.** Under the maximum, TuRBO's distinctive move was to hand
 traffic from 2600 MHz to 1800 MHz: 16.4 % of UE reports were served on
 1800 MHz, against 10.5 % at the incumbent. Under this objective every method
-concentrates traffic on 2600 MHz (44.6–46.3 %), and 1800 MHz falls to
+concentrates traffic on 2600 MHz (45.1–46.3 %), and 1800 MHz falls to
 6.4–7.1 %. TuRBO's recommended configuration uptilts every 2600 MHz carrier.
-Its four downtilts are three 700 MHz carriers and one 1800 MHz carrier.
+Its five downtilts are three 700 MHz carriers and two 1800 MHz carriers.
 
 ## Alternatives considered
 

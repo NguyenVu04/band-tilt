@@ -136,7 +136,7 @@ def test_the_margin_is_inclusive(cfg) -> None:
 def test_a_neighbour_below_the_hole_threshold_does_not_count(cfg) -> None:
     """Within the margin but unusable: -122 dBm serves nobody, so it crowds nobody."""
     marginal = _map([[-118.0, -122.0]])
-    assert _score(marginal, cfg) == pytest.approx(_u(1.0) * (120.0 - 118.0) / 30.0)
+    assert _score(marginal, cfg) == pytest.approx(_u(1.0) * (120.0 - 118.0) / 30.0, abs=5e-7)
 
 
 def test_bands_are_weighted_by_utility_not_preference(cfg) -> None:
@@ -193,6 +193,11 @@ def test_a_marginal_server_scores_far_below_a_strong_one(cfg) -> None:
     assert _score(_map([[-119.7]]), cfg) == pytest.approx(0.01)
     assert _score(_map([[-105.0]]), cfg) == pytest.approx(0.5)
     assert _score(_map([[-90.0]]), cfg) == pytest.approx(1.0)
+
+
+def test_solver_round_off_does_not_reach_the_objective(cfg) -> None:
+    """A sub-nano-dB change in RSRP leaves J bit-identical."""
+    assert _score(_map([[-105.0 + 1e-9]]), cfg) == _score(_map([[-105.0]]), cfg)
 
 
 # --- selection -------------------------------------------------------------
