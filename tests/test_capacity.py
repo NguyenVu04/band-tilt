@@ -85,6 +85,27 @@ def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
     assert order.tolist() == [1]
 
 
+def test_the_batched_ranking_matches_the_rule_stated_as_a_sort_key() -> None:
+    """Ties, no-path layers and layers at the hole threshold, against a plain sort."""
+    generator = np.random.default_rng(0)
+    rsrp = generator.choice([-130.0, -120.0, -110.0, -100.0, -90.0, np.nan], size=(200, 3, 4))
+    rank = np.array([2, 0, 1])
+    order, heard = capacity._candidate_orders(rsrp, rank, -100.0, -120.0)
+    for location, layers in enumerate(rsrp.reshape(len(rsrp), -1)):
+        # Above the threshold first, by band rank; then by RSRP; then by index.
+        expected = sorted(
+            (index for index, value in enumerate(layers) if value > -120.0),
+            key=lambda i: (
+                layers[i] < -100.0,
+                rank[i // 4] if layers[i] >= -100.0 else 0,
+                -layers[i],
+                i,
+            ),
+        )
+        assert order[location][heard[location]].tolist() == expected
+    assert capacity._candidate_orders(rsrp[:0], rank, -100.0)[0].shape == (0, 12)
+
+
 def test_simultaneous_ues_are_admitted_strongest_first_whatever_the_row_order(cfg) -> None:
     """Room for one 6-PRB UE on 'hi' and no path on 'lo': the -80 dBm UE takes it."""
     cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})

@@ -101,6 +101,18 @@ def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def improvement_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
+    """:func:`delta_table` plus ``improvement_pct``, the change relative to ``before``.
+
+    ``improvement_pct`` is positive when the measure moved in its better
+    direction.
+    """
+    table = delta_table(before, after)
+    sign = np.where(table["kpi"].isin(MAXIMISED), 1.0, -1.0)
+    table["improvement_pct"] = 100.0 * sign * table["delta"] / table["before"].abs()
+    return table
+
+
 def seed_summary(runs: list[Run]) -> pd.DataFrame:
     """Each method's winners, summarised over its seeds, against the incumbent.
 
@@ -526,6 +538,28 @@ def coverage_comparison(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
         )
         merged = part if merged is None else merged.merge(part, on="coverage")
     return merged if merged is not None else pd.DataFrame()
+
+
+def coverage_by_area_and_demand(
+    configurations: Mapping[str, Configuration], cfg: DictConfig
+) -> pd.DataFrame:
+    """:func:`coverage_comparison` of every configuration, with display column names.
+
+    Every configuration is weighed by the ``incumbent`` entry's demand, so the
+    weights do not move with the tilts.
+
+    Raises:
+        KeyError: When ``configurations`` has no ``incumbent``.
+    """
+    demand = configurations["incumbent"].demand
+    coverage = coverage_comparison(
+        {name: maps.coverage_table(c.rsrp, demand, cfg) for name, c in configurations.items()}
+    )
+    coverage.columns = ["coverage"] + [
+        f"{display_name(key)}: {display_name(f'{share}_share')}"
+        for key, share in (column.rsplit("_", 1) for column in coverage.columns[1:])
+    ]
+    return coverage
 
 
 def experiment_setup(

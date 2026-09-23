@@ -223,7 +223,7 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-165 passed
+205 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region, traffic, MDT and node-layout
@@ -438,7 +438,7 @@ task check
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py`, `mdt.py` and
 `transmitter.py` (node positions), `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py` — 165 tests, all passing, none skipped. `src/data/`,
+`src/tracking.py` — 205 tests, all passing, none skipped. `src/data/`,
 `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

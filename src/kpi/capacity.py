@@ -46,9 +46,9 @@ _SUBCARRIERS_PER_PRB = 12
 def band_rank(cfg: DictConfig, band_labels: Sequence[str]) -> np.ndarray:
     """Serving preference of each band, 0 most preferred, aligned to ``band_labels``.
 
-    The serving rule, :func:`src.evaluation.maps.serving_band` and the
-    objective's :func:`src.kpi.overlap.serving_multiplicity` all rank bands by
-    ``kpi.capacity.band_preference``, so it is read in one place.
+    The serving rule and :func:`src.evaluation.maps.serving_band` both rank
+    bands by ``kpi.capacity.band_preference``, so it is read in one place. The
+    objective does not.
 
     Raises:
         ValueError: When a band is absent from ``band_preference``, which would
@@ -270,32 +270,45 @@ def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
         return np.divide(per_ue_bps, np.asarray(rate_bps, dtype=float))
 
 
-def _candidate_order(
+def _candidate_orders(
     rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
-) -> np.ndarray:
-    """Cell-bands one location may be served by, most preferred first.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cell-bands each location may be served by, most preferred first.
 
     Args:
-        rsrp: ``[n_band, n_tx]`` RSRP in dBm at one location, NaN where no path.
+        rsrp: ``[n_loc, n_band, n_tx]`` RSRP in dBm, NaN where no path.
         band_rank: Preference per band, 0 most preferred.
         threshold_dbm: The RSRP a layer needs to be taken on band preference.
         min_rsrp_dbm: A layer at or below this is left out.
 
     Returns:
-        Flat indices into ``rsrp``: layers at or above the threshold by band
-        preference then RSRP, followed by the rest by RSRP. No-path layers and
-        layers at or below ``min_rsrp_dbm`` are left out. The first entry is the
-        rule's choice before capacity.
+        ``(order, heard)``, each ``[n_loc, n_band * n_tx]``. ``order`` holds flat
+        layer indices: layers at or above the threshold by band preference then
+        RSRP, followed by the rest by RSRP. ``heard`` marks, in that same order,
+        the entries that are candidates at all; no-path layers and layers at or
+        below ``min_rsrp_dbm`` sort last and are unmarked.
     """
-    flat = rsrp.ravel()
-    band = np.repeat(np.arange(rsrp.shape[0]), rsrp.shape[1])
+    flat = rsrp.reshape(rsrp.shape[0], rsrp.shape[1] * rsrp.shape[2])
+    band = np.repeat(np.arange(rsrp.shape[1]), rsrp.shape[2])
     # NaN compares False, so no-path layers drop out here too.
     heard = flat > min_rsrp_dbm
     above = heard & (flat >= threshold_dbm)
     strength = np.where(heard, -flat, np.inf)
-    # np.lexsort sorts by the last key first.
-    order = np.lexsort((strength, np.where(above, band_rank[band], 0), ~above))
-    return order[heard[order]]
+    # np.lexsort sorts by the last key first, and is stable, so equal keys keep
+    # flat-index order.
+    order = np.lexsort((strength, np.where(above, band_rank[band], 0), ~above), axis=-1)
+    return order, np.take_along_axis(heard, order, axis=-1)
+
+
+def _candidate_order(
+    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
+) -> np.ndarray:
+    """:func:`_candidate_orders` at one ``[n_band, n_tx]`` location, candidates only.
+
+    The first entry is the rule's choice before capacity.
+    """
+    order, heard = _candidate_orders(rsrp[None], band_rank, threshold_dbm, min_rsrp_dbm)
+    return order[0][heard[0]]
 
 
 def _select_serving(
@@ -328,12 +341,15 @@ def _select_serving(
     # np.lexsort sorts by the last key first, and is stable, so row order breaks
     # a UE pair tied on both time and strength.
     admission_order = np.lexsort((-strongest, t_s))
-    # Python loop over UEs, run for every candidate; vectorise if serving dominates.
+    orders, heard = _candidate_orders(
+        rsrp, spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
+    )
+    need = need.reshape(n_ue, n_band * n_tx)
+    # The ranking is vectorised above; admission stays a loop because each UE
+    # sees the load the earlier ones left.
     for ue in admission_order:
-        ue_need = need[ue].ravel()
-        order = _candidate_order(
-            rsrp[ue], spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
-        )
+        ue_need = need[ue]
+        order = orders[ue][heard[ue]]
         order = order[np.isfinite(ue_need[order])]
         if order.size == 0:
             continue

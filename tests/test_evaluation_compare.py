@@ -364,3 +364,48 @@ def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
     assert hot.loc[(0, "hi")] == pytest.approx(0.4)
     assert hot.loc[(1, "lo")] == pytest.approx(0.5)
     assert hot.loc[(1, "hi")] == pytest.approx(0.0)
+
+
+def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:
+    """A halved hole rate is +50 %; a served rate up by a tenth of itself is +10 %."""
+    after = dataclasses.replace(
+        incumbent, hole_rate=incumbent.hole_rate / 2, served_rate=incumbent.served_rate * 1.1
+    )
+    table = compare.improvement_table(incumbent, after).set_index("kpi")
+    assert table.loc["hole_rate", "improvement_pct"] == pytest.approx(50.0)
+    assert table.loc["served_rate", "improvement_pct"] == pytest.approx(10.0)
+    assert table.loc["weak_rate", "improvement_pct"] == 0.0
+
+
+def test_coverage_by_area_and_demand_weighs_every_map_by_the_incumbents_demand(
+    cfg: DictConfig,
+) -> None:
+    """Tile 0 holds all the demand; it is a hole before and good after."""
+    before = np.array([[[[-130.0, -80.0]]]])
+    after = np.array([[[[-80.0, -130.0]]]])
+
+    def config(rsrp: np.ndarray, demand: np.ndarray) -> compare.Configuration:
+        return compare.Configuration(
+            rsrp=rsrp,
+            sinr=rsrp,
+            served=pd.DataFrame(),
+            demand=demand,
+            t_values=np.zeros(0, dtype=int),
+            prb=np.zeros((0, 1, 1)),
+        )
+
+    table = compare.coverage_by_area_and_demand(
+        {
+            "incumbent": config(before, np.array([[1.0, 0.0]])),
+            "turbo": config(after, np.array([[0.0, 1.0]])),
+        },
+        cfg,
+    ).set_index("coverage")
+    assert list(table.columns) == [
+        "Current configuration: Share of area",
+        "Current configuration: Share of demand",
+        "TuRBO: Share of area",
+        "TuRBO: Share of demand",
+    ]
+    assert table.loc["hole", "Current configuration: Share of demand"] == 1.0
+    assert table.loc["good", "TuRBO: Share of demand"] == 1.0

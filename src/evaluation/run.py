@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
-from src.evaluation import compare, maps, plots
+from src.evaluation import compare, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import CapacitySpec, max_rsrp
@@ -147,16 +147,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
             name=winner.method,
         ),
     )
-    # Every configuration weighed by the incumbent's demand, so the weights do not move.
-    demand = configurations["incumbent"].demand
-    coverage = compare.coverage_comparison(
-        {name: maps.coverage_table(c.rsrp, demand, cfg) for name, c in configurations.items()}
-    )
-    coverage.columns = ["coverage"] + [
-        f"{label(key)}: {label(f'{share}_share')}"
-        for key, share in (column.rsplit("_", 1) for column in coverage.columns[1:])
-    ]
-    add("coverage_by_area_and_demand", coverage)
+    add("coverage_by_area_and_demand", compare.coverage_by_area_and_demand(configurations, cfg))
     add(
         "coverage_class_maps",
         plots.coverage_class_maps(
