@@ -11,18 +11,23 @@ set -euo pipefail
 
 PYTHON=${PYTHON:-"uv run python"}
 ROOT=outputs/optim_tuning
-SEEDS=(42 1 2)
+SEEDS=(42 1 2 3 4)
+# Round 2: variations on local5. Round 1's improve1e-4 and combined are no
+# longer run, since both let the region grow; their runs stay in the summary.
+TR=optim.method.trust_region
+ORDER=(baseline local5 local3 local5-shrink local5-cap)
 declare -A VARIANTS=(
   [baseline]=""
-  [improve1e-4]="optim.method.trust_region.improvement=0.0001"
-  [local5]="optim.method.trust_region.perturbed_dimensions=5"
-  [combined]="optim.method.trust_region.improvement=0.0001 optim.method.trust_region.perturbed_dimensions=5 optim.method.trust_region.length_init=0.4"
+  [local5]="$TR.perturbed_dimensions=5"
+  [local3]="$TR.perturbed_dimensions=3"
+  [local5-shrink]="$TR.perturbed_dimensions=5 $TR.length_init=0.4"
+  [local5-cap]="$TR.perturbed_dimensions=5 $TR.length_max=0.8"
 )
 
 if [[ "${1:-}" != summary ]]; then
-  total=$(( ${#VARIANTS[@]} * ${#SEEDS[@]} ))
+  total=$(( ${#ORDER[@]} * ${#SEEDS[@]} ))
   index=0 ran=0
-  for variant in baseline improve1e-4 local5 combined; do
+  for variant in "${ORDER[@]}"; do
     for seed in "${SEEDS[@]}"; do
       index=$(( index + 1 ))
       dir="$ROOT/$variant/seed$seed"
