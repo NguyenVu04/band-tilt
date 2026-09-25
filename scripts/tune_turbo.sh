@@ -20,14 +20,18 @@ declare -A VARIANTS=(
 )
 
 if [[ "${1:-}" != summary ]]; then
+  total=$(( ${#VARIANTS[@]} * ${#SEEDS[@]} ))
+  index=0 ran=0
   for variant in baseline improve1e-4 local5 combined; do
     for seed in "${SEEDS[@]}"; do
+      index=$(( index + 1 ))
       dir="$ROOT/$variant/seed$seed"
       if compgen -G "$dir/turbo/*/run.json" > /dev/null; then
-        echo "skip $variant seed $seed: done"
+        echo "[$index/$total] skip $variant seed $seed: already done"
         continue
       fi
-      echo "run $variant seed $seed"
+      echo "[$index/$total] $(date +%H:%M:%S) start $variant seed $seed"
+      started=$SECONDS
       # optim.seed, not seed: only the search seed moves, the solver's stays.
       # word splitting of the overrides is intended
       # shellcheck disable=SC2086
@@ -36,6 +40,11 @@ if [[ "${1:-}" != summary ]]; then
         optim.output.deliverable_dir="$dir/deliverables" \
         optim.output.save_radio_map=false \
         ${VARIANTS[$variant]}
+      ran=$(( ran + 1 ))
+      # ETA from this session's mean run time; skipped runs cost nothing.
+      left=$(( (total - index) * SECONDS / ran ))
+      echo "[$index/$total] $(date +%H:%M:%S) done $variant seed $seed" \
+        "in $(( (SECONDS - started) / 60 )) min; about $(( left / 60 )) min left"
     done
   done
 fi

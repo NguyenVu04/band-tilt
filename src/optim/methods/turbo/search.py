@@ -162,6 +162,12 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             # tilt could not would fit the trust region to a fictitious axis.
             unit_x.append((tilts - lower) / span)
             new.append(result.kpi.objective)
+            best = history.results[history.best_index()].kpi.objective
+            print(
+                f"  eval {len(history) - 1}/{n_total} {node:<6} J {new[-1]:.6f}"
+                f"  best {best:.6f}  region {region.length:.4g}  restarts {restarts}",
+                flush=True,
+            )
         score_y.extend(new)
         return new
 
