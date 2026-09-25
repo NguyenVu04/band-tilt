@@ -23,3 +23,9 @@ trust_region:
   length_min: 0.0078125
   length_max: 1.6
   success_tolerance: 3
+  # A round is a success when it beats the best by this share of |best|
+  # (Eriksson et al., 2019, use 1e-3). J's per-round gains are often smaller.
+  improvement: 0.001
+  # Expected dimensions of the centre each candidate perturbs, probability
+  # min(this / d, 1) per dimension (BoTorch TuRBO-1 tutorial: 20).
+  perturbed_dimensions: 20

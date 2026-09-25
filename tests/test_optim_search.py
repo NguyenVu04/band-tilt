@@ -67,6 +67,8 @@ _METHODS = {
             "length_min": 0.0078125,
             "length_max": 1.6,
             "success_tolerance": 3,
+            "improvement": 0.001,
+            "perturbed_dimensions": 20.0,
         },
     },
     "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2}},
@@ -186,7 +188,14 @@ def test_the_trust_region_doubles_on_successes_and_halves_on_failures() -> None:
     from src.optim.methods.turbo.search import TrustRegion
 
     region = TrustRegion(
-        dim=6, batch_size=2, length_init=0.8, length_min=0.1, length_max=1.6, success_tolerance=2
+        dim=6,
+        batch_size=2,
+        length_init=0.8,
+        length_min=0.1,
+        length_max=1.6,
+        success_tolerance=2,
+        improvement=1e-3,
+        perturbed_dimensions=20.0,
     )
     region.best = 1.0
     region.update(2.0)
@@ -199,13 +208,24 @@ def test_the_trust_region_doubles_on_successes_and_halves_on_failures() -> None:
         region.update(0.0)
     assert region.length == pytest.approx(0.8)
 
+    # A gain below ``improvement * |best|`` is a failure, not a success.
+    region.update(region.best * (1 + 0.5e-3))
+    assert (region.successes, region.failures) == (0, 1)
+
 
 def test_a_collapsed_trust_region_restarts_at_its_initial_length() -> None:
     """Below ``length_min`` TuRBO-1 starts over, forgetting the region's best."""
     from src.optim.methods.turbo.search import TrustRegion
 
     region = TrustRegion(
-        dim=6, batch_size=2, length_init=0.8, length_min=0.5, length_max=1.6, success_tolerance=2
+        dim=6,
+        batch_size=2,
+        length_init=0.8,
+        length_min=0.5,
+        length_max=1.6,
+        success_tolerance=2,
+        improvement=1e-3,
+        perturbed_dimensions=20.0,
     )
     region.best = 1.0
     for _ in range(3):

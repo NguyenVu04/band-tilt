@@ -26,16 +26,10 @@ from src.optim.methods.base import ATTACHED, INCUMBENT, INIT, SEARCH, SOBOL, sob
 # Generation-node name of a trust-region proposal.
 TURBO = "TuRBO"
 
-# A round is a success only when it beats the best score by this share of its
-# magnitude (Eriksson et al., 2019).
-_IMPROVEMENT = 1e-3
-
-# BoTorch TuRBO-1 tutorial: min(5000, max(2000, 200 d)) candidates, each
-# perturbing a dimension of the centre with probability min(20 / d, 1).
+# BoTorch TuRBO-1 tutorial: min(5000, max(2000, 200 d)) candidates.
 _MIN_CANDIDATES = 2000
 _MAX_CANDIDATES = 5000
 _CANDIDATES_PER_DIMENSION = 200
-_PERTURBED_DIMENSIONS = 20.0
 
 
 @dataclass
@@ -51,6 +45,9 @@ class TrustRegion:
         length_min: Below this the region has collapsed and the search restarts.
         length_max: Cap when expanding.
         success_tolerance: Consecutive successful rounds that double the length.
+        improvement: Share of ``|best|`` a round must gain to count as a success.
+        perturbed_dimensions: Expected dimensions of the centre a candidate
+            perturbs; each moves with probability ``min(perturbed_dimensions / d, 1)``.
         length: Current side length.
         best: Best score since the last restart.
         successes: Consecutive successful rounds.
@@ -63,6 +60,8 @@ class TrustRegion:
     length_min: float
     length_max: float
     success_tolerance: int
+    improvement: float
+    perturbed_dimensions: float
     length: float = field(init=False)
     best: float = field(init=False)
     successes: int = field(init=False)
@@ -83,6 +82,8 @@ class TrustRegion:
             length_min=float(region.length_min),
             length_max=float(region.length_max),
             success_tolerance=int(region.success_tolerance),
+            improvement=float(region.improvement),
+            perturbed_dimensions=float(region.perturbed_dimensions),
         )
 
     @property
@@ -105,7 +106,7 @@ class TrustRegion:
     def update(self, batch_best: float) -> None:
         """Record one round's best score, then resize on a run of successes or failures."""
         threshold = (
-            self.best + _IMPROVEMENT * abs(self.best) if math.isfinite(self.best) else -math.inf
+            self.best + self.improvement * abs(self.best) if math.isfinite(self.best) else -math.inf
         )
         if batch_best > threshold:
             self.successes, self.failures = self.successes + 1, 0
@@ -229,7 +230,7 @@ def _propose(
         n_candidates = min(_MAX_CANDIDATES, max(_MIN_CANDIDATES, _CANDIDATES_PER_DIMENSION * dim))
         pool = SobolEngine(dim, scramble=True, seed=seed).draw(n_candidates, dtype=torch.float64)
         pool = low + (high - low) * pool
-        probability = min(_PERTURBED_DIMENSIONS / dim, 1.0)
+        probability = min(region.perturbed_dimensions / dim, 1.0)
         mask = torch.rand(n_candidates, dim, dtype=torch.float64) <= probability
         # Every candidate moves in at least one dimension.
         idle = torch.nonzero(mask.sum(dim=1) == 0, as_tuple=True)[0]
