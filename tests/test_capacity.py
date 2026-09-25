@@ -34,10 +34,12 @@ def cfg():
                     "rsrp_threshold_dbm": -100.0,
                     "max_admission_utilisation": 1.0,
                     "throughput_per_ue_bps": _B_PRB,
-                    "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
-            "simulation": {"transmitters": {"cells": _cells({"hi": 10, "lo": 10})}},
+            "simulation": {
+                "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
+                "transmitters": {"cells": _cells({"hi": 10, "lo": 10})},
+            },
         }
     )
 
@@ -46,6 +48,17 @@ def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
     """The cells are the map's tx axis, so their count must agree."""
     with pytest.raises(ValueError, match="1 cells for a radio map with 2"):
         capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 2)
+
+
+def test_the_spec_reads_scs_from_the_radio_map_bands(cfg) -> None:
+    """SCS is the solver's noise bandwidth, so capacity reads the same entry."""
+    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 10}, {"hi": 10, "lo": 10})
+    cfg.simulation.radio_map.bands[1].scs_hz = 30000
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 2)
+    assert spec.scs_hz.tolist() == [15000.0, 30000.0]
+    cfg.kpi.capacity.band_preference.append("mid")
+    with pytest.raises(ValueError, match="No simulation.radio_map.bands entry for mid"):
+        capacity.CapacitySpec.from_config(cfg, ["hi", "mid"], 2)
 
 
 def test_rate_and_prbs_follow_the_shannon_formula() -> None:

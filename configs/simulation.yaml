@@ -61,8 +61,7 @@ density:
 # triangle and its centroid.
 transmitters:
   layout:
-    # Side of the node triangle: the corner-to-corner distance, the 1732 m RMa
-    # inter-site distance (ISD) of 3GPP TR 38.901 Table 7.2-1. The centre node
+    # Side of the node triangle: the corner-to-corner distance. The centre node
     # sits spacing / sqrt(3) from each corner.
     node_spacing_m: 1732.0
     # Cells per node, at evenly spaced azimuths.
@@ -86,7 +85,7 @@ transmitters:
     # Initial per-band PRB limit for generated cells, the N_RB of each band's
     # radio_map bandwidth at 15 kHz SCS (TS 38.101-1 Table 5.3.2-1): 40 MHz is
     # 216, 20 MHz is 106, 10 MHz is 52. Must track both radio_map.bands[].bandwidth
-    # and kpi.capacity.bands.scs_hz.
+    # and radio_map.bands[].scs_hz.
     default_max_prb: {b2600: 216, b1800: 106, b700: 52}
   # Generated once against the delivered scene and held fixed across scenarios.
   cells:
@@ -233,16 +232,25 @@ radio_map:
   rr_depth: -1
   rr_prob: 0.95
   # Integer Hz values avoid YAML scientific-notation parsing issues.
+  # bandwidth: channel bandwidth. It fixes N_RB, hence max_prb (TS 38.101-1
+  # Table 5.3.2-1), and nothing the solver computes.
+  # scs_hz: subcarrier spacing, the solver's noise bandwidth. power_rs is per
+  # RE, so RSRP, interference and kT*scs_hz noise are all per RE and SINR is
+  # per RE, as SS-SINR is (TS 38.215 5.1.5). A PRB is 12 subcarriers of it
+  # (TS 38.211 4.4.4.1), which sets the PRB rate in src/kpi/capacity.py.
   bands:
     - name: b2600
       frequency: 2600000000 # 2.6 GHz
       bandwidth: 40000000 # 40 MHz
+      scs_hz: 15000 # 15 kHz
     - name: b1800
       frequency: 1800000000 # 1.8 GHz
       bandwidth: 20000000 # 20 MHz
+      scs_hz: 15000 # 15 kHz
     - name: b700
       frequency: 700000000 # 700 MHz
       bandwidth: 10000000 # 10 MHz
+      scs_hz: 15000 # 15 kHz
 
 # Sionna-RT planar arrays; spacings are in wavelengths.
 antenna:

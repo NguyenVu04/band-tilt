@@ -77,6 +77,7 @@ def make_run(
     throughput_per_ue_bps: float = 1e6,
     band_preference: list[str] | None = None,
     bandwidth: int = 10000000,
+    scs_hz: int = 15000,
     objective_version: int = _OBJECTIVE_VERSION,
     **radio: object,
 ) -> Path:
@@ -132,7 +133,7 @@ def make_run(
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]},
                         "radio_map": {
                             "temperature": 298.15,
-                            "bands": [{"name": "b700", "bandwidth": bandwidth}],
+                            "bands": [{"name": "b700", "bandwidth": bandwidth, "scs_hz": scs_hz}],
                         },
                     },
                 },
@@ -273,10 +274,20 @@ def test_verify_catches_a_different_band_priority(tmp_path) -> None:
 
 
 def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
-    """Bandwidth sets the noise floor, so it sets SINR and the served ratio."""
+    """Bandwidth fixes max_prb, so it sets the served ratio."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
+    ]
+    checks = run_store.verify(runs, radio_archive(), _cfg())
+    assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]
+
+
+def test_verify_catches_a_different_scs(tmp_path) -> None:
+    """SCS sets the per-RE noise floor and the PRB bandwidth, so SINR and the served ratio."""
+    runs = [
+        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", scs_hz=30000)),
     ]
     checks = run_store.verify(runs, radio_archive(), _cfg())
     assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]

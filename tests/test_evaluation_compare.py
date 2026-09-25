@@ -285,10 +285,10 @@ def _capacity_cfg() -> DictConfig:
                     "rsrp_threshold_dbm": -120.0,
                     "max_admission_utilisation": 0.8,
                     "throughput_per_ue_bps": 1.0,
-                    "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
             "simulation": {
+                "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
                 "transmitters": {
                     "cells": [
                         {
@@ -301,7 +301,7 @@ def _capacity_cfg() -> DictConfig:
                             "max_prb": {"hi": 10, "lo": 10},
                         }
                     ]
-                }
+                },
             },
         }
     )

@@ -1,6 +1,6 @@
 # Multi-Band Tilt Coordination for Coverage-Efficient 5G/6G RAN
 
-*Band-tilt project report. Every number, table and figure below comes from the pipeline run of 2026-09-23: notebooks `00_simulation` through `04_evaluation`, the optimization runs listed in Appendix A, and the committed configuration in `configs/`. Paths are relative to `reports/`.*
+*Band-tilt project report. Every number, table and figure below comes from the pipeline run of 2026-09-25: notebooks `00_simulation` through `04_evaluation`, the optimization runs listed in Appendix A, and the committed configuration in `configs/`. Paths are relative to `reports/`. RSRP, interference and noise are all per resource element: thermal noise is k·T over one 15 kHz subcarrier, not over the channel bandwidth. SINR, served-rate, load and PRB figures are therefore not comparable with runs before that change. J, the coverage, overlap and RSRP figures, and every search trajectory are identical to the 2026-09-23 run.*
 
 ---
 
@@ -21,13 +21,13 @@ Random search and TuRBO had matched budgets of 145 evaluations; the rule sweep w
 
 **Results.**
 - **TuRBO** scored highest on J: 0.7054 against 0.6651 currently, a 6.05 % gain. It improved 8 of the 10 reported KPIs, and it has the best co-band overlap rate, overlapping-neighbour count, cell-edge SINR and median SINR of the three methods.
-- **The rule sweep** reached J = 0.6963 (+4.68 %) in 111 evaluations and improved 7 of the 10 KPIs. It has the best hole, weak-coverage, RSRP and served-UE figures, and the smallest worsening in load imbalance.
-- **Random search** reached J = 0.6911 (+3.90 %), also improving 7 KPIs and worsening 3.
+- **The rule sweep** reached J = 0.6963 (+4.68 %) in 111 evaluations and improved 6 of the 10 KPIs. It has the best hole, weak-coverage and RSRP figures.
+- **Random search** reached J = 0.6911 (+3.90 %), also improving 6 KPIs and worsening 4. It has the best served-UE rate and the smallest worsening in load imbalance.
 
-Every method worsens overlapping neighbours per covered tile and cell load imbalance. The rule sweep and random search also worsen the band-collapsed co-band overlap rate; TuRBO lowers it, and lowers overlap on each of the three bands taken separately.
+Every method worsens overlapping neighbours per covered tile and cell load imbalance. The rule sweep and random search also worsen the band-collapsed co-band overlap rate and cell-edge SINR; TuRBO improves both, and lowers overlap on each of the three bands taken separately.
 
 Two findings shape how these should be read.
-- **TuRBO's KPI profile is one draw.** Its earlier runs did not reproduce, because GPU ray tracing varies J in the trailing digits and the GP fit turns that into different proposals. J is now rounded to 10⁻⁶ before any search reads it, and two short TuRBO runs then matched on every evaluation (Section 6.1). The earlier runs show how far the profile moves under that tiny a perturbation: at J 0.7049, 0.7059 and now 0.7054, the overlap rate was 0.3070, 0.3183 and 0.3090.
+- **TuRBO's KPI profile is one draw.** Its earlier runs did not reproduce, because GPU ray tracing varies J in the trailing digits and the GP fit turns that into different proposals. J is now rounded to 10⁻⁶ before any search reads it. Two short TuRBO runs then matched on every evaluation, and this full run matched the 2026-09-23 run on every evaluation (Section 6.1). The earlier runs show how far the profile moves under that tiny a perturbation: at J 0.7049, 0.7059 and now 0.7054, the overlap rate was 0.3070, 0.3183 and 0.3090.
 - **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.4). Nothing in the objective stops a search from buying J by switching a weak layer off. ADR 0003 measures how much of the grid this touches on this run's TuRBO winner; the pipeline does not regenerate it.
 
 **Caveats.** The results come from one scenario, one search seed per method, and a simplified capacity model. No configuration is recommended for deployment.
@@ -57,7 +57,7 @@ The project also plans a Multi-Agent Reinforcement Learning arm. It is not imple
 ## 2. Problem Definition
 
 **Network.** The study area is a local city scene (`data/external/scene/scene.xml`), rasterised into a 326 × 310 grid of 20 m tiles: 6,200 × 6,520 m, or 101,060 tiles.
-- **Nodes.** Four nodes sit on the corners and centroid of an equilateral triangle with a 1,732 m side, the RMa inter-site distance of 3GPP TR 38.901 Table 7.2-1 [5].
+- **Nodes.** Four nodes sit on the corners and centroid of an equilateral triangle with a 1,732 m side.
 - **Cells.** Each node has three sectors at azimuths 45°, 165° and 285°, on 25 m masts. The antenna is an 8 × 8 cross-polarised TR 38.901 panel with 4.85 dBm reference-signal power per resource element.
 - **Bands.** Every sector carries three bands, giving twelve cells and 36 cell-band pairs (Tables 1 and 2, Figure 1).
 
@@ -80,8 +80,8 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
   - By raw signal, 700 MHz is the strongest layer on 91.9 % of the covered area.
   - 2600 MHz is preferred whenever it clears the threshold, so the serving rule puts 80.2 % of covered area on 2600 MHz before PRB limits (`serving_area_per_band.csv`). The gap between which layer is strongest and which layer serves is the central tension in this configuration.
 - **Overlap.** 31.6 % of tiles have at least one overlapping co-band neighbour, with a mean of 0.96 neighbours per covered tile (`overlap_neighbour_summary.csv`).
-- **Service.** 47.3 % of UE rows are not served (`serving_band_mix.csv`). 21.2 % of UE rows stand on hole tiles, mostly one hotspot 3.4 km from the nearest node with no propagation path at its centre (`hotspots.csv`, `hole_summary.csv`).
-- **Demand.** Weighted by peak PRB demand, 83.6 % sits on weak tiles and none in holes (Table 3). A UE with no candidate cell-band adds no PRB demand, so demand in holes is invisible in that measure, not absent.
+- **Service.** 25.8 % of UE rows are not served (`serving_band_mix.csv`). Most of them, 21.2 % of UE rows, stand on hole tiles, mostly one hotspot 3.4 km from the nearest node with no propagation path at its centre (`hotspots.csv`, `hole_summary.csv`). The other 4.5 points are refused by the admission ceiling.
+- **Demand.** Weighted by peak PRB demand, 33.5 % sits on weak tiles, 66.5 % on good ones and none in holes (Table 3). A UE with no candidate cell-band adds no PRB demand, so demand in holes is invisible in that measure, not absent.
 
 ![Study area](figures/00_simulation/study_area.png)
 
@@ -95,7 +95,7 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
 
 *Figure 3. Peak PRB demand beside signal strength at the current tilts. Source: `figures/01_eda/demand_vs_coverage.png`.*
 
-*Table 1. Frequency bands. The PRB limits are N_RB at 15 kHz SCS, TS 38.101-1 Table 5.3.2-1 [6]. Source: [`tables/00_simulation/frequency_bands.csv`](tables/00_simulation/frequency_bands.csv).*
+*Table 1. Frequency bands. The PRB limits are N_RB at 15 kHz SCS, TS 38.101-1 Table 5.3.2-1 [4]. Source: [`tables/00_simulation/frequency_bands.csv`](tables/00_simulation/frequency_bands.csv).*
 
 | Band | Carrier [MHz] | Bandwidth [MHz] | PRB limit per cell |
 |---|---:|---:|---:|
@@ -123,8 +123,8 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
 | Coverage class | Tiles | Share of area | Share of peak PRB demand |
 |---|---:|---:|---:|
 | Hole (≤ −120 dBm) | 11,368 | 11.2 % | 0.0 % |
-| Weak (−120 to −90 dBm) | 31,017 | 30.7 % | 83.6 % |
-| Good (> −90 dBm) | 58,675 | 58.1 % | 16.4 % |
+| Weak (−120 to −90 dBm) | 31,017 | 30.7 % | 33.5 % |
+| Good (> −90 dBm) | 58,675 | 58.1 % | 66.5 % |
 
 ## 3. Proposed Solutions
 
@@ -198,7 +198,7 @@ A second layer lowers a tile only by scoring below the first. The cost is larges
 
 **The exchange rate this implies.** Splitting a clean, strong, single-band tile between two cells moves it from λ = 1 to λ = 2 and costs $1 - 2e^{-1} = 0.264$. Closing a hole looks as if it should gain the full 1.000, but it cannot. A tile that has just crossed $T_{\text{cov}}$ sits near −120 dBm, where $s \approx 0$. At −119 dBm a newly covered tile is worth 0.033, and at −110 dBm, 0.333. So one newly crowded strong tile costs as much as several closed holes.
 
-J is therefore primarily a *signal-strength and cleanliness* measure that treats hole-closing as a minor bonus. ADR 0003's "Measured outcome" records its rank correlation with each KPI over random search's candidates on the previous run. There, J tracked the strength and SINR percentiles most closely and the two overlap measures least. Those correlations are not produced by the pipeline and were not recomputed for this report.
+J is therefore primarily a *signal-strength and cleanliness* measure that treats hole-closing as a minor bonus. ADR 0003's "Measured outcome" records its rank correlation with each KPI over random search's 145 candidates. With per-RE noise, J tracks cell-edge RSRP (Spearman 0.87), the weak rate, median RSRP and the hole rate (0.77 to 0.79) most closely. It tracks the overlap rate (0.43), median SINR (0.41), the served rate (0.36) and overlap neighbours (0.30) loosely, and cell-edge SINR (0.12) and load imbalance (−0.04) hardly at all. The pipeline does not produce these correlations; they were recomputed for this report from random search's history.
 
 **Why not a preferred band or the best band.** Scoring the most preferred band that clears $T_{\text{cov}}$ would let a tilt raise J by dropping a crowded preferred layer below the threshold. Scoring the best band closes that, but prices nothing on a tile's other layers, so a crowded layer costs nothing wherever another layer is clean. The contraharmonic mean prices every covered layer, and it pays for that with monotonicity.
 
@@ -215,7 +215,7 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
 1. **Overall quality.** The winner's J, as a change from the current configuration.
 2. **Reported KPIs.** The direction of change against the current configuration, over all ten:
    - coverage hole rate ↓, co-band overlap rate ↓, overlapping neighbours per covered tile ↓, weak-coverage rate ↓
-   - cell-edge and median RSRP ↑ (5th and 50th percentiles of best-server RSRP over covered tiles [4], read beside the hole rate)
+   - cell-edge and median RSRP ↑ (5th and 50th percentiles of best-server RSRP over covered tiles, read beside the hole rate)
    - cell-edge and median best-server SINR ↑
    - served UE ratio ↑
    - cell load imbalance ↓
@@ -238,7 +238,7 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
    - Materials were ITU-R P.2040 and frequency-static.
    - The output was per-cell RSRP and SINR on the grid (`tables/00_simulation/propagation_parameters.csv`).
    - At 25 m masts, 2600 MHz reaches 88.1 % of tiles, 1800 MHz 87.8 % and 700 MHz 91.1 % (`tables/00_simulation/reach_per_band.csv`).
-3. **MDT.** The serving rule was run on the current radio map, and the 5,311 admitted UE rows (52.7 % of the population, on 3,017 distinct tiles) form the MDT. It is kept for reference and plots; no score reads it, and no measurement noise, report censoring or position error is modelled.
+3. **MDT.** The serving rule was run on the current radio map, and the 7,487 admitted UE rows (74.2 % of the population, on 4,206 distinct tiles) form the MDT. It is kept for reference and plots; no score reads it, and no measurement noise, report censoring or position error is modelled.
 
 **Verification.** Before optimization, `notebooks/02_preprocessing.ipynb` checked the artifacts against 22 contract checks, all of which held (`tables/02_preprocessing/verification_checks.csv`).
 - The checks cover grid, scenario ID, band and cell order, bounds, schedule, duplicate rows, the MDT subset and baseline tilts.
@@ -262,19 +262,18 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
 **Relevance, criteria and practicality.**
 - **Ray tracing over a statistical model.** Real city geometry was ray-traced rather than using a statistical path-loss model, because tilt changes act mainly through building shadowing and reflections, which a statistical model averages away.
 - **Budgets.** Random search and TuRBO had matched budgets, so criterion 3 isolates the model's contribution. The rule sweep was left unmatched because its practical appeal is low cost.
-- **Seeds.** One seed per method kept the study within a single GPU session: ray tracing took 2.3 to 3.6 s per candidate (Table 11).
+- **Seeds.** One seed per method kept the study within a single GPU session: ray tracing took 2.3 to 3.0 s per candidate (Table 11).
 
 ## 6. Analysis and Interpretation
 
 ### 6.1 Comparability, correctness and repeatability
 
-All 24 comparability checks held (`tables/04_evaluation/comparability_checks.csv`). These include the check that every run was scored by `kpi.objective_version` 3, the objective this code implements. The KPIs recomputed from the archived radio maps (`tables/04_evaluation/kpi_reproducibility.csv`) match the recorded values to float round-off. Over all 44 recorded measures, the largest absolute gap is 3.9 × 10⁻⁶ dB, on the rule sweep's median SINR, and **on J it is zero**. The differences discussed below therefore come from the configurations, not from bookkeeping.
+All 24 comparability checks held (`tables/04_evaluation/comparability_checks.csv`). These include the check that every run was scored by `kpi.objective_version` 3, the objective this code implements. The KPIs recomputed from the archived radio maps (`tables/04_evaluation/kpi_reproducibility.csv`) match the recorded values to float round-off. Over all 44 recorded measures, the largest absolute gap is 3.2 × 10⁻⁶ dBm, on TuRBO's median RSRP, and **on J it is zero**. The differences discussed below therefore come from the configurations, not from bookkeeping.
 
 **Why TuRBO did not reproduce before, and what changed.** The ray tracer's Monte-Carlo stream is seeded, but the GPU adds path contributions into a tile in a varying order. Traced in two processes, the same tilts gave identical threshold KPIs, but J differed by up to about 4 × 10⁻¹² on every one of 17 configurations. Random search and the rule sweep never feed J back into where they look, so that was invisible to them. TuRBO's GP fit turned it into a different first proposal, and from there a different run. `src/optim/objective.py` now rounds J to 10⁻⁶, below the printed precision, so the trailing digits never reach a search.
-- **The fix, tested directly.** Two TuRBO runs of 47 evaluations each (the incumbent, 16 Sobol points and 30 proposals) matched on every tilt and every J. The full 145-evaluation run was made once, so its repeat is not measured directly. Rounding makes a mismatch unlikely, not impossible: a J that lands within the noise of a rounding boundary can still round differently.
-- **Deterministic stages reproduced.** This rerun rebuilt every artifact with the committed configuration and seed 42, and compared it with the earlier run of the same day. The incumbent's threshold KPIs were identical. Random search and the rule sweep evaluated the same tilts at every step and found the same winners at the same evaluations. J moved only by the rounding, at most 5 × 10⁻⁷.
-- **TuRBO diverged from the earlier run at its first proposal**, as expected, since that run's GP saw unrounded scores. It ended at J 0.7054 against 0.7059, at a different configuration.
-- **Its KPI profile moved, some of it by more than the method gaps.** Against the earlier run, the co-band overlap rate went from 0.3183 to 0.3090, load imbalance from 1.0401 to 1.0075, and the served rate from 0.6010 to 0.5976. The run of 2026-09-22 had 0.3070, 0.9746 and 0.5898. Section 6.8 (limitation 3) takes this up.
+- **The fix, tested directly.** Two TuRBO runs of 47 evaluations each (the incumbent, 16 Sobol points and 30 proposals) matched on every tilt and every J. This rerun then repeated the full 145-evaluation run of 2026-09-23 with the noise change in place: every one of the three searches matched that run's J at every evaluation, exactly, and picked the same winner. Rounding makes a mismatch unlikely, not impossible: a J that lands within the noise of a rounding boundary can still round differently.
+- **Why the searches did not move.** J reads the radio map's RSRP only, and RSRP does not depend on the noise bandwidth. The noise change moved SINR, and through it the served rate, load and PRB figures, but not a single search decision.
+- **Before rounding, TuRBO's KPI profile moved between runs, some of it by more than the method gaps.** Runs of the same seed ended at J 0.7049, 0.7059 and 0.7054 with co-band overlap rates of 0.3070, 0.3183 and 0.3090. Section 6.8 (limitation 3) takes this up.
 
 ### 6.2 Overall quality and reported KPIs
 
@@ -289,24 +288,24 @@ All 24 comparability checks held (`tables/04_evaluation/comparability_checks.csv
 | Weak coverage rate ↓ | 0.3069 | **0.2535** | 0.2864 | 0.2639 |
 | Cell-edge RSRP p05 [dBm] ↑ | −108.56 | **−106.97** | −107.98 | −107.34 |
 | Median RSRP p50 [dBm] ↑ | −84.11 | **−80.80** | −82.72 | −81.62 |
-| Cell-edge SINR p05 [dB] ↑ | −5.87 | −4.97 | −5.54 | **−4.90** |
-| Median SINR p50 [dB] ↑ | 8.49 | 9.90 | 9.21 | **10.57** |
-| Served UE rate ↑ | 0.5265 | **0.5988** | 0.5882 | 0.5976 |
-| Cell load imbalance ↓ | **0.9098** | 0.9963 *(worse)* | 1.0092 *(worse)* | 1.0075 *(worse)* |
-| **KPIs better / worse, of 10** | — | 7 / 3 | 7 / 3 | 8 / 2 |
+| Cell-edge SINR p05 [dB] ↑ | −0.88 | −1.50 *(worse)* | −1.10 *(worse)* | **−0.73** |
+| Median SINR p50 [dB] ↑ | 14.26 | 14.87 | 15.03 | **16.28** |
+| Served UE rate ↑ | 0.7422 | 0.7513 | **0.7543** | 0.7512 |
+| Cell load imbalance ↓ | **1.1521** | 1.1820 *(worse)* | 1.1679 *(worse)* | 1.1850 *(worse)* |
+| **KPIs better / worse, of 10** | — | 6 / 4 | 6 / 4 | 8 / 2 |
 
 ![KPI improvement](figures/04_evaluation/kpi_improvement.png)
 
 *Figure 4. Relative change per KPI and method. Source: `figures/04_evaluation/kpi_improvement.png`.*
 
-**TuRBO wins J by a clear margin:** +6.05 %, against +4.68 % for the sweep and +3.90 % for random search. On the ten KPIs, TuRBO improves eight and worsens two: overlapping neighbours per covered tile and load imbalance. The sweep and random search improve seven and worsen those two plus the co-band overlap rate.
+**TuRBO wins J by a clear margin:** +6.05 %, against +4.68 % for the sweep and +3.90 % for random search. On the ten KPIs, TuRBO improves eight and worsens two: overlapping neighbours per covered tile and load imbalance. The sweep and random search improve six and worsen those two plus the co-band overlap rate and cell-edge SINR.
 
 **Head to head, the two strongest methods split the KPIs 6 to 4.**
 - **The rule sweep takes six:** hole rate, weak rate, both RSRP percentiles, the served rate and load imbalance. Its coverage advantage comes from three shared per-band tilts that widen every footprint at once.
-  - The served-rate win is 0.5988 against 0.5976, well inside the run-to-run shift TuRBO showed in Section 6.1.
+  - The served-rate win is 0.7513 against 0.7512: one UE report of 10,087.
   - The load-imbalance win is between two configurations that are both worse than the current one.
-- **TuRBO takes four:** the overlap rate, overlapping neighbours and both SINR percentiles.
-- Random search takes none.
+- **TuRBO takes four:** the overlap rate, overlapping neighbours and both SINR percentiles. It is the only method that raises cell-edge SINR.
+- **Random search**, third on J, has the best served rate of the three (0.7543) and the smallest load-imbalance worsening.
 
 **Only TuRBO lowers co-band overlap.** The band-collapsed overlap rate:
 - falls 2.3 % under TuRBO;
@@ -321,9 +320,9 @@ Overlapping neighbours per covered tile rises under all three:
 TuRBO's earlier runs moved the overlap rate by −3.0 % and +0.6 %. That is the clearest single sign that its KPI profile is one draw (Section 6.1).
 
 **Cell load imbalance worsens under all three methods:**
-- the sweep by 9.5 %;
-- TuRBO by 10.7 %;
-- random search by 10.9 %.
+- random search by 1.4 %;
+- the sweep by 2.6 %;
+- TuRBO by 2.9 %.
 
 Nothing in J asks for even load, so whether a search lands on an even-load configuration is incidental.
 
@@ -377,7 +376,7 @@ The paired gain of TuRBO over random search is **+0.0142** on the one seed (`tab
 
 **Every method lowered the hole rate, but not because J asked.** A tile that has just crossed the hole threshold sits near −120 dBm, where the strength factor is near zero, so closing holes buys J almost nothing (Section 3.4). The hole-rate gains in Table 4 are a side effect of uptilting, which widens every footprint.
 
-**Overlap-reducing configurations were available to all but random search.** The rule sweep's candidate set contained one with an overlap rate of **0.3061**, and TuRBO's one at **0.3021**. Both are below the incumbent's 0.3164 (`tables/04_evaluation/sample_efficiency.csv`). Random search never beat the incumbent's overlap rate in 145 candidates. J did not pick the lowest-overlap candidates, which is consistent with overlap being the measure J tracks least closely (Section 3.4). TuRBO's winner lowers the rate to 0.3090. Its published shortlist (`outputs/solutions_turbo.csv`) holds two runners-up within 0.0004 of J below it, at 0.3084 and 0.3059. On overlap the winner and its near-ties differ, so which of them is picked is effectively arbitrary.
+**Overlap-reducing configurations were available to all but random search.** The rule sweep's candidate set contained one with an overlap rate of **0.3061**, and TuRBO's one at **0.3021**. Both are below the incumbent's 0.3164 (`tables/04_evaluation/sample_efficiency.csv`). Random search never beat the incumbent's overlap rate in 145 candidates. J did not pick the lowest-overlap candidates, which is consistent with J tracking overlap only loosely (Section 3.4). TuRBO's winner lowers the rate to 0.3090. Its published shortlist (`outputs/solutions_turbo.csv`) holds two runners-up within 0.0004 of J below it, at 0.3084 and 0.3059. On overlap the winner and its near-ties differ, so which of them is picked is effectively arbitrary.
 
 **Per band, TuRBO improves overlap on every layer.** The band-collapsed KPI counts a tile if *any* of the three layers is crowded there. Split by band (`tables/04_evaluation/band_kpis.csv`):
 
@@ -396,9 +395,9 @@ TuRBO lowers overlap on all three bands, with the largest cut on 700 MHz, and he
 
 | Class | Current area / demand | Rule sweep area / demand | Random area / demand | TuRBO area / demand |
 |---|---|---|---|---|
-| Hole | 11.2 % / 0.0 % | 10.4 % / 0.0 % | 10.8 % / 0.3 % | 10.8 % / 0.4 % |
-| Weak | 30.7 % / 83.6 % | 25.4 % / 76.7 % | 28.6 % / 79.7 % | 26.4 % / 78.5 % |
-| Good | 58.1 % / 16.4 % | 64.2 % / 23.3 % | 60.5 % / 20.1 % | 62.8 % / 21.0 % |
+| Hole | 11.2 % / 0.0 % | 10.4 % / 0.0 % | 10.8 % / 0.03 % | 10.8 % / 0.07 % |
+| Weak | 30.7 % / 33.5 % | 25.4 % / 26.9 % | 28.6 % / 30.1 % | 26.4 % / 28.7 % |
+| Good | 58.1 % / 66.5 % | 64.2 % / 73.1 % | 60.5 % / 69.9 % | 62.8 % / 71.2 % |
 
 *Table 8. Overlapping co-band neighbours per configuration. Source: [`tables/04_evaluation/overlap_neighbour_summary.csv`](tables/04_evaluation/overlap_neighbour_summary.csv).*
 
@@ -418,9 +417,9 @@ TuRBO lowers overlap on all three bands, with the largest cut on 700 MHz, and he
 *Figure 9. Change in best-server RSRP for each method's best configuration. Source: `figures/04_evaluation/rsrp_change_maps.png`.*
 
 **Demand in holes.**
-- **Onto hole tiles:** the rule sweep moves **no** peak demand there, random search moves 0.3 % and TuRBO 0.4 %.
-- **Off weak tiles:** the share of demand on weak tiles falls under every method, most under the rule sweep (83.6 % to 76.7 %, against TuRBO's 78.5 %).
-- **Onto good tiles:** the share on good tiles rises from 16.4 % to 23.3 % under the sweep and to 21.0 % under TuRBO.
+- **Onto hole tiles:** the rule sweep moves **no** peak demand there, random search moves 0.03 % and TuRBO 0.07 %.
+- **Off weak tiles:** the share of demand on weak tiles falls under every method, most under the rule sweep (33.5 % to 26.9 %, against TuRBO's 28.7 %).
+- **Onto good tiles:** the share on good tiles rises from 66.5 % to 73.1 % under the sweep and to 71.2 % under TuRBO.
 
 On the demand-weighted view the rule sweep is the strongest of the three. Nothing in J reads this view, so this is the check catching something the objective cannot see: a small amount of served traffic pushed onto ground the network no longer covers.
 
@@ -434,10 +433,10 @@ On the demand-weighted view the rule sweep is the strongest of the three. Nothin
 
 | Configuration | Not served | Served SINR p10 [dB] | Served SINR median [dB] | PRBs per served UE, median | On 2600 / 1800 / 700 MHz |
 |---|---:|---:|---:|---:|---|
-| Current | 47.3 % | −0.38 | 5.13 | 53.2 | 34.1 % / 10.5 % / 8.1 % |
-| Rule-based sweep | **40.1 %** | +0.36 | **7.86** | **39.3** | 46.3 % / 6.4 % / 7.2 % |
-| Random search | 41.2 % | +0.24 | 7.73 | 39.8 | 45.1 % / 7.1 % / 6.6 % |
-| TuRBO | 40.2 % | **+0.46** | 7.77 | 39.6 | 45.9 % / 6.7 % / 7.2 % |
+| Current | 25.8 % | 0.70 | 12.36 | 26.5 | 60.3 % / 6.8 % / 7.2 % |
+| Rule-based sweep | 24.9 % | 0.94 | 13.20 | 24.9 | 63.2 % / 4.8 % / 7.1 % |
+| Random search | **24.6 %** | **1.18** | **13.47** | **24.5** | 62.8 % / 5.4 % / 7.2 % |
+| TuRBO | 24.9 % | 0.96 | 13.46 | 24.5 | 63.0 % / 5.1 % / 7.0 % |
 
 ![Serving band mix](figures/04_evaluation/serving_band_mix.png)
 
@@ -447,18 +446,18 @@ On the demand-weighted view the rule sweep is the strongest of the three. Nothin
 
 *Figure 11. Peak PRB utilisation per cell-band, current and recommended. Source: `figures/04_evaluation/cell_band_utilisation.png`.*
 
-**Service.** Every method serves substantially more UEs, by 6.2 to 7.2 points. The rule sweep serves the most (59.9 % against 52.7 %), then TuRBO (59.8 %) and random search (58.8 %). Served SINR rises under all three at both the median and the 10th percentile, and the PRBs a served UE needs fall by 25 to 26 %.
+**Service.** Every method serves a few more UEs, by 0.9 to 1.2 points from 74.2 %. Random search serves the most (75.4 %), then the rule sweep and TuRBO (75.1 % each, one UE report apart). Served SINR rises under all three at both the median and the 10th percentile, and the PRBs a served UE needs fall by 6 to 8 %.
 
-**All three methods concentrate traffic on 2600 MHz.** Its share of UE reports rises from 34.1 % to between 45.1 % and 46.3 %, while 1800 MHz falls from 10.5 % to between 6.4 % and 7.1 %. The mechanism under TuRBO is visible in the cell-impact table (`tables/04_evaluation/cell_impact.csv`). All twelve 2600 MHz carriers are uptilted, which widens footprints that the serving rule prefers:
-- **Gains on 2600 MHz:** n1c1's 2600 MHz carrier, uptilted 8.95°, gains 262 served reports and 7.9 dB of median SINR. n2c1's gains 214 and n3c1's 113.
-- **Losses on 1800 MHz:** n2c1's 1800 MHz carrier is downtilted 4.82° and loses all 165 of its reports. n1c1's, uptilted 9.79°, loses 76.
+**All three methods concentrate traffic on 2600 MHz.** Its share of UE reports rises from 60.3 % to between 62.8 % and 63.2 %, while 1800 MHz falls from 6.8 % to between 4.8 % and 5.4 %. The mechanism under TuRBO is visible in the cell-impact table (`tables/04_evaluation/cell_impact.csv`). All twelve 2600 MHz carriers are uptilted, which widens footprints that the serving rule prefers:
+- **Gains on 2600 MHz:** n2c1's 2600 MHz carrier, uptilted 6.37°, gains 78 served reports and 2.4 dB of median SINR. n1c1's, uptilted 8.95°, gains 59 and n0c2's 52.
+- **Losses on 1800 MHz:** n2c1's 1800 MHz carrier is downtilted 4.82° and loses 85 of its 86 reports. n1c1's, uptilted 9.79°, loses 48.
 
 **Per band** (`tables/04_evaluation/band_layer_summary.csv`), under TuRBO:
 - **Area covered** rises on every layer: 2600 MHz 71.2 % → 74.7 %, 1800 MHz 76.5 % → 77.7 %, 700 MHz 86.2 % → 86.4 %.
 - **Mean RSRP where covered** improves on every layer: 2600 MHz −97.2 → −90.8 dBm, 1800 MHz −91.5 → −88.0 dBm, 700 MHz −84.2 → −82.3 dBm. No band loses mean signal.
-- **Median served SINR** rises on 2600 MHz, from 3.5 to 7.1 dB. It falls on 1800 MHz, from 5.2 to 4.7 dB, and on 700 MHz, from 13.3 to 12.8 dB.
+- **Median served SINR** rises on 2600 MHz, from 11.1 to 12.1 dB, and on 700 MHz, from 24.1 to 25.3 dB. It falls on 1800 MHz, from 12.4 to 10.7 dB.
 
-About 40 % of UE reports remain unserved, and much of that is out of reach: 17.5 % of UE positions have no path to any cell (Table 2) and 21.2 % stand on hole tiles. The rest is PRB exhaustion. The busiest cell-bands sit at or just below the 0.8 admission ceiling in every configuration (`tables/04_evaluation/cell_impact.csv`), so the 2600 MHz layer remains the binding constraint on service.
+About 25 % of UE reports remain unserved, and most of that is out of reach: at the current tilts 21.2 % stand on hole tiles, and 17.5 % of UE positions have no path to any cell (Table 2). The rest is PRB exhaustion. The busiest cell-bands sit at or just below the 0.8 admission ceiling in every configuration (`tables/04_evaluation/cell_impact.csv`), so where coverage exists, the 2600 MHz layer's PRBs are the binding constraint on service.
 
 ### 6.6 Recommended tilt changes
 
@@ -490,11 +489,11 @@ Every one of the 36 cell-bands moved. The configuration is a net uptilt on every
 The rule sweep instead sets every cell on every band to one value, 1.67° (`outputs/tilt_change_rule.csv`). That is a uniform uptilt of 10.33° on 2600 MHz, 8.33° on 1800 MHz and 6.33° on 700 MHz. With one seed, it is not established which of TuRBO's per-cell differences matter and which reflect where the trust region happened to be when the budget ended. TuRBO's runs so far make the point concretely: three winners within 0.001 of each other on J had four, six and five downtilts.
 
 The largest traffic shifts under TuRBO (`tables/04_evaluation/cell_impact.csv`):
-- n1c1 on 2600 MHz, +262 served reports;
-- n2c1 on 2600 MHz, +214;
-- n2c1 on 1800 MHz, −165;
-- n3c1 on 2600 MHz, +113;
-- n0c2 on 2600 MHz, +108.
+- n2c1 on 1800 MHz, −85 served reports;
+- n2c1 on 2600 MHz, +78;
+- n1c1 on 2600 MHz, +59;
+- n0c2 on 2600 MHz, +52;
+- n1c1 on 1800 MHz, −48.
 
 Those are the cells to watch after a rollout.
 
@@ -504,13 +503,13 @@ Those are the cells to watch after a rollout.
 
 | Method | Evaluations | Best found at | Ray tracing [min] | Wall clock [min] | Ray tracing per evaluation [s] | J gain | J gain per wall-clock minute |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Rule-based sweep | 111 | 21 | 4.28 | 6.47 | 2.3 | +0.0312 | **0.0048** |
-| Random search | 145 | 7 | 7.30 | 9.90 | 3.0 | +0.0260 | 0.0026 |
-| TuRBO | 145 | 143 | 8.76 | 16.61 | 3.6 | **+0.0402** | 0.0024 |
+| Rule-based sweep | 111 | 21 | 4.21 | 6.11 | 2.3 | +0.0312 | **0.0051** |
+| Random search | 145 | 7 | 7.29 | 9.22 | 3.0 | +0.0260 | 0.0028 |
+| TuRBO | 145 | 143 | 6.91 | 14.59 | 2.9 | **+0.0402** | 0.0028 |
 
-TuRBO's GP fitting and acquisition added about 7.9 minutes of wall clock on top of its 8.8 minutes of ray tracing, nearly doubling it. Timings are only indicative: random search's ray tracing took 7.3 minutes here against 8.3 minutes in the earlier run of the identical configuration.
+TuRBO's GP fitting and acquisition added about 7.7 minutes of wall clock on top of its 6.9 minutes of ray tracing, more than doubling it. Timings are only indicative: TuRBO traced the same 145 configurations here in 6.9 minutes against 8.8 minutes on 2026-09-23.
 
-**By J gain per minute, the rule sweep is about twice as cost-effective as TuRBO.** It reaches 78 % of TuRBO's gain in 39 % of the wall clock. It does not compete on quality: TuRBO passes its final J at evaluation 32 of 145 and ends 0.0091 above it. The sweep's remaining case is cost, and the six individual KPIs it wins (Section 6.2).
+**By J gain per minute, the rule sweep is nearly twice as cost-effective as TuRBO.** It reaches 77 % of TuRBO's gain in 42 % of the wall clock. It does not compete on quality: TuRBO passes its final J at evaluation 32 of 145 and ends 0.0091 above it. The sweep's remaining case is cost, and the six individual KPIs it wins (Section 6.2).
 
 ### 6.8 Limitations
 
@@ -520,7 +519,7 @@ These results should be read tentatively, for nine reasons:
 2. **One search seed per method.** No confidence interval or significance test could be computed. The TuRBO–rule margin on J is +0.0091, and the TuRBO–random paired gain is +0.0142, each resting on one pair.
 3. **Winner's curse, and TuRBO's sensitivity to J.**
    - Every candidate used the same ray-tracer seed, so the maximum of many candidates may favour configurations that benefit from that seed's Monte-Carlo noise. Solver noise is unmeasured.
-   - The GPU ray tracer is reproducible only to round-off, and the GP fit amplifies any difference in J into different proposals. Rounding J to 10⁻⁶ keeps that round-off out of the search. Two short TuRBO runs then matched exactly, but rounding lowers the odds of a mismatch rather than ruling it out (Section 6.1).
+   - The GPU ray tracer is reproducible only to round-off, and the GP fit amplifies any difference in J into different proposals. Rounding J to 10⁻⁶ keeps that round-off out of the search. Two short TuRBO runs, and then this full run against the 2026-09-23 run, matched exactly, but rounding lowers the odds of a mismatch rather than ruling it out (Section 6.1).
    - TuRBO's runs before the rounding measured the consequence: the same seed gave winners with J within 0.001 but different KPI profiles. The overlap rate went from improved to worsened and back.
    - A replay of the earlier run's own recorded scores, on this machine, did not reproduce its first proposal, so a second, unidentified source of difference exists between that run and this environment.
    - Any per-KPI claim about TuRBO's winner beyond J is one draw.
@@ -530,8 +529,8 @@ These results should be read tentatively, for nine reasons:
    - Both numbers come from a one-off analysis of the archived radio map, not from the pipeline.
    - Nothing in the objective stops a search from buying J by switching a weak layer off.
 5. **Inter-band interference is priced nowhere.** The overlap count is co-band by definition, the reported overlap rate merely sums the three per-band counts, and J does not read SINR. The contraharmonic mean does lower a tile for a weak second layer, but it does so whether or not that layer interferes. Fixing this needs an interference model, not a reweighting.
-6. **Nothing is weighted by demand.** A hole where nobody stands costs exactly what a hole in a hotspot costs. Table 7b is the only place demand appears, and it shows 0.4 % of peak demand landing on hole tiles under the winner, where none did before.
-7. **The capacity model is a simplification.** It drives the served ratio and every capacity figure. It uses a Shannon rate with no MCS cap, full-load co-band interference against partial PRB load, and no receiver noise figure.
+6. **Nothing is weighted by demand.** A hole where nobody stands costs exactly what a hole in a hotspot costs. Table 7b is the only place demand appears, and it shows 0.07 % of peak demand landing on hole tiles under the winner, where none did before.
+7. **The capacity model is a simplification.** It drives the served ratio and every capacity figure. It uses a Shannon rate with no MCS cap, full-load co-band interference against partial PRB load, and per-RE thermal noise with no receiver noise figure.
 8. **Tilts near both bounds.** The winner places one cell-band at 0.19° and another at 14.82°, within 0.2° of each end of the box.
 9. **No MARL arm and no held-out validation.** The planned comparison against reinforcement learning could not be made.
 
@@ -546,18 +545,18 @@ Running several search seeds, re-tracing the shortlisted configurations under ot
 | Criterion | Rule-based sweep | Random search | TuRBO |
 |---|---|---|---|
 | 1. Objective J | +0.0312 (2nd) | +0.0260 (3rd) | **+0.0402 (1st)** |
-| 2. Reported KPIs | 7 better, 3 worse; **best on 6 of 10**: hole, weak, both RSRP percentiles, served rate, and the smallest load worsening | 7 better, 3 worse | **8 better, 2 worse**; best on overlap rate, overlap neighbours and both SINR percentiles |
+| 2. Reported KPIs | 6 better, 4 worse; best on hole, weak and both RSRP percentiles | 6 better, 4 worse; best on served rate and the smallest load worsening | **8 better, 2 worse**; best on overlap rate, overlap neighbours and both SINR percentiles |
 | 3. Search effectiveness | Best at evaluation 21 of 111; beaten by TuRBO from evaluation 32 | Best at 7, no gain in the next 138 | **Median candidate above both baselines' best; still improving at 143 of 145** |
-| 4. Robustness | **No demand onto holes**; largest demand shift out of weak coverage | 0.3 % of demand onto holes | 0.4 % of demand onto holes; overlap lowered on every band and overall; KPI profile moved between runs before J was rounded |
-| 5. Cost | **6.5 min, 111 evaluations; about 2× the J per minute** | 9.9 min, 145 evaluations | 16.6 min, 145 evaluations |
+| 4. Robustness | **No demand onto holes**; largest demand shift out of weak coverage | 0.03 % of demand onto holes | 0.07 % of demand onto holes; overlap lowered on every band and overall; KPI profile moved between runs before J was rounded |
+| 5. Cost | **6.1 min, 111 evaluations; nearly 2× the J per minute** | 9.2 min, 145 evaluations | 14.6 min, 145 evaluations |
 
 **Conclusions.**
 
 - **TuRBO reached the highest J, and there is good evidence the model earned it.** Its median candidate (0.7019) scored above both baselines' best. It also shares its first 16 Sobol points with random search and diverges only once the model starts proposing.
-- **On the individual KPIs, the rule sweep and TuRBO split the practical result.** The sweep wins six of the ten head to head: hole, weak and both RSRP measures, the served rate, and the narrowest load-imbalance loss. TuRBO wins the overlap rate, overlapping neighbours and both SINR percentiles. The sweep costs about 39 % of TuRBO's wall clock.
+- **On the individual KPIs, the rule sweep and TuRBO split the practical result.** The sweep wins six of the ten head to head: hole, weak and both RSRP measures, the served rate (by one UE report), and the narrower load-imbalance loss. TuRBO wins the overlap rate, overlapping neighbours and both SINR percentiles, and is the only method that raises cell-edge SINR. The sweep costs about 42 % of TuRBO's wall clock.
 - **Only TuRBO lowers co-band overlap overall, and not robustly.** It lowers the band-collapsed rate and the rate on every band, and has the fewest 3+ pile-ups. The sweep and random search raise the collapsed rate, and every method raises overlapping neighbours per covered tile and load imbalance. TuRBO's runs so far have moved the collapsed rate both ways, so which way that KPI goes under TuRBO is not settled by one seed.
 - **The objective barely pays for closing holes.** A newly covered tile arrives near −120 dBm, where the strength factor is near zero. The hole-rate gains are a side effect of uptilting.
-- **Every method concentrates traffic on 2600 MHz.** All twelve of TuRBO's 2600 MHz carriers are uptilted. The layer's share of served reports rises from 34.1 % to 45.9 %, and 1800 MHz loses share under every method.
+- **Every method concentrates traffic on 2600 MHz.** All twelve of TuRBO's 2600 MHz carriers are uptilted. The layer's share of UE reports rises from 60.3 % to 63.0 %, and 1800 MHz loses share under every method.
 - **Every result** depends on:
   - one scenario and one seed;
   - a simplified capacity model;
@@ -573,7 +572,7 @@ Running several search seeds, re-tracing the shortlisted configurations under ot
 4. **Give TuRBO a larger budget.** It found its best at evaluation 143 of 145 and never restarted, so the trust region was still productive when the budget ended.
 5. **Widen the tilt box.** The winner sits within 0.2° of the 0° bound on one cell-band and of the 15° bound on another.
 6. **Model inter-band interference.** The overlap count is co-band and J does not read SINR, so nothing in the study prices a strong neighbour on another layer. This needs a model, not a reweighting.
-7. **Address the 2600 MHz PRB ceiling.** Every method concentrates traffic on 2600 MHz, and its busiest cell-bands sit at the 0.8 admission ceiling, so tilt alone cannot raise the served ratio much further. That is a capacity decision, not a tilt one.
+7. **Address the out-of-reach demand and the 2600 MHz PRB ceiling.** Most of the UEs still unserved stand on hole tiles, largely one hotspot with no propagation path, and every method concentrates the rest on 2600 MHz, whose busiest cell-bands sit at the 0.8 admission ceiling. Tilt alone cannot raise the served ratio much further. That is a coverage and capacity decision, not a tilt one.
 8. **Build held-out scenario validation and the planned MARL arm** before drawing a method-level conclusion.
 
 ---
@@ -593,15 +592,16 @@ The runs used the committed configuration in `configs/`:
 | KPI thresholds | `hole_dbm` −120, `weak_dbm` −90, `overlap_margin_db` 6, edge percentile 5 |
 | Objective | contraharmonic mean over bands; no parameters; reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`; rounded to 10⁻⁶; `objective_version` 3 (ADR 0003) |
 | Capacity | preference 2600 > 1800 > 700 MHz, serving threshold −120 dBm, admission ceiling 0.8, 20 Mbps per UE, SCS 15 kHz, admission in report-time order |
+| Noise | k·T·SCS per resource element at 298.15 K (`simulation.radio_map.bands[].scs_hz`), no receiver noise figure |
 | Search | seed 42; random and TuRBO 16 + 128; TuRBO batch 3, trust region 0.8 / 0.5⁷ / 1.6, success tolerance 3, failure tolerance 12; rule 10 steps × 4 rounds; 4 solutions published |
 
 Runs used in this report:
 
 | Method | Run directory |
 |---|---|
-| Random search | `outputs/optim/random/2026-09-23_09-13-50/` |
-| Rule-based sweep | `outputs/optim/rule/2026-09-23_09-23-44/` |
-| TuRBO | `outputs/optim/turbo/2026-09-23_09-31-10/` |
+| Random search | `outputs/optim/random/2026-09-25_09-23-58/` |
+| Rule-based sweep | `outputs/optim/rule/2026-09-25_09-33-11/` |
+| TuRBO | `outputs/optim/turbo/2026-09-25_09-40-09/` |
 
 To reproduce, run notebooks `00` through `04` in order, or `task pipeline`; both call the same functions in `src/`. Notebooks 03a and 03b skip any method and seed that already has a run under `outputs/optim/`, so clear that directory first to re-search.
 
@@ -651,10 +651,6 @@ The rule-based sweep's best configuration sets every cell to 1.67° on all three
 
 [3] *BoTorch: Bayesian optimization in PyTorch*, with GPyTorch. Available: https://botorch.org/
 
-[4] 3GPP TR 36.814, *Further advancements for E-UTRA physical layer aspects*, Annex A.2.1.4.
+[4] 3GPP TS 38.101-1, *NR; User Equipment (UE) radio transmission and reception; Part 1: Range 1 Standalone*, Table 5.3.2-1.
 
-[5] 3GPP TR 38.901, *Study on channel model for frequencies from 0.5 to 100 GHz*, Table 7.2-1.
-
-[6] 3GPP TS 38.101-1, *NR; User Equipment (UE) radio transmission and reception; Part 1: Range 1 Standalone*, Table 5.3.2-1.
-
-[7] 3GPP TS 38.211, *NR; Physical channels and modulation*, clause 4.4.4.1.
+[5] 3GPP TS 38.211, *NR; Physical channels and modulation*, clause 4.4.4.1.

@@ -36,10 +36,10 @@ def cfg():
                     "max_admission_utilisation": 1.0,
                     # Low enough that no fixture UE is blocked unless it asks to be.
                     "throughput_per_ue_bps": 1.0,
-                    "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
             "simulation": {
+                "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
                 "seed": 0,
                 "transmitters": {
                     "cells": [

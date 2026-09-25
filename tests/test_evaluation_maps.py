@@ -114,10 +114,10 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
         "rsrp_threshold_dbm": -110.0,
         "max_admission_utilisation": 1.0,
         "throughput_per_ue_bps": 1e6,
-        "bands": {"b": {"scs_hz": 15000}},
     }
     cfg.simulation = {
         "seed": 0,
+        "radio_map": {"bands": [{"name": "b", "scs_hz": 15000}]},
         "transmitters": {
             "cells": [
                 {

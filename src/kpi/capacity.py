@@ -86,16 +86,19 @@ class CapacitySpec:
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
-        """Read ``kpi.capacity``, ``kpi.hole_dbm`` and the cells.
+        """Read ``kpi.capacity``, ``kpi.hole_dbm``, the cells and each band's ``scs_hz``.
 
         The cells are taken in config order, which is the radio map's tx axis:
         :func:`src.simulation.radio.solve` writes them in that order and
-        preprocessing checks ``tx_name`` against the config.
+        preprocessing checks ``tx_name`` against the config. ``scs_hz`` is read
+        from ``simulation.radio_map.bands``, the same value the solver's noise
+        bandwidth uses.
 
         Raises:
-            ValueError: As :func:`band_rank`, or when a band has no capacity
-                entry, the config holds other than ``n_tx`` cells, or
-                ``max_admission_utilisation`` is outside ``(0, 1]``.
+            ValueError: As :func:`band_rank`, or when a band has no
+                ``simulation.radio_map.bands`` entry, the config holds other
+                than ``n_tx`` cells, or ``max_admission_utilisation`` is
+                outside ``(0, 1]``.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
         capacity = cfg.kpi.capacity
@@ -105,9 +108,10 @@ class CapacitySpec:
                 f"kpi.capacity.max_admission_utilisation must be in (0, 1], got {admission}"
             )
         rank = band_rank(cfg, band_labels)
-        missing = [label for label in band_labels if label not in capacity.bands]
+        bands = {str(entry.name): entry for entry in cfg.simulation.radio_map.bands}
+        missing = [label for label in band_labels if label not in bands]
         if missing:
-            raise ValueError(f"No kpi.capacity.bands entry for {', '.join(missing)}.")
+            raise ValueError(f"No simulation.radio_map.bands entry for {', '.join(missing)}.")
         cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
         if len(cells) != n_tx:
             raise ValueError(
@@ -120,7 +124,7 @@ class CapacitySpec:
             max_admission_utilisation=admission,
             min_rsrp_dbm=float(cfg.kpi.hole_dbm),
             throughput_per_ue_bps=float(capacity.throughput_per_ue_bps),
-            scs_hz=np.array([float(capacity.bands[label].scs_hz) for label in band_labels]),
+            scs_hz=np.array([float(bands[label].scs_hz) for label in band_labels]),
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
             ),
@@ -233,19 +237,17 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
 # Three deviations from 3GPP, all in the optimistic direction, kept because the
 # search needs a quantity that is smooth in tilt and this one is:
 #
-# - No modulation and coding ceiling. TS 38.214 Table 5.1.3.1-2 tops out at
-#   Q_m * R = 8 * 948/1024 bit/s/Hz per layer (Table 5.1.3.1-1, without 256QAM:
-#   6 * 948/1024), and CQI index 1 of Table 5.2.2.1-2 floors a schedulable UE at
-#   2 * 78/1024. log2(1 + SINR) obeys neither, so a high-SINR UE is charged too
-#   few PRBs and a UE below the floor is charged a finite number rather than
-#   being refused.
+# - No modulation and coding ceiling or floor. log2(1 + SINR) has neither, so a
+#   high-SINR UE is charged too few PRBs and a UE below the lowest schedulable
+#   rate is charged a finite number rather than being refused.
 # - The rate basis is the nominal RB bandwidth, 12 * SCS. The UE data rate of
 #   TS 38.306 4.1.2 uses the symbol rate 12 / T_s^mu, T_s^mu = 1e-3 / (14 * 2^mu),
 #   and scales by (1 - OH) with OH = 0.14 for downlink FR1.
 # - One layer, no MIMO: no v_Layers factor and no R_max.
 #
-# SINR is also the solver's wideband value applied per PRB, so frequency
-# selective fading does not appear. The PRB limits themselves are 3GPP:
+# SINR is the solver's per-RE value. Signal, interference and noise are all flat
+# across the carrier, so it holds on every PRB alike and frequency-selective
+# fading does not appear. The PRB limits themselves are 3GPP:
 # max_prb per cell-band is N_RB from TS 38.101-1 Table 5.3.2-1.
 
 

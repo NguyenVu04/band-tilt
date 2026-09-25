@@ -409,7 +409,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only |
-| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kTB over the band bandwidth, with no receiver noise figure modelled. The served rate and both load measures count the PRBs that rule requires, so every capacity figure inherits these. The objective does not: it reads the radio map alone |
+| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. The served rate and both load measures count the PRBs that rule requires, so every capacity figure inherits these. The objective does not: it reads the radio map alone |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards

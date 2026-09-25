@@ -49,7 +49,7 @@ def _cell(name: str, tilts: dict[str, float]) -> Cell:
 def test_a_written_radio_map_reads_back_without_pickle(tmp_path) -> None:
     """Every array is plain, so the loaders' ``allow_pickle=False`` accepts it."""
     cells = (_cell("a", {"hi": 3.0, "lo": 5.0}), _cell("b", {"hi": 4.0, "lo": 6.0}))
-    bands = (Band("hi", 2.6e9, 4e7), Band("lo", 7e8, 1e7))
+    bands = (Band("hi", 2.6e9, 4e7, 15e3), Band("lo", 7e8, 1e7, 15e3))
     solver = SolverSpec(10, 2, True, True, False, True, False, False, True, -1, 0.95, 298.15)
     rsrp = np.full((2, 2, 3, 4), -90.0)
     grid = {"origin_x": 0.0, "origin_y": 0.0, "tile_size_m": 20.0, "n_cols": 4, "n_rows": 3}

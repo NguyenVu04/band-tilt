@@ -120,20 +120,20 @@ This is accepted as a deliberate fidelity-for-smoothness trade: the search needs
 a quantity that moves continuously with tilt, and this one does. The deviations
 from 3GPP, all optimistic, are recorded in that module and summarised here:
 
-- **No modulation and coding ceiling.** TS 38.214 Table 5.1.3.1-2 tops out at
-  `Q_m * R = 8 * 948/1024` bit/s/Hz per layer (Table 5.1.3.1-1, without 256QAM:
-  `6 * 948/1024`). CQI index 1 of Table 5.2.2.1-2 floors a schedulable UE at
-  `2 * 78/1024`. `log2(1 + SINR)` obeys neither. So a high-SINR UE is charged
-  too few PRBs, and cells look less loaded than they would be. A UE below the
-  floor is charged a finite number of PRBs and blocked by the ceiling, rather
-  than refused outright.
+- **No modulation and coding ceiling or floor.** `log2(1 + SINR)` has neither.
+  So a high-SINR UE is charged too few PRBs, and cells look less loaded than
+  they would be. A UE below the lowest schedulable rate is charged a finite
+  number of PRBs and blocked by the admission ceiling, rather than refused
+  outright.
 - **The rate basis is the nominal RB bandwidth.** The UE data rate of
   TS 38.306 4.1.2 uses the symbol rate `12 / T_s^mu`, with
   `T_s^mu = 1e-3 / (14 * 2^mu)`, and scales by `(1 - OH)`, with `OH = 0.14` for
   downlink FR1. Using `12 * SCS` and no overhead is optimistic on both counts.
 - **One layer.** No `v_Layers` MIMO factor and no `R_max`.
-- **SINR is the solver's wideband value applied per PRB**, so frequency-selective
-  fading does not appear and the PRB figure is an interval average.
+- **SINR is the solver's per-RE value applied to every PRB.** Signal,
+  interference and `k * T * SCS` noise are flat across the carrier, so
+  frequency-selective fading does not appear and the PRB figure is an interval
+  average.
 
 What *is* 3GPP: `12` subcarriers per resource block (TS 38.211 4.4.4.1), and the
 `max_prb` limits per cell-band, which are `N_RB` from TS 38.101-1 Table 5.3.2-1
@@ -189,18 +189,19 @@ same scenario, the same solver settings and the same budgets. Random search
 draws the same seeded Sobol sequence under both objectives. Its 145 candidates
 are therefore **the same tilt configurations with identical KPIs**, so the
 correlations below are a paired comparison of the two objectives on one sample.
-The contraharmonic column's TuRBO figures are from the 2026-09-23 rerun, with
-J rounded to 1e-6. The best-band maximum column was not rerun.
+The contraharmonic column's TuRBO figures are from the 2026-09-25 rerun, with
+J rounded to 1e-6; its searches match the 2026-09-23 run on every evaluation.
+The best-band maximum column was not rerun.
 
 | | best-band maximum | contraharmonic mean |
 |---|---:|---:|
 | Spearman(`J_max`, `J_ch`), shared 145 candidates | — | 0.935 |
-| Spearman(`J`, equal-weight rank score over the 10 KPIs)¹ | 0.930 | 0.918 |
+| Spearman(`J`, equal-weight rank score over the 10 KPIs)¹ ³ | 0.930 | 0.918 (0.898) |
 | rho vs band-collapsed overlap rate | 0.251 | **0.427** |
 | rho vs overlap neighbours per covered tile | 0.235 | **0.297** |
-| rho vs hole rate / served rate | 0.738 / 0.565 | 0.770 / 0.612 |
-| rho vs weak rate / RSRP p05 / SINR p05 | 0.877 / 0.918 / 0.902 | 0.787 / 0.872 / 0.860 |
-| rho vs RSRP p50 / SINR p50 / load imbalance | 0.861 / 0.878 / 0.385 | 0.773 / 0.789 / 0.351 |
+| rho vs hole rate / served rate³ | 0.738 / 0.565 | 0.770 / 0.612 (0.356) |
+| rho vs weak rate / RSRP p05 / SINR p05³ | 0.877 / 0.918 / 0.902 | 0.787 / 0.872 / 0.860 (0.122) |
+| rho vs RSRP p50 / SINR p50 / load imbalance³ | 0.861 / 0.878 / 0.385 | 0.773 / 0.789 / 0.351 (0.412 / −0.038) |
 | Tiles where dropping one covered band raises the score, TuRBO winner² | 0 by construction | 0.4934 |
 | Ceiling on that gain, `mean_g (max_b u_bg - J(g))`, TuRBO winner² | 0.0000 | 0.0542 |
 | TuRBO band-collapsed overlap rate (incumbent 0.3164) | 0.3546 | **0.3090** |
@@ -215,17 +216,28 @@ because darkening a band on one tile changes it on many, including tiles where
 it is the best layer. It bounds what the non-monotonicity is worth. It is not a
 measured exploit.
 
+³ Both columns were first measured with thermal noise over the full channel
+bandwidth. With per-RE noise (`k * T * scs_hz`, 2026-09-25) the contraharmonic
+column's SINR, served-rate and load figures, and the rank score, are the values
+in parentheses; `J` and the other six KPIs are unchanged. The best-band maximum
+column was not remeasured, so on those rows the two columns compare only under
+the earlier noise.
+
 **The trade the change bought, in correlation.** Rho rose on four of the ten
 KPIs: both overlap measures, the hole rate and the served rate. It fell on the
 six strength and SINR measures. `J` now tracks crowding better and signal
-strength worse, and its rank-score correlation is marginally lower.
+strength worse, and its rank-score correlation is marginally lower. Those
+served-rate and SINR comparisons are under the earlier noise. With per-RE noise,
+`J` tracks SINR and service far less closely: rho is 0.122 against cell-edge
+SINR, 0.412 against median SINR, 0.356 against the served rate and −0.038
+against load imbalance.
 
 **On the search, overlap is the measure that moved.** TuRBO lowers the
 band-collapsed overlap rate by 2.3 %, where under the maximum it raised it by
 12.1 %. It improves all three bands: 2600 MHz 0.2010 → 0.1913, 1800 MHz
 0.2067 → 0.1940 and 700 MHz 0.2396 → 0.2237. It improves 8 of the 10 KPIs,
 against 7 under the maximum, and worsens overlap neighbours per covered tile
-(+3.8 %) and load imbalance (+10.7 %). Random search and the rule sweep still
+(+3.8 %) and load imbalance (+2.9 %). Random search and the rule sweep still
 raise the band-collapsed rate.
 
 **TuRBO's margin comes from contention.** Each winner's gain over the incumbent
@@ -247,9 +259,10 @@ pay. Hole-closing stays negligible, because a newly covered tile is worth about
 
 **What was lost.** Under the maximum, TuRBO's distinctive move was to hand
 traffic from 2600 MHz to 1800 MHz: 16.4 % of UE reports were served on
-1800 MHz, against 10.5 % at the incumbent. Under this objective every method
-concentrates traffic on 2600 MHz (45.1–46.3 %), and 1800 MHz falls to
-6.4–7.1 %. TuRBO's recommended configuration uptilts every 2600 MHz carrier.
+1800 MHz, against 10.5 % at the incumbent, both under the earlier noise. Under
+this objective, with per-RE noise, every method concentrates traffic on
+2600 MHz (62.8–63.2 %, from 60.3 %), and 1800 MHz falls to 4.8–5.4 % (from
+6.8 %). TuRBO's recommended configuration uptilts every 2600 MHz carrier.
 Its five downtilts are three 700 MHz carriers and two 1800 MHz carriers.
 
 ## Alternatives considered

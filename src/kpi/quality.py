@@ -15,8 +15,7 @@ from src.kpi.capacity import covered, max_rsrp, serving_sinr
 # config values: the measures are named after them (rsrp_p05_dbm, sinr_p50_db),
 # so a config that moved them would make every column name a lie.
 #
-# 5%: the cell-edge point of 3GPP TR 36.814 Annex A.2.1.4, carried from user
-# throughput to RSRP and SINR. 50%: the median, which needs no authority.
+# 5%: the cell edge. 50%: the median.
 LOW_PERCENTILE = 5.0
 MEDIAN_PERCENTILE = 50.0
 

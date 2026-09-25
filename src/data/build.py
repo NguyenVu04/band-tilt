@@ -70,6 +70,7 @@ def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
                     "band": label,
                     "frequency_hz": bands[label].frequency_hz,
                     "bandwidth_hz": bands[label].bandwidth_hz,
+                    "scs_hz": bands[label].scs_hz,
                     "tilt_baseline_deg": tilt.baseline_deg,
                     "tilt_min_deg": low,
                     "tilt_max_deg": high,

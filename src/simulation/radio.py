@@ -1,7 +1,8 @@
 """Ray-trace one clean radio map per band.
 
 Reads the stored scenario manifest and writes RSRP and SINR on its UE grid,
-both as the solver's :class:`sionna.rt.RadioMap` reports them. Nothing here
+both per resource element, as the solver's :class:`sionna.rt.RadioMap` reports
+them. Nothing here
 redraws the scenario: a map must describe the population already on disk.
 """
 
@@ -43,13 +44,16 @@ class Band:
         name: Identifies the band in the cell tilt table and the radio map.
             The one place the band's identity is spelled.
         frequency_hz: Carrier frequency.
-        bandwidth_hz: Transmission bandwidth; with temperature it fixes the
-            thermal noise power.
+        bandwidth_hz: Channel bandwidth. Fixes N_RB and so ``max_prb``; the
+            solver does not read it.
+        scs_hz: Subcarrier spacing: the bandwidth of one resource element,
+            and so the solver's thermal-noise bandwidth.
     """
 
     name: str
     frequency_hz: float
     bandwidth_hz: float
+    scs_hz: float
 
     @classmethod
     def from_config(cls, entry: DictConfig) -> Band:
@@ -58,6 +62,7 @@ class Band:
             name=str(entry.name),
             frequency_hz=float(entry.frequency),
             bandwidth_hz=float(entry.bandwidth),
+            scs_hz=float(entry.scs_hz),
         )
 
 
@@ -328,8 +333,9 @@ def solve_band(
     NaN where no path reached the tile.
 
     SINR is :attr:`sionna.rt.RadioMap.sinr`: every other transmitter in the
-    scene is interference at full power, plus ``k * T * B`` noise. The scene
-    holds only this band's transmitters, so the interference is co-band.
+    scene is interference at full power, plus ``k * T * scs_hz`` noise, all
+    per resource element. The scene holds only this band's transmitters, so the
+    interference is co-band.
     """
     import mitsuba as mi
     from sionna.rt import RadioMapSolver
@@ -340,7 +346,12 @@ def solve_band(
     # draw. Installing first switches those callbacks off.
     materials.install(scene, band.frequency_hz)
     scene.frequency = band.frequency_hz
-    scene.bandwidth = band.bandwidth_hz
+    # Sionna-RT's noise is temperature * k * scene.bandwidth. Every transmitter
+    # radiates power_rs per RE, so the noise must be one RE's too: the SCS, not
+    # the channel bandwidth, which would add 10*log10(N_RB * 12) dB of noise.
+    # Per-RE signal over per-RE noise plus interference is SS-SINR's form
+    # (TS 38.215 5.1.5).
+    scene.bandwidth = band.scs_hz
     scene.temperature = spec.temperature_k
 
     for cell in cells:
@@ -383,7 +394,8 @@ def solve_band(
         seed=solver_seed,
     )
     # rss is path gain times transmit power, in watts, so with power_dbm set to
-    # the per-resource-element reference power this reads directly as RSRP.
+    # the per-resource-element reference power this reads directly as RSRP, the
+    # per-RE power of TS 38.215 5.1.1.
     rss = np.asarray(radio_map.rss, dtype=np.float64)
     sinr_linear = np.asarray(radio_map.sinr, dtype=np.float64)
     with np.errstate(divide="ignore", invalid="ignore"):

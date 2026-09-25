@@ -327,10 +327,11 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     on them. ``capacity`` is here for the serving rule behind the served rate and
     both load measures; the objective does not read it (ADR 0003).
 
-    ``bandwidth`` and ``temperature`` are here because kTB over the band
-    bandwidth is the noise floor behind every SINR, and SINR sets the PRBs a UE
-    needs and therefore the served rate. Neither is stored in the archive, so
-    the config snapshot is the only place they can be checked.
+    ``scs_hz`` and ``temperature`` are here because kT over the subcarrier
+    spacing is the per-RE noise floor behind every SINR, and SINR and ``scs_hz``
+    set the PRBs a UE needs and therefore the served rate. ``bandwidth`` fixes
+    ``max_prb``. None is stored in the archive, so the config snapshot is the
+    only place they can be checked.
 
     ``objective_version`` is the guard for the objective's functional form, which
     lives in code and not in config: the config alone cannot tell two utilities
@@ -354,5 +355,6 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
         "bandwidth": {
             band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])
         },
+        "scs_hz": {band.get("name"): band.get("scs_hz") for band in radio_map.get("bands", [])},
         "temperature": radio_map.get("temperature"),
     }

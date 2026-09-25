@@ -54,7 +54,7 @@ The four definitions above are unchanged. What changed around them:
 - **None of them is the objective.** The search maximises the objective of
   [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md); the KPIs are measured and reported beside it.
 - **A fifth KPI is measured**: `edge_rsrp_dbm`, the 5th-percentile serving
-  RSRP over covered locations (3GPP TR 36.814 Annex A.2.1.4). It is conditional
+  RSRP over covered locations. It is conditional
   on coverage, so it is read beside the hole rate.
 
 **The serving rule.** Each UE takes the most preferred band

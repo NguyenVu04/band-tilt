@@ -21,10 +21,10 @@ def test_mdt_keeps_served_ues_with_their_serving_rsrp() -> None:
                     "rsrp_threshold_dbm": -100.0,
                     "max_admission_utilisation": 1.0,
                     "throughput_per_ue_bps": 180_000.0,
-                    "bands": {"hi": {"scs_hz": 15000}, "lo": {"scs_hz": 15000}},
                 },
             },
             "simulation": {
+                "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
                 "seed": 0,
                 "transmitters": {
                     "cells": [
