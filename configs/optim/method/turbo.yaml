@@ -23,3 +23,9 @@ trust_region:
   length_min: 0.0078125
   length_max: 1.6
   success_tolerance: 3
+  # A round succeeds only when it beats the best score by this share of its
+  # magnitude (Eriksson et al., 2019).
+  improvement: 1.0e-3
+  # Each candidate perturbs a dimension of the centre with probability
+  # min(perturbed_dimensions / d, 1). BoTorch's TuRBO-1 tutorial uses 20.
+  perturbed_dimensions: 5

@@ -67,6 +67,8 @@ _METHODS = {
             "length_min": 0.0078125,
             "length_max": 1.6,
             "success_tolerance": 3,
+            "improvement": 1e-3,
+            "perturbed_dimensions": 20,
         },
     },
     "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2}},
@@ -186,7 +188,14 @@ def test_the_trust_region_doubles_on_successes_and_halves_on_failures() -> None:
     from src.optim.methods.turbo.search import TrustRegion
 
     region = TrustRegion(
-        dim=6, batch_size=2, length_init=0.8, length_min=0.1, length_max=1.6, success_tolerance=2
+        dim=6,
+        batch_size=2,
+        length_init=0.8,
+        length_min=0.1,
+        length_max=1.6,
+        success_tolerance=2,
+        improvement=1e-3,
+        perturbed_dimensions=20.0,
     )
     region.best = 1.0
     region.update(2.0)
@@ -205,7 +214,14 @@ def test_a_collapsed_trust_region_restarts_at_its_initial_length() -> None:
     from src.optim.methods.turbo.search import TrustRegion
 
     region = TrustRegion(
-        dim=6, batch_size=2, length_init=0.8, length_min=0.5, length_max=1.6, success_tolerance=2
+        dim=6,
+        batch_size=2,
+        length_init=0.8,
+        length_min=0.5,
+        length_max=1.6,
+        success_tolerance=2,
+        improvement=1e-3,
+        perturbed_dimensions=20.0,
     )
     region.best = 1.0
     for _ in range(3):
