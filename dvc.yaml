@@ -1,36 +1,10 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
-#
-# Each stage calls the same functions in src/ as its notebook, so a notebook and
-# a stage cannot diverge on what they compute.
-#
-# Five stages are active: the three `simulation_*` stages (notebook 00),
-# `preprocessing` (notebook 02) and `optimization` (notebooks 03a and 03b).
-# Two entry points deliberately have no stage. `src/evaluation/run.py`
-# (notebook 04, `task evaluate`) reads finished runs and re-solves nothing, so
-# it has no reproducible inputs to track; notebook 01 writes no data at all.
-# MARL and held-out validation still have no code in src/, so there is nothing
-# to define a stage against. Add those when the modules land instead of
-# guessing at their shape now.
-#
-# `optimization` is deliberately not wired into a downstream stage. It writes a
-# timestamped directory per run, because comparing methods means comparing runs
-# and a rerun must not overwrite the one it is compared against — so it has no
-# fixed `outs` for DVC to track. `dvc repro optimization` runs whichever method
-# the `optim/method` default in `configs/config.yaml` currently selects.
-#
-# Note the `params` blocks. DVC re-runs a stage when a listed parameter changes,
-# so the entries are chosen to be the settings that actually invalidate a stage's
-# output — not every key in the file. A setting that only affects an upstream
-# stage's own output is not repeated here: the upstream stage's `outs` already
-# is this stage's `deps`, so a change there triggers a rerun through that path.
+# Each stage calls the same src/ functions as its notebook.
+# Evaluation (notebook 04, `task evaluate`) has no stage: it reads finished runs.
+# `params` list only the settings that change a stage's output.
 
 stages:
-  # --- Stage 1: the scenario (notebook 00, section 3) ------------------------
-  # Rasters the Sionna-RT scene into the shared grid and draws the time-varying
-  # UE population. The scene is the file simulation.scene.name points at
-  # (data/external/scene/), so it is a file dependency; the cell layout in
-  # configs/simulation.yaml was generated once by `task simulation:layout`, so
-  # it is a param rather than a file dependency.
+  # Scene raster and UE population (notebook 00).
   simulation_scenario:
     cmd: python -m src.simulation.scenario
     deps:
@@ -54,15 +28,7 @@ stages:
       - data/external/ue_positions.csv
       - data/external/scenario.json
 
-  # --- Stage 2: the radio map (notebook 00, section 4) -----------------------
-  # Rebuilds the same scene, places the cells at their configured per-band
-  # tilt, and ray-traces one band at a time. The
-  # expensive stage — it needs a CUDA GPU and the Sionna-RT extra
-  # (`task sync:rt`).
-  #
-  # `data/external/scenario.json` is a dependency even though this stage does
-  # not read the UE table: it reads the manifest to confirm the grid and
-  # scenario id it is solving against match the scenario just generated.
+  # Baseline radio map, one ray-trace per band (notebook 00). Needs a CUDA GPU.
   simulation_radio:
     cmd: python -m src.simulation.radio
     deps:
@@ -88,38 +54,7 @@ stages:
     outs:
       - data/interim/radio_map.npz
 
-  # --- Stage 3: the MDT (notebook 00, section 5) -----------------------------
-  # Serves the UE table on the baseline radio map and keeps the admitted UEs.
-  # No GPU. Kept for later use; no downstream stage but preprocessing reads it.
-  # kpi is a param because the serving rule reads the capacity model and the
-  # hole threshold; the cells carry max_prb.
-  simulation_mdt:
-    cmd: python -m src.simulation.mdt
-    deps:
-      - src/simulation/mdt.py
-      - src/kpi/capacity.py
-      - src/core/cell.py
-      - data/external/ue_positions.csv
-      - data/interim/radio_map.npz
-    params:
-      - configs/kpi.yaml:
-          - hole_dbm
-          - capacity
-      - configs/simulation.yaml:
-          - transmitters
-    outs:
-      - data/interim/mdt.csv
-
-  # --- Stage 4: preprocessing (notebook 02) -----------------------------------
-  # Verifies the simulation output against the contract named in each check
-  # (configs/simulation.yaml or the scenario manifest), then writes the typed,
-  # verified tables everything downstream reads. Nothing here learns from the
-  # data — see the notebook's boundary rule.
-  #
-  # `configs/simulation.yaml` params below are the sections `src/data/schema.py`
-  # cross-checks the artifacts against; a change to them can invalidate the
-  # processed tables even when the upstream `deps` files themselves are
-  # untouched (e.g. re-pointing at an externally regenerated artifact).
+  # Verify the simulation output and write the typed UE table (notebook 02).
   preprocessing:
     cmd: python -m src.data.build
     deps:
@@ -129,16 +64,11 @@ stages:
       - src/simulation/transmitter.py
       - src/simulation/radio.py
       - src/simulation/sample.py
-      - src/simulation/mdt.py
       - src/core/cell.py
       - data/external/ue_positions.csv
       - data/external/scenario.json
       - data/interim/radio_map.npz
-      - data/interim/mdt.csv
     params:
-      - configs/kpi.yaml:
-          - hole_dbm
-      # configs/data.yaml holds output paths only.
       - configs/simulation.yaml:
           - scene
           - grid
@@ -148,22 +78,10 @@ stages:
           - ue
     outs:
       - data/processed/ue.parquet
-      - data/processed/mdt.parquet
-      - data/processed/cell.parquet
 
-  # --- Optimization: search the tilt space (notebooks 03a and 03b) ----------
-  # Ray traces every candidate, so it needs a CUDA GPU and the Sionna-RT extra,
-  # like `simulation_radio`. The run it writes is complete: a measured shortlist, a
-  # named winner and the deliverable.
-  #
-  # Depends on the cell table via configs/simulation.yaml rather than on
-  # data/processed/cell.parquet: the search reads the committed tilt bounds from
-  # the config, and the parquet is that same table in another form.
-  #
-  # kpi is a param because the measures read the KPI thresholds and the capacity
-  # model: change any and every previous run becomes incomparable. kpi.objective_version
-  # is in there too, and is what refuses to pool runs scored by different
-  # objectives, since the objective's form is in code (ADR 0003).
+  # Tilt search (notebooks 03a, 03b). Needs a CUDA GPU. Each run writes its own
+  # timestamped directory, so there are no fixed outs; the method is the
+  # `optim/method` default in configs/config.yaml.
   optimization:
     cmd: python -m src.optim.run
     deps:
@@ -188,10 +106,8 @@ stages:
     params:
       - configs/optim/base.yaml:
           - seed
-          # How many solutions are published.
           - n_solutions
-      # Every method file, not just the selected one: DVC resolves params at
-      # plan time and cannot know which method the defaults list will pick.
+      # Every method file: DVC cannot know which one the defaults pick.
       - configs/optim/method/turbo.yaml:
           - name
           - budget

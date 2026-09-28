@@ -1,10 +1,8 @@
-"""Build the three processed tables from the verified artifacts.
+"""Build the processed UE table from the verified artifacts.
 
-``cell.parquet`` is the configuration the radio map was solved at — the
-pre-optimization tilt every ``DeltaTilt`` is reported against.
-``ue.parquet`` is the UE population, typed, with every drawn UE kept; evaluation
-scores on it, as the search does. ``mdt.parquet`` is the served subset, kept for
-reference and plots; no score reads it.
+``ue.parquet`` is the UE population, typed, with every drawn UE kept; the search
+and the evaluation both score on it. The cells are not copied out: everything
+reads them from ``simulation.transmitters.cells``.
 """
 
 from __future__ import annotations
@@ -17,9 +15,6 @@ from omegaconf import DictConfig
 
 from src.data import schema
 from src.data.load import Artifacts, load_artifacts, save
-from src.simulation import transmitter
-from src.simulation.mdt import MDT_COLUMNS
-from src.simulation.radio import Band
 from src.simulation.sample import CSV_COLUMNS
 from src.tracking import log_stage
 
@@ -39,57 +34,11 @@ _DTYPES = {
 }
 
 
-def build_cells(cfg: DictConfig, artifacts: Artifacts) -> pd.DataFrame:
-    """One row per cell-band pair: the decision variable, at its baseline.
-
-    Long rather than wide because the decision variable is per cell-band,
-    so one row is one tilt an optimizer may move.
-
-    Returns:
-        ``n_cell * n_band`` rows carrying the cell's geometry, the band, the
-        baseline tilt and its bounds, the ``max_prb`` limit and the scenario.
-    """
-    cells = transmitter.load(cfg)
-    bands = {str(entry.name): Band.from_config(entry) for entry in cfg.simulation.radio_map.bands}
-
-    rows = []
-    for cell in cells:
-        for label in artifacts.band_labels:
-            tilt = cell.tilt_for(label)
-            low, high = tilt.bounds_deg
-            rows.append(
-                {
-                    "cell": cell.name,
-                    # Generated names are n<node>c<cell>; the node is the mast
-                    # the cell stands on, and co-located cells share it.
-                    "node": cell.name.rsplit("c", 1)[0],
-                    "x": cell.x,
-                    "y": cell.y,
-                    "z": cell.z,
-                    "azimuth_deg": cell.azimuth_deg,
-                    "band": label,
-                    "frequency_hz": bands[label].frequency_hz,
-                    "bandwidth_hz": bands[label].bandwidth_hz,
-                    "scs_hz": bands[label].scs_hz,
-                    "tilt_baseline_deg": tilt.baseline_deg,
-                    "tilt_min_deg": low,
-                    "tilt_max_deg": high,
-                    "max_prb": cell.max_prb_for(label),
-                    "scenario_id": artifacts.scenario_id,
-                }
-            )
-
-    frame = pd.DataFrame(rows)
-    for column in ("cell", "node", "band", "scenario_id"):
-        frame[column] = frame[column].astype("category")
-    return frame
-
-
 def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     """The UE population, typed, with no row dropped.
 
     A UE no transmitter reaches stays in: the serving rule counts it as not
-    served, which is what the served rate has to see.
+    served, which is what the service failure rate has to see.
 
     Returns:
         One row per UE per interval: the UE table's columns and
@@ -103,22 +52,8 @@ def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def build_mdt(artifacts: Artifacts) -> pd.DataFrame:
-    """The MDT, typed and ordered as :func:`build_ue`, with no row dropped.
-
-    Returns:
-        One row per served UE per interval: :data:`src.simulation.mdt.MDT_COLUMNS`
-        and ``scenario_id``.
-    """
-    frame = artifacts.mdt[list(MDT_COLUMNS)].astype(_DTYPES | {"rsrp_dbm": "float32"})
-    frame["scenario_id"] = pd.Categorical([artifacts.scenario_id] * len(frame))
-    return frame.sort_values(
-        ["t_index", "tile_row", "tile_col", "x", "y"], kind="stable"
-    ).reset_index(drop=True)
-
-
-def run(cfg: DictConfig) -> tuple[Path, Path, Path]:
-    """Load, verify and write every table. Returns the three paths written.
+def run(cfg: DictConfig) -> Path:
+    """Load, verify and write the UE table. Returns the path written.
 
     Raises:
         FileNotFoundError: When a simulation stage has not been run.
@@ -130,28 +65,22 @@ def run(cfg: DictConfig) -> tuple[Path, Path, Path]:
     schema.require(checks)
 
     ue = build_ue(artifacts)
-    mdt = build_mdt(artifacts)
-    cells = build_cells(cfg, artifacts)
     ue_path = save(ue, cfg.data.output.ue_file)
-    mdt_path = save(mdt, cfg.data.output.mdt_file)
-    cell_path = save(cells, cfg.data.output.cell_file)
 
     print(f"scenario:  {artifacts.scenario_id}")
     print(f"checks:    {len(checks)} passed")
     print(f"ue:        {len(ue):,} rows x {ue.shape[1]} columns  ->  {ue_path}")
-    print(f"mdt:       {len(mdt):,} rows x {mdt.shape[1]} columns  ->  {mdt_path}")
-    print(f"cells:     {len(cells)} cell-band pairs  ->  {cell_path}")
-    return ue_path, mdt_path, cell_path
+    return ue_path
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Build the processed tables. The script form of ``02_preprocessing.ipynb``.
+    """Build the processed UE table. The script form of ``02_preprocessing.ipynb``.
 
     Example:
         $ uv run python -m src.data.build data.output.ue_file=/tmp/ue.parquet
     """
-    log_stage(cfg, "preprocessing", groups=["data"], outputs=run(cfg))
+    log_stage(cfg, "preprocessing", groups=["data"], outputs=[run(cfg)])
 
 
 if __name__ == "__main__":

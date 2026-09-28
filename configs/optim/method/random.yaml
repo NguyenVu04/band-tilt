@@ -1,10 +1,10 @@
 # @package optim.method
-# Sobol random search: the control. Matched to turbo on evaluations and seed, so
-# its first n_init points are turbo's initial design.
+# Sobol random search, matched to turbo on budget and seed.
 
 name: random
 
 budget:
-  # Sobol draws labelled `init`, to line up with turbo's phase boundary.
+  # Sobol draws labelled `init`, same as turbo's initial design.
   n_init: 16
+  # Further Sobol draws.
   n_iter: 128

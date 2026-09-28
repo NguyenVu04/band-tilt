@@ -95,6 +95,13 @@ amended to point at the new 0003. This reuses numbers, which departs from the
 rule under *How*: a reference to "ADR 0003" written before this date means the
 TuRBO record, now 0002.
 
+On 2026-09-28, again at the maintainer's direction, 0001 (the four KPIs) was
+deleted when the reported KPI set was replaced, and the survivors renumbered:
+the TuRBO record 0002 became 0001, and the objective record 0003 became 0002,
+rewritten in place with the new KPI set and without `objective_version`. A
+reference to "ADR 0002" or "ADR 0003" written before this date means the record
+now numbered one lower.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -103,9 +110,8 @@ is the thing these records exist to preserve.
 | # | Title | Status | Date | Rewritten |
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
-| [0001](0001-four-kpis-and-weighted-score.md) | Four KPIs | Accepted, partly superseded by 0003 | 2026-08-28 | 2026-09-14 |
-| [0002](0002-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0003 | 2026-09-13 | 2026-09-14 |
-| [0003](0003-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set | Proposed | 2026-09-22 | — |
+| [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0002 | 2026-09-13 | 2026-09-14 |
+| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set | Proposed | 2026-09-22 | 2026-09-28 |
 
 Every other record is deleted and lives in Git history. Numbers were reused
-once, on 2026-09-22; see above.
+on 2026-09-22 and 2026-09-28; see above.

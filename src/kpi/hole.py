@@ -1,4 +1,4 @@
-"""KPI 1 - Coverage holes. First in ADR 0001's reporting order."""
+"""Hole rate: the share of the grid with no usable signal."""
 
 from __future__ import annotations
 

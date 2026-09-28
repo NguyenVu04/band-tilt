@@ -16,9 +16,9 @@ from src.simulation import transmitter
 class TiltSpace:
     """The box of absolute tilts, one dimension per cell-band pair.
 
-    Dimensions are ordered cell-major, band-minor, matching the row order of
-    ``data/processed/cell.parquet``, so a vector here joins that table without
-    a re-sort.
+    Dimensions are ordered cell-major, band-minor: cells in
+    ``simulation.transmitters.cells`` order, bands in ``simulation.radio_map.bands``
+    order.
 
     Attributes:
         cells: The layout in the config's order. Position and azimuth are

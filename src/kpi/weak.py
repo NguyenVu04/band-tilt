@@ -1,4 +1,4 @@
-"""KPI 4 - Weak Rate. Last of the rates in ADR 0001's reporting order."""
+"""Weak rate: the share of the grid covered, but only just."""
 
 from __future__ import annotations
 

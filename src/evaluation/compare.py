@@ -10,25 +10,29 @@ import pandas as pd
 from omegaconf import DictConfig
 from scipy import stats
 
+from src.core.cell import Cell
 from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import (
     CapacitySpec,
     covered,
     finite,
+    prb_by_cell_interval,
     prb_by_interval,
     serve_intervals,
+    utilisation,
 )
 from src.kpi.hole import hole_rate
-from src.kpi.load import load_imbalance, prb_by_cell_interval, prb_utilisation_max, utilisation
 from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
 from src.kpi.quality import (
     LOW_PERCENTILE,
     MEDIAN_PERCENTILE,
     rsrp_percentile_dbm,
     sinr_percentile_db,
+    spectral_efficiency_mean,
+    spectral_efficiency_percentile,
 )
-from src.kpi.served import served_rate
+from src.kpi.served import ue_service_failure_rate
 from src.kpi.weak import weak_rate
 from src.optim.objective import (
     MAXIMISED,
@@ -416,6 +420,7 @@ def cell_band_load(
     band_labels: Sequence[str],
     tx_names: Sequence[str],
     max_prb: np.ndarray,
+    max_admission_utilisation: float,
 ) -> pd.DataFrame:
     """PRB load and service per cell-band for one configuration.
 
@@ -424,13 +429,15 @@ def cell_band_load(
         band_labels: Band names, the ``band`` index order.
         tx_names: Cell names, the ``tx`` index order.
         max_prb: ``[n_band, n_tx]`` limits, as ``CapacitySpec.max_prb``.
+        max_admission_utilisation: ``kpi.capacity.max_admission_utilisation``.
 
     Returns:
         One row per cell-band: ``cell``, ``band``, ``served_reports``,
         ``mean_prb`` (averaged over every interval, idle ones as zero),
-        ``peak_prb``, ``max_prb``, ``peak_utilisation`` (``peak_prb`` over
-        ``max_prb``) and ``median_sinr_db`` of the UEs it served. Only admitted
-        UEs load a cell-band; a blocked UE's demand is on no row.
+        ``peak_prb``, ``max_prb``, ``ceiling_prb`` (``max_prb`` times the
+        admission share), ``peak_utilisation`` (``peak_prb`` over
+        ``ceiling_prb``, so 1 is a full cell-band) and ``median_sinr_db`` of the
+        UEs it served. Only admitted UEs load a cell-band.
     """
     n_intervals = max(served["t_index"].nunique(), 1)
     admitted = served[served["band"] >= 0]
@@ -451,9 +458,11 @@ def cell_band_load(
                 }
             )
     frame = pd.DataFrame(rows)
-    # A cell-band with max_prb 0 carries no traffic; inf would sort it to the
-    # top of every utilisation table it appears in.
-    frame["peak_utilisation"] = (frame["peak_prb"] / frame["max_prb"]).where(frame["max_prb"] > 0)
+    frame["ceiling_prb"] = frame["max_prb"] * float(max_admission_utilisation)
+    # A zero ceiling carries no traffic; inf would sort it to the top of every table.
+    frame["peak_utilisation"] = (frame["peak_prb"] / frame["ceiling_prb"]).where(
+        frame["ceiling_prb"] > 0
+    )
     return frame
 
 
@@ -489,6 +498,25 @@ def cell_impact(
     impact = impact[leading + [c for c in impact.columns if c not in leading]]
     return impact.sort_values(
         "served_reports_change", key=np.abs, ascending=False, ignore_index=True
+    )
+
+
+def cell_table(cfg: DictConfig) -> pd.DataFrame:
+    """The cells of ``simulation.transmitters.cells``, one row each.
+
+    Returns:
+        Columns ``cell``, ``node``, ``x``, ``y``, ``azimuth_deg``. ``node`` is the
+        mast: generated names are ``n<node>c<cell>``, and co-located cells share it.
+    """
+    cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
+    return pd.DataFrame(
+        {
+            "cell": [cell.name for cell in cells],
+            "node": [cell.name.rsplit("c", 1)[0] for cell in cells],
+            "x": [cell.x for cell in cells],
+            "y": [cell.y for cell in cells],
+            "azimuth_deg": [cell.azimuth_deg for cell in cells],
+        }
     )
 
 
@@ -538,6 +566,43 @@ def coverage_comparison(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
         )
         merged = part if merged is None else merged.merge(part, on="coverage")
     return merged if merged is not None else pd.DataFrame()
+
+
+def failure_by_coverage(
+    configurations: Mapping[str, Configuration], cfg: DictConfig
+) -> pd.DataFrame:
+    """UE reports and failures per coverage class of the tile each UE stands on.
+
+    A failure on a hole tile had no cell to serve it; one on a weak or good tile
+    was refused by the PRB ceiling of every candidate cell-band.
+
+    Returns:
+        One row per configuration and class: ``configuration``, ``coverage``,
+        ``reports``, ``failed``, ``failure_share`` (of the class's reports) and
+        ``share_of_failures`` (of the configuration's failures).
+    """
+    rows = []
+    for name, config in configurations.items():
+        served = config.served
+        tile_class = maps.coverage_class(config.rsrp, cfg)[
+            served["tile_row"].to_numpy(), served["tile_col"].to_numpy()
+        ]
+        failed = served["band"].to_numpy() < 0
+        for index, coverage in enumerate(maps.COVERAGE_CLASSES):
+            mine = tile_class == index
+            rows.append(
+                {
+                    "configuration": name,
+                    "coverage": coverage,
+                    "reports": int(mine.sum()),
+                    "failed": int((failed & mine).sum()),
+                    "failure_share": float(failed[mine].mean()) if mine.any() else np.nan,
+                    "share_of_failures": float((failed & mine).sum() / failed.sum())
+                    if failed.any()
+                    else np.nan,
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def coverage_by_area_and_demand(
@@ -791,19 +856,17 @@ def band_layer_summary(
 ALL_BANDS = "all"
 
 
-def _band_view(
-    config: Configuration, spec: CapacitySpec, band: int | None
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """One band's slice of a configuration, or the whole map when ``band`` is None.
+def _band_view(config: Configuration, band: int | None) -> tuple[np.ndarray, np.ndarray]:
+    """One band's slice of a configuration's maps, or the whole map when ``band`` is None.
 
     Slicing the band axis rather than reparameterising the KPIs is what keeps
     one definition of each measure: a per-band rate is the same function given
     one band's layers.
     """
     if band is None:
-        return config.rsrp, config.sinr, config.prb, spec.max_prb
+        return config.rsrp, config.sinr
     layer = slice(band, band + 1)
-    return config.rsrp[layer], config.sinr[layer], config.prb[:, layer], spec.max_prb[layer]
+    return config.rsrp[layer], config.sinr[layer]
 
 
 def band_kpis(
@@ -816,13 +879,13 @@ def band_kpis(
     The ``all`` row is the whole radio map and equals the run's own
     :class:`~src.optim.objective.KpiVector` for that configuration. A band row
     is the same measure given only that band's layers, so a coverage hole on
-    700 MHz is a hole in the 700 MHz row whatever the other layers do. The
-    per-band served rates are shares of *all* reports, so they sum to the ``all``
-    row; the rates over tiles do not sum to anything, because a tile can be a
-    hole on two bands at once.
+    700 MHz is a hole in the 700 MHz row whatever the other layers do. The rates
+    over tiles do not sum across bands, because a tile can be a hole on two
+    bands at once.
 
-    ``objective`` is not here: it scores the network, and a single layer of a
-    multi-band network is not a network.
+    ``ue_service_failure_rate`` is NaN on band rows: a UE fails when every band
+    refuses it, so the failure belongs to the network, not to one band.
+    ``objective`` is not here for the same reason.
 
     Returns:
         One row per configuration and band: ``configuration``, ``band``, then
@@ -830,25 +893,31 @@ def band_kpis(
     """
     rows = []
     for name, config in configurations.items():
-        spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
         views = [(ALL_BANDS, None), *((band, index) for index, band in enumerate(band_labels))]
         for band, index in views:
-            rsrp, sinr, prb, max_prb = _band_view(config, spec, index)
+            rsrp, sinr = _band_view(config, index)
             rows.append(
                 {
                     "configuration": name,
                     "band": band,
                     "hole_rate": hole_rate(rsrp, cfg),
+                    "weak_rate": weak_rate(rsrp, cfg),
                     "overlap_rate": overlap_rate(rsrp, cfg),
                     "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
-                    "weak_rate": weak_rate(rsrp, cfg),
-                    "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
                     "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-                    "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+                    "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
                     "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-                    "served_rate": served_rate(config.served, index),
-                    "prb_utilisation_max": prb_utilisation_max(prb, max_prb),
-                    "load_imbalance": load_imbalance(prb, max_prb),
+                    "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+                    "se_p50_bps_hz": spectral_efficiency_percentile(
+                        rsrp, sinr, cfg, MEDIAN_PERCENTILE
+                    ),
+                    "se_mean_bps_hz": spectral_efficiency_mean(rsrp, sinr, cfg),
+                    "se_p05_bps_hz": spectral_efficiency_percentile(
+                        rsrp, sinr, cfg, LOW_PERCENTILE
+                    ),
+                    "ue_service_failure_rate": ue_service_failure_rate(config.served)
+                    if index is None
+                    else np.nan,
                 }
             )
     return pd.DataFrame(rows)
@@ -858,19 +927,17 @@ def prb_usage_by_time(
     configurations: Mapping[str, Configuration],
     band_labels: Sequence[str],
     tx_names: Sequence[str],
-    max_prb: np.ndarray,
+    ceiling_prb: np.ndarray,
 ) -> pd.DataFrame:
-    """PRBs each cell-band carried in each interval, and that as a share of its limit.
-
-    The series behind ``prb_utilisation_max`` and ``load_imbalance``: those two
-    are reductions of exactly this table, so a cell that looks overloaded in the
-    scalar can be read here interval by interval.
+    """PRBs each cell-band carried in each interval, and that as a share of its ceiling.
 
     Args:
         configurations: Configuration key to its :class:`Configuration`.
         band_labels: Band names, the ``band`` index order.
         tx_names: Cell names, the ``tx`` index order.
-        max_prb: ``[n_band, n_tx]`` limits, as ``CapacitySpec.max_prb``.
+        ceiling_prb: ``[n_band, n_tx]`` admission ceilings,
+            ``max_prb * max_admission_utilisation``. The serving rule never
+            loads a cell-band past it, so ``utilisation`` stays in ``[0, 1]``.
 
     Returns:
         Long form: ``configuration``, ``cell``, ``band``, ``t_index``,
@@ -878,7 +945,7 @@ def prb_usage_by_time(
     """
     frames = []
     for name, config in configurations.items():
-        share = utilisation(config.prb, max_prb)
+        share = utilisation(config.prb, ceiling_prb)
         n_t, n_band, n_tx = config.prb.shape
         frames.append(
             pd.DataFrame(

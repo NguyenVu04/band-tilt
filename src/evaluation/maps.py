@@ -147,6 +147,25 @@ def underserved(
     return busy & (coverage_class(rsrp, cfg) != GOOD)
 
 
+def failure_share(served: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
+    """Share of each tile's UE reports the serving rule did not admit.
+
+    Args:
+        served: :func:`src.kpi.capacity.serve_intervals` output.
+        shape: The grid's ``(n_rows, n_cols)``.
+
+    Returns:
+        ``[n_rows, n_cols]`` in ``[0, 1]``, NaN on a tile with no report: "no
+        one here" is not "everyone here was served".
+    """
+    size = shape[0] * shape[1]
+    flat = served["tile_row"].to_numpy(np.int64) * shape[1] + served["tile_col"].to_numpy(np.int64)
+    reports = np.bincount(flat, minlength=size)
+    failed = np.bincount(flat, weights=served["band"].to_numpy() < 0, minlength=size)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(reports > 0, failed / reports, np.nan).reshape(shape)
+
+
 def extent_of(radio: dict[str, Any]) -> list[float]:
     """Metric bounds of the grid, as matplotlib's ``imshow`` extent.
 

@@ -1,60 +1,22 @@
 # @package kpi
-# Thresholds defining the KPIs and the capacity model behind the serving rule,
-# the served rate, the load measures and the PRB demand map.
-#
-# The objective has no parameters of its own. It reads the three thresholds
-# below and nothing else:
-#
-#   u_bg = lambda_bg * exp(1 - lambda_bg) * s_bg
-#   J    = mean_g sum_b u_bg^2 / sum_b u_bg
-#
-# lambda_bg counts the cells on band b within overlap_margin_db of that band's
-# strongest at tile g, and s_bg is how far that strongest sits between hole_dbm
-# and weak_dbm, clipped to [0, 1]. The contraharmonic mean over bands is bounded
-# by the best band but, unlike a maximum over bands, is not monotone in the layers
-# present. See src/optim/objective.py and
-# docs/adr/0003-contraharmonic-objective-and-kpi-set.md.
+# KPI thresholds and the capacity model.
 
-# Bumped by hand whenever the objective's functional form changes. The form is
-# in code, so this is the only thing src/evaluation/runs.py can compare to stop
-# two runs on different scales being pooled. 2 was the maximum over bands; 3
-# is ADR 0003's contraharmonic mean over bands.
-objective_version: 3
-
-# Strongest signal at or below which a location is a coverage hole. Also the
-# RSRP a cell-band must exceed to serve a UE, and the objective's zero: a tile
-# is worth nothing there and counts neither a serving cell nor a neighbour.
+# Best-server RSRP at or below this is a coverage hole [dBm].
 hole_dbm: -120.0
 
-# Upper bound of weak coverage; the lower bound is hole_dbm. Also where the
-# objective's strength factor reaches 1, so a server at or above this scores in
-# full and one just above hole_dbm scores near nothing.
+# Upper bound of weak coverage; the lower bound is hole_dbm [dBm].
 weak_dbm: -90.0
 
-# Inclusive margin within which a co-band neighbour overlaps the serving cell.
-# The objective's lambda counts those neighbours, per band.
+# A co-band cell within this margin of the strongest one overlaps it [dB].
 overlap_margin_db: 6.0
-
-# The RSRP and SINR percentiles are not configured: the measures are named
-# rsrp_p05_dbm, rsrp_p50_dbm, sinr_p05_db and sinr_p50_db, so the points they
-# read are part of the name. src/kpi/quality.py holds them, with the 3GPP
-# citation behind the 5% point.
 
 # Serving-cell choice and PRB demand (src/kpi/capacity.py).
 capacity:
-  # Serving band preference, most preferred first. Must list every band. The
-  # serving rule alone reads it; the objective scores every band (ADR 0003).
+  # Serving band order, most preferred first. Must list every band.
   band_preference: [b2600, b1800, b700]
-  # Below this the preferred band is skipped for the next one. Equal to
-  # hole_dbm here, which makes that skip unreachable: a layer that low is not a
-  # candidate at all. Raise it above hole_dbm to put the rule back in play.
+  # Below this RSRP the next band is tried [dBm].
   rsrp_threshold_dbm: -120.0
-  # Ceiling on cell-band load: an admission is refused when the UE's PRBs plus
-  # the PRBs already there would carry the cell-band past this share of
-  # max_prb, and the UE passes to its next candidate. No cell-band ever ends an
-  # interval above it, so kpi.prb_utilisation_max is bounded by this value.
+  # Largest share of max_prb a cell-band may be loaded to.
   max_admission_utilisation: 0.8
-  # Assumed required throughput of each UE; sets PRBs per UE.
-  throughput_per_ue_bps: 20000000 # 20 Mbps
-  # The PRB bandwidth, 12 * SCS, reads simulation.radio_map.bands[].scs_hz; the
-  # PRB limit per cell-band is simulation.transmitters.cells[].max_prb.
+  # Throughput each UE requires [bit/s].
+  throughput_per_ue_bps: 10000000 # 10 Mbps

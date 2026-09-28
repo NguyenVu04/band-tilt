@@ -1,17 +1,15 @@
 # @package optim
-# Optimization over the absolute-tilt space: one tilt per cell-band pair.
+# Tilt optimization: one absolute tilt per cell-band.
 
 output:
-  # One directory per run, under <dir>/<method>/<timestamp>.
+  # Run directories, as <dir>/<method>/<timestamp>.
   dir: outputs/optim
-  # Where the deliverable — the tilt change — is republished after every run,
-  # one file per method, overwritten.
+  # Latest deliverable per method, overwritten each run.
   deliverable_dir: reports/outputs
-  # Whether to archive the winning configuration's radio map.
+  # Save the winner's radio map with the run.
   save_radio_map: true
 
 seed: ${seed}
 
-# Solutions published for choice, best first. The incumbent and the objective
-# pick are always among them, so this is the total and not an addition to them.
+# Number of published solutions, best first, incumbent included.
 n_solutions: 4

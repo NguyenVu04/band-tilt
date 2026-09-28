@@ -63,7 +63,7 @@ def test_the_spec_reads_scs_from_the_radio_map_bands(cfg) -> None:
 
 def test_rate_and_prbs_follow_the_shannon_formula() -> None:
     """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
-    assert capacity._spectral_efficiency(0.0) == pytest.approx(1.0)
+    assert capacity.spectral_efficiency(0.0) == pytest.approx(1.0)
     rate = capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0))
     assert rate == pytest.approx(_B_PRB)
     assert capacity._prb_per_ue(5 * _B_PRB, rate) == pytest.approx(5.0)
@@ -264,3 +264,34 @@ def test_serve_intervals_reports_the_stored_sinr_at_the_serving_layer(cfg) -> No
     served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], ue, cfg)
     assert served["band"].tolist() == [0]
     assert served["sinr_db"].tolist() == [7.0]
+
+
+def _assignment(rows: list[tuple[int, int, int, float]]) -> pd.DataFrame:
+    """A serving assignment from ``(t_index, band, tx, prb_per_ue)`` tuples."""
+    return pd.DataFrame(rows, columns=["t_index", "band", "tx", "prb_per_ue"])
+
+
+def test_prb_by_cell_interval_sums_each_cell_band_within_each_interval() -> None:
+    """Two UEs share a cell-band in interval 0; interval 1 starts it empty again."""
+    served = _assignment([(0, 0, 1, 2.0), (0, 0, 1, 3.0), (0, 1, 0, 4.0), (1, 0, 1, 1.0)])
+    t_values, prb = capacity.prb_by_cell_interval(served, n_band=2, n_tx=2)
+    assert t_values.tolist() == [0, 1]
+    assert prb[0, 0, 1] == pytest.approx(5.0)
+    assert prb[0, 1, 0] == pytest.approx(4.0)
+    assert prb[1, 0, 1] == pytest.approx(1.0)
+    assert prb.sum() == pytest.approx(10.0)
+
+
+def test_a_blocked_ue_loads_nothing_but_still_marks_its_interval() -> None:
+    """Only admitted UEs load a cell-band, and an idle interval is still an interval."""
+    served = _assignment([(0, -1, -1, 6.0), (1, 0, 0, 2.0)])
+    t_values, prb = capacity.prb_by_cell_interval(served, n_band=1, n_tx=1)
+    assert t_values.tolist() == [0, 1]
+    assert prb[:, 0, 0].tolist() == pytest.approx([0.0, 2.0])
+
+
+def test_utilisation_is_nan_where_a_cell_band_has_no_prbs() -> None:
+    """A limit of zero carries no traffic; a ratio over it would sort to the top."""
+    share = capacity.utilisation(np.array([[[4.0, 0.0]]]), np.array([[10.0, 0.0]]))
+    assert share[0, 0, 0] == pytest.approx(0.4)
+    assert np.isnan(share[0, 0, 1])

@@ -1,7 +1,7 @@
 """Serving-cell choice and PRB demand.
 
-The one serving rule in the project, read by the served rate and the load
-measures: prefer bands in ``kpi.capacity.band_preference`` order while
+The one serving rule in the project, read by the service failure rate and the
+PRB load tables: prefer bands in ``kpi.capacity.band_preference`` order while
 the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
 the strongest cell-band. That fallback is unreachable while
 ``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the committed
@@ -23,9 +23,9 @@ SINR is an input, never computed here: the solver's own, from the radio map
 (:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
 over an interval, and smooth in tilt.
 
-:func:`max_rsrp`, the strongest layer at each location, and
+:func:`max_rsrp`, the strongest layer at each location (the best server), and
 :func:`serving_sinr`, that layer's SINR, also live here: the hole, weak and
-percentile KPIs read them. Neither is the serving rule.
+signal-quality KPIs read them. Neither is the serving rule.
 """
 
 from __future__ import annotations
@@ -251,8 +251,8 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
 # max_prb per cell-band is N_RB from TS 38.101-1 Table 5.3.2-1.
 
 
-def _spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
-    """Shannon spectral efficiency ``log2(1 + SINR)`` in bit/s/Hz."""
+def spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
+    """Shannon spectral efficiency ``log2(1 + SINR)`` in bit/s/Hz, SINR in dB."""
     return np.log2(1.0 + 10.0 ** (np.asarray(sinr, dtype=float) / 10.0))
 
 
@@ -263,7 +263,7 @@ def _prb_bandwidth_hz(scs_hz: float | np.ndarray) -> np.ndarray:
 
 def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndarray:
     """Throughput of one PRB, ``B_PRB * log2(1 + SINR)``, in bit/s."""
-    return np.asarray(bandwidth_hz, dtype=float) * _spectral_efficiency(sinr)
+    return np.asarray(bandwidth_hz, dtype=float) * spectral_efficiency(sinr)
 
 
 def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
@@ -468,6 +468,54 @@ def prb_by_interval(
     flat = t_pos * size + np.asarray(row, dtype=np.int64) * n_cols + np.asarray(col, dtype=np.int64)
     prb = np.bincount(flat, weights=np.nan_to_num(prb_per_ue), minlength=len(t_values) * size)
     return t_values, prb.reshape(len(t_values), n_rows, n_cols)
+
+
+def prb_by_cell_interval(
+    served: pd.DataFrame, n_band: int, n_tx: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """PRBs each cell-band carries in each interval; only admitted UEs load one.
+
+    Args:
+        served: :func:`serve_intervals` output.
+        n_band: Bands on the radio map, the ``band`` index range.
+        n_tx: Transmitters on the radio map, the ``tx`` index range.
+
+    Returns:
+        ``(t_values, prb)``: the sorted intervals present in ``served``,
+        including ones where nothing was admitted, and ``prb`` shaped
+        ``[n_t, n_band, n_tx]`` aligned to them.
+    """
+    t_values, t_pos = np.unique(served["t_index"].to_numpy(), return_inverse=True)
+    band = served["band"].to_numpy()
+    admitted = band >= 0
+    size = n_band * n_tx
+    flat = (
+        t_pos[admitted].astype(np.int64) * size
+        + band[admitted].astype(np.int64) * n_tx
+        + served["tx"].to_numpy()[admitted].astype(np.int64)
+    )
+    prb = np.bincount(
+        flat,
+        weights=np.nan_to_num(served["prb_per_ue"].to_numpy()[admitted]),
+        minlength=len(t_values) * size,
+    )
+    return t_values, prb.reshape(len(t_values), n_band, n_tx)
+
+
+def utilisation(prb: np.ndarray, limit_prb: np.ndarray) -> np.ndarray:
+    """PRB load as a share of each cell-band's limit.
+
+    Args:
+        prb: ``[n_t, n_band, n_tx]`` from :func:`prb_by_cell_interval`.
+        limit_prb: ``[n_band, n_tx]`` limits, e.g. the admission ceiling
+            ``max_prb * max_admission_utilisation``.
+
+    Returns:
+        ``[n_t, n_band, n_tx]``, NaN where the limit is zero, so an idle
+        zero-capacity cell-band does not sort to the top of a table.
+    """
+    limit = np.asarray(limit_prb, dtype=float)[None]
+    return np.divide(prb, limit, out=np.full(np.shape(prb), np.nan), where=limit > 0)
 
 
 def demand_prb(

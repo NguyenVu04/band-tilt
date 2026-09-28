@@ -1,12 +1,11 @@
-"""KPI 2 - Overlap. How often frequency layers collide, and how many cells serve.
+"""Overlap: how often co-band cells crowd each other, and by how many.
 
 The overlap rule is CO-BAND: within one band, the strongest transmitter serves
 and the other transmitters on that same band are its neighbours. Two carriers of
 one cell are therefore never neighbours of each other.
 
 :func:`effective_coverage` reads those same counts on every band and takes their
-contraharmonic mean. It is what the objective scores
-(docs/adr/0003-contraharmonic-objective-and-kpi-set.md).
+contraharmonic mean. It is what the objective scores.
 """
 
 from __future__ import annotations

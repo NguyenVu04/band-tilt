@@ -1,13 +1,16 @@
-# 3. A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set
+# 2. A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
+- **Rewritten:** 2026-09-28 — the reported KPI set is replaced (section 3),
+  `objective_version` is removed, and the former four-KPI record is deleted;
+  see [the README](README.md).
+- **Renumbered:** 2026-09-28 (formerly 0003).
 - **Deciders:** Nguyễn Duy Vũ
-- **Supersedes:** every earlier objective record. Their surviving decisions are
-  folded in here: the admission ceiling, the reported KPI set and the capacity
-  model's fidelity trade (sections 3 to 5), and the per-band utility with its
-  version guard (sections 1 and 2). The records themselves were deleted on
-  2026-09-22 and are in Git history; see [the README](README.md).
+- **Supersedes:** every earlier objective and KPI record. Their surviving
+  decisions are folded in here: the per-band utility (section 1), the admission
+  ceiling, the reported KPI set and the capacity model's fidelity trade
+  (sections 2 to 4). The records themselves are in Git history.
 - **Superseded by:** —
 
 ## Context
@@ -59,15 +62,7 @@ equal bands, the result equals the maximum.
 Implementation: `src/kpi/overlap.py::effective_coverage`, averaged over the
 grid by `src/optim/objective.py::objective`.
 
-### 2. `objective_version`
-
-The functional form lives in code, where the config comparison cannot see it.
-`kpi.objective_version` is bumped by hand whenever the form changes. It is
-compared with the rest of the `kpi` block across runs, and against the running
-config as well, because a set of runs that are uniformly stale still agree with
-one another. This record is version **3**.
-
-### 3. The admission ceiling
+### 2. The admission ceiling
 
 A cell-band admits a UE only when
 
@@ -78,41 +73,48 @@ PRB_required + PRB_current <= max_admission_utilisation * max_prb
 so the cap is a **ceiling on the resulting load**, not a gate on the load before
 admission. No cell-band ever ends an interval above that share.
 `kpi.capacity.max_admission_utilisation` is **0.8**, a common operational
-ceiling. Lowering it trades `served_rate` for headroom directly and visibly.
+ceiling. Lowering it trades `ue_service_failure_rate` for headroom directly and
+visibly. PRB load is reported as a share of this ceiling, so 100 % is a full
+cell-band.
 
-### 4. The reported KPIs
+### 3. The reported KPIs
 
-Ten measures, stored beside `objective`, in this order:
+Twelve measures, stored beside `objective`, in this order. The best server is
+the strongest layer over every band and cell, `R_max`; covered tiles are those
+with `R_max > kpi.hole_dbm`.
 
 | KPI | Definition | Direction |
 |---|---|---|
 | `hole_rate` | share of tiles with `R_max <= kpi.hole_dbm` | minimise |
+| `weak_rate` | share of tiles with `hole_dbm < R_max <= weak_dbm` | minimise |
 | `overlap_rate` | share of tiles with any co-band neighbour within `Delta_R` | minimise |
 | `overlap_neighbor_mean` | mean `m_g` over covered tiles | minimise |
-| `weak_rate` | share of tiles with `hole_dbm < R_max <= weak_dbm` | minimise |
-| `rsrp_p05_dbm` | 5th percentile of `R_max` over covered tiles | **maximise** |
-| `rsrp_p50_dbm` | median of the same | **maximise** |
-| `sinr_p05_db` | 5th percentile of the best server's SINR over covered tiles | **maximise** |
-| `sinr_p50_db` | median of the same | **maximise** |
-| `served_rate` | share of UE reports the serving rule admitted | **maximise** |
-| `load_imbalance` | coefficient of variation of cell-band utilisation | minimise |
+| `rsrp_p50_dbm` | median of `R_max` over covered tiles | **maximise** |
+| `rsrp_p05_dbm` | 5th percentile of the same | **maximise** |
+| `sinr_p50_db` | median of the best server's SINR over covered tiles | **maximise** |
+| `sinr_p05_db` | 5th percentile of the same | **maximise** |
+| `se_p50_bps_hz` | median of `log2(1 + SINR)` at the best server over covered tiles | **maximise** |
+| `se_mean_bps_hz` | mean of the same | **maximise** |
+| `se_p05_bps_hz` | 5th percentile of the same | **maximise** |
+| `ue_service_failure_rate` | share of UE reports the serving rule did not admit, `1 - served share` | minimise |
 
-- **They stay tile-uniform and band-collapsed, on purpose.** A rate that says
-  how much of the *map* is bad answers a different question from an objective,
-  and both are worth printing.
-- **`load_imbalance`** is the population standard deviation over the mean of
-  each cell-band's interval-averaged utilisation. It is scale-free: it does not
-  move when the whole network gets busier, only when the traffic sits unevenly.
+- **They stay tile-uniform and band-collapsed, on purpose**, except the failure
+  rate, which counts every UE position. A rate that says how much of the *map*
+  is bad answers a different question from an objective, and both are worth
+  printing.
+- **Spectral efficiency** is the same Shannon rate per hertz the capacity model
+  charges a UE with (section 4). Its median and 5th percentile are the SINR
+  percentiles mapped through `log2(1 + x)`; the mean adds the weight of the
+  high-SINR tiles.
 - **Per band.** Every KPI is also reported per frequency layer
   (`src.evaluation.compare.band_kpis`), by giving the same function one band's
-  slice of the radio map. There is no second definition.
-- **`prb_utilisation_max` is computed but not reported.** It is bounded by the
-  admission ceiling by construction, so as a KPI it is the ceiling read back.
-  It stays as the check that the admission rule held, and the per-band table
-  and the per-cell-band figure print it. `prb_usage_by_time` reports the PRBs
-  and utilisation of every cell-band in every interval.
+  slice of the radio map. There is no second definition. The failure rate is
+  blank on band rows: a UE fails only when every band refuses it.
+- **Load is not a KPI.** The former `load_imbalance` and `prb_utilisation_max`
+  are removed. PRB load stays in the evaluation as a share of the admission
+  ceiling, per cell-band and interval.
 
-### 5. The capacity model is a Shannon bound, not NR link adaptation
+### 4. The capacity model is a Shannon bound, not NR link adaptation
 
 `src/kpi/capacity.py` charges a UE
 `throughput_per_ue_bps / (B_PRB * log2(1 + SINR))` PRBs, with `B_PRB = 12 * SCS`.
@@ -139,8 +141,8 @@ What *is* 3GPP: `12` subcarriers per resource block (TS 38.211 4.4.4.1), and the
 `max_prb` limits per cell-band, which are `N_RB` from TS 38.101-1 Table 5.3.2-1
 for each band's bandwidth at 15 kHz SCS.
 
-The objective does not read the capacity model. It sets `served_rate`,
-`prb_utilisation_max`, `load_imbalance` and which admissions the ceiling
+The objective does not read the capacity model. It sets
+`ue_service_failure_rate`, the PRB load tables and which admissions the ceiling
 refuses.
 
 ## Consequences
@@ -163,7 +165,7 @@ refuses.
   bands would rule that out by construction.
 - **The objective and the serving rule do not agree.** `J` scores every layer,
   while the serving rule admits by `kpi.capacity.band_preference`. Band
-  preference shows up only in `served_rate` and the serving mix.
+  preference shows up only in `ue_service_failure_rate` and the serving mix.
 - **Inter-band interference is priced nowhere.** `m_bg` is co-band, and the
   reported `overlap_rate` sums the per-band counts. The mean penalises a weak or
   crowded second layer whether or not it interferes with the first. Only the
@@ -177,12 +179,16 @@ refuses.
 - **A marginal network is penalised twice**, once through `s` and once through
   the reported `weak_rate`, so `J` and `weak_rate` are not independent readings.
 - **Every `kpi.capacity` value is a placeholder**, and the capacity model is
-  optimistic (section 5).
-- **Every objective value recorded under an earlier form is incomparable.**
-  `objective_version` is the only thing that catches it, and those runs were
-  deleted rather than pooled.
+  optimistic (section 4).
+- **Every run recorded under an earlier form or KPI set is incomparable.**
+  Such runs are deleted rather than pooled; a run recorded before the KPI set of
+  section 3 no longer loads.
 
 ## Measured outcome
+
+The figures in this section were measured under the former ten-KPI set
+(`served_rate`, `load_imbalance`, no spectral efficiency) and 20 Mbps per UE.
+They are kept as the record of the objective decision, not re-measured.
 
 Measured at seed 42 against the best-band maximum this record replaces, on the
 same scenario, the same solver settings and the same budgets. Random search

@@ -1,31 +1,25 @@
 # @package optim.method
-# TuRBO-1 on the objective (src/optim/objective.py `objective`, ADR 0003).
-# Budget matched to random.yaml, so the two differ only in where they look.
+# TuRBO-1 (Eriksson et al., 2019) on the objective, budget matched to random.yaml.
 
 name: turbo
 
 budget:
-  # Sobol trials before the trust region takes over. A restart spends another
-  # design of this size, out of the same budget.
+  # Sobol points before the trust region starts; a restart spends another set.
   n_init: 16
-  # Trust-region evaluations after it does.
+  # Trust-region evaluations.
   n_iter: 128
-  # Evaluations per round. The evaluator traces a batch one point at a time, so a
-  # larger batch saves no wall clock; it only cuts how often the GP is refitted
-  # and the trust region updated. Not 1, so a run is not one refit per trace.
+  # Candidates per GP refit.
   batch_size: 3
 
-# Trust-region schedule in the unit cube the tilt box is rescaled to, as in
-# Eriksson et al. (2019). The failure tolerance is derived, ceil(max(4, d) / batch_size).
+# Trust region in the unit cube.
 trust_region:
   length_init: 0.8
-  # 0.5 ** 7: below this the region has collapsed and the search restarts.
+  # Restart below this length (0.5 ** 7).
   length_min: 0.0078125
   length_max: 1.6
+  # Successful rounds before the region grows.
   success_tolerance: 3
-  # A round succeeds only when it beats the best score by this share of its
-  # magnitude (Eriksson et al., 2019).
+  # Relative gain a round needs to count as a success.
   improvement: 1.0e-3
-  # Each candidate perturbs a dimension of the centre with probability
-  # min(perturbed_dimensions / d, 1). BoTorch's TuRBO-1 tutorial uses 20.
+  # Expected number of dimensions perturbed per candidate.
   perturbed_dimensions: 5

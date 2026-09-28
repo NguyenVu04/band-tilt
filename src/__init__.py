@@ -34,5 +34,5 @@ Rules:
 - Notebooks import from ``src``; ``src`` never imports from notebooks.
 - Anything reused by more than one notebook belongs here, not in a cell.
 
-See README.md for the problem framing and docs/adr/ for the decisions.
+See README.md for the problem framing.
 """

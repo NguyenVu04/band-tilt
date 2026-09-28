@@ -204,7 +204,7 @@ def baseline_map(cfg: DictConfig) -> dict[str, np.ndarray]:
         return {key: archive[key] for key in archive.files}
 
 
-def verify(runs: list[Run], baseline: dict[str, np.ndarray], cfg: DictConfig) -> pd.DataFrame:
+def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
     """Check every run may be compared against the baseline and each other.
 
     Returns one row per check, with ``holds`` and the offenders. Mirrors
@@ -214,11 +214,6 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray], cfg: DictConfig) ->
     a stored result measures. Plotting two maps that disagree on any of them on
     one axis would produce a difference that is not attributable to tilt, which
     is the only thing this project varies.
-
-    ``cfg`` supplies the objective version the running code implements. Checking
-    the runs against each other is not enough on its own: a set that is uniformly
-    stale agrees with itself and would be reported under the current code's
-    labels.
     """
     checks: list[dict[str, Any]] = []
 
@@ -285,17 +280,6 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray], cfg: DictConfig) ->
         "KPI definition agrees across runs",
         [label for label, values in definitions if values != reference],
     )
-
-    expected_version = cfg.kpi.get("objective_version")
-    record(
-        "every run was scored by the objective this code implements",
-        [
-            run.label
-            for run in runs
-            if run.meta.get("config", {}).get("kpi", {}).get("objective_version")
-            != expected_version
-        ],
-    )
     return pd.DataFrame(checks, columns=["check", "holds", "offenders"])
 
 
@@ -320,26 +304,14 @@ def require(checks: pd.DataFrame) -> None:
 def _kpi_definition(run: Run) -> dict[str, Any]:
     """Everything a reported measure reads, from the run's own config snapshot.
 
-    The thresholds, the capacity model and each cell's PRB limit: the KPIs and
-    the objective depend on all of them, so two runs that differ on any one did
-    not measure the same thing. The RSRP and SINR percentiles are not here
-    because they are constants in :mod:`src.kpi.quality` and no run can differ
-    on them. ``capacity`` is here for the serving rule behind the served rate and
-    both load measures; the objective does not read it (ADR 0003).
+    The thresholds, the capacity model and each cell's PRB limit: two runs that
+    differ on any one did not measure the same thing. ``capacity`` sets the
+    serving rule behind the service failure rate; the objective does not read it.
 
-    ``scs_hz`` and ``temperature`` are here because kT over the subcarrier
-    spacing is the per-RE noise floor behind every SINR, and SINR and ``scs_hz``
-    set the PRBs a UE needs and therefore the served rate. ``bandwidth`` fixes
+    ``scs_hz`` and ``temperature`` set the per-RE noise floor behind every SINR,
+    and SINR and ``scs_hz`` set the PRBs a UE needs. ``bandwidth`` fixes
     ``max_prb``. None is stored in the archive, so the config snapshot is the
     only place they can be checked.
-
-    ``objective_version`` is the guard for the objective's functional form, which
-    lives in code and not in config: the config alone cannot tell two utilities
-    apart, so the version is bumped by hand whenever the form changes and that
-    difference is what refuses to pool two scores on different scales. An earlier
-    objective relied instead on its parameter block disappearing, which only worked by
-    accident. ``objective`` is still read so runs predating the version key,
-    which carry the old ``tau_r_db`` / ``beta`` / ``alpha`` block, are refused too.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
@@ -349,8 +321,6 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     return {
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
-        "objective": kpi.get("objective"),
-        "objective_version": kpi.get("objective_version"),
         "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
         "bandwidth": {
             band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])

@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
-from src.evaluation import compare
+from src.evaluation import compare, maps
 from src.evaluation.runs import Run
 from src.optim.objective import MEASURE_NAMES, KpiVector
 
@@ -29,14 +29,18 @@ def _served() -> pd.DataFrame:
 
 
 def test_cell_band_load_sums_admitted_prbs_per_interval() -> None:
-    """Band 0 / tx 1 carries 5 PRBs in interval 0 only; the blocked report loads nothing."""
+    """Band 0 / tx 1 carries 5 PRBs in interval 0 only; the blocked report loads nothing.
+
+    Utilisation is against the admission ceiling, 0.5 x 10 PRBs, so 5 PRBs is full.
+    """
     load = compare.cell_band_load(
-        _served(), ["hi", "lo"], ["c0", "c1"], np.array([[10.0, 10.0], [10.0, 10.0]])
+        _served(), ["hi", "lo"], ["c0", "c1"], np.array([[10.0, 10.0], [10.0, 10.0]]), 0.5
     ).set_index(["cell", "band"])
     assert load.loc[("c1", "hi"), "served_reports"] == 2
     assert load.loc[("c1", "hi"), "peak_prb"] == pytest.approx(5.0)
     assert load.loc[("c1", "hi"), "mean_prb"] == pytest.approx(2.5)
-    assert load.loc[("c1", "hi"), "peak_utilisation"] == pytest.approx(0.5)
+    assert load.loc[("c1", "hi"), "ceiling_prb"] == pytest.approx(5.0)
+    assert load.loc[("c1", "hi"), "peak_utilisation"] == pytest.approx(1.0)
     assert load.loc[("c1", "hi"), "median_sinr_db"] == pytest.approx(15.0)
     assert load.loc[("c0", "lo"), "peak_prb"] == pytest.approx(4.0)
     assert load["peak_prb"].sum() == pytest.approx(9.0)
@@ -51,6 +55,56 @@ def test_service_summary_counts_blocked_reports_as_not_served() -> None:
     assert summary["sinr_median_db"] == pytest.approx(10.0)
 
 
+def test_failure_share_is_per_tile_and_blank_where_nobody_reported() -> None:
+    """Tile (0, 0): one of two reports failed. Tile (0, 1): none. Tile (0, 2): no report."""
+    served = pd.DataFrame({"tile_row": [0, 0, 0], "tile_col": [0, 0, 1], "band": [0, -1, 1]})
+    share = maps.failure_share(served, (1, 3))
+    assert share[0, :2].tolist() == pytest.approx([0.5, 0.0])
+    assert np.isnan(share[0, 2])
+
+
+def test_failure_by_coverage_splits_failures_by_the_ue_tile(cfg: DictConfig) -> None:
+    """Tile 0 is a hole, tile 1 good: the hole's UE fails, one of two good-tile UEs is refused."""
+    served = pd.DataFrame({"tile_row": [0, 0, 0], "tile_col": [0, 1, 1], "band": [-1, 0, -1]})
+    config = compare.Configuration(
+        rsrp=np.array([[[[-130.0, -80.0]]]]),
+        sinr=np.zeros((1, 1, 1, 2)),
+        served=served,
+        demand=np.zeros((1, 2)),
+        t_values=np.zeros(1, dtype=int),
+        prb=np.zeros((1, 1, 1)),
+    )
+    table = compare.failure_by_coverage({"incumbent": config}, cfg).set_index("coverage")
+    assert table.loc["hole", "failure_share"] == pytest.approx(1.0)
+    assert table.loc["good", "failure_share"] == pytest.approx(0.5)
+    assert table.loc["good", "share_of_failures"] == pytest.approx(0.5)
+    assert table.loc["weak", "reports"] == 0
+
+
+def test_cell_table_reads_the_configured_cells() -> None:
+    """The node is the mast part of an ``n<node>c<cell>`` name."""
+    cfg = OmegaConf.create(
+        {
+            "simulation": {
+                "transmitters": {
+                    "cells": [
+                        {
+                            "name": "n3c1",
+                            "x": 1.0,
+                            "y": 2.0,
+                            "z": 25.0,
+                            "azimuth_deg": 165.0,
+                            "tilt": {},
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    row = compare.cell_table(cfg).iloc[0]
+    assert (row["cell"], row["node"], row["x"], row["azimuth_deg"]) == ("n3c1", "n3", 1.0, 165.0)
+
+
 @pytest.fixture
 def cfg() -> DictConfig:
     """The thresholds, without composing the whole config."""
@@ -62,15 +116,17 @@ def incumbent() -> KpiVector:
     """A plausible starting point, near the committed configuration's scores."""
     return KpiVector(
         hole_rate=0.10,
+        weak_rate=0.12,
         overlap_rate=0.28,
         overlap_neighbor_mean=0.45,
-        weak_rate=0.12,
-        rsrp_p05_dbm=-108.0,
         rsrp_p50_dbm=-95.0,
-        sinr_p05_db=-3.0,
+        rsrp_p05_dbm=-108.0,
         sinr_p50_db=8.0,
-        served_rate=0.009,
-        load_imbalance=0.44,
+        sinr_p05_db=-3.0,
+        se_p50_bps_hz=3.0,
+        se_mean_bps_hz=3.2,
+        se_p05_bps_hz=0.6,
+        ue_service_failure_rate=0.009,
         objective=0.40,
     )
 
@@ -108,21 +164,23 @@ def test_a_change_reads_by_direction(incumbent: KpiVector) -> None:
 
 def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
     """The KPI where up is better, and the usual place a sign error hides."""
-    after = dataclasses.replace(incumbent, served_rate=incumbent.served_rate + 0.05)
+    after = dataclasses.replace(incumbent, se_p05_bps_hz=incumbent.se_p05_bps_hz + 0.05)
     table = compare.delta_table(incumbent, after).set_index("kpi")
-    assert table.loc["served_rate", "verdict"] == compare.BETTER
-    assert table.loc["served_rate", "direction"] == "maximise"
+    assert table.loc["se_p05_bps_hz", "verdict"] == compare.BETTER
+    assert table.loc["se_p05_bps_hz", "direction"] == "maximise"
 
 
 def test_direction_names_every_kpi() -> None:
-    """The maximised set is the three that read upward; any other is a sign error."""
+    """The maximised set is the signal-quality measures and J; any other is a sign error."""
     maximised = [name for name in MEASURE_NAMES if compare.direction(name) == "maximise"]
     assert maximised == [
-        "rsrp_p05_dbm",
         "rsrp_p50_dbm",
-        "sinr_p05_db",
+        "rsrp_p05_dbm",
         "sinr_p50_db",
-        "served_rate",
+        "sinr_p05_db",
+        "se_p50_bps_hz",
+        "se_mean_bps_hz",
+        "se_p05_bps_hz",
         "objective",
     ]
 
@@ -162,15 +220,17 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "iteration": range(n),
             "phase": phases or ["incumbent"] + ["init"] * (n - 1),
             "hole_rate": [0.1] * n,
+            "weak_rate": [0.1] * n,
             "overlap_rate": [0.3] * n,
             "overlap_neighbor_mean": [0.45] * n,
-            "weak_rate": [0.1] * n,
-            "rsrp_p05_dbm": [-108.0] * n,
             "rsrp_p50_dbm": [-95.0] * n,
-            "sinr_p05_db": [-3.0] * n,
+            "rsrp_p05_dbm": [-108.0] * n,
             "sinr_p50_db": [8.0] * n,
-            "served_rate": [0.0] * n,
-            "load_imbalance": [0.44] * n,
+            "sinr_p05_db": [-3.0] * n,
+            "se_p50_bps_hz": [3.0] * n,
+            "se_mean_bps_hz": [3.2] * n,
+            "se_p05_bps_hz": [0.6] * n,
+            "ue_service_failure_rate": [0.0] * n,
             "objective": coverage,
         }
     )
@@ -221,18 +281,18 @@ def test_paired_method_gain_pairs_by_seed() -> None:
 
 
 def test_pareto_front_reads_each_column_in_its_direction() -> None:
-    """Hole rate is minimised and the served rate maximised; the dominated row drops out."""
-    frame = pd.DataFrame({"hole_rate": [0.1, 0.2, 0.1, 0.05], "served_rate": [0.9, 0.9, 0.9, 0.5]})
-    mask = compare.pareto_front(frame, ["hole_rate", "served_rate"])
+    """Hole rate is minimised and median SINR maximised; the dominated row drops out."""
+    frame = pd.DataFrame({"hole_rate": [0.1, 0.2, 0.1, 0.05], "sinr_p50_db": [9.0, 9.0, 9.0, 5.0]})
+    mask = compare.pareto_front(frame, ["hole_rate", "sinr_p50_db"])
     assert mask.tolist() == [True, False, True, True]
 
 
 def test_relative_improvement_is_positive_when_better() -> None:
-    """A falling hole rate and a rising served rate both read as gains."""
+    """A falling hole rate and a rising median SINR both read as gains."""
     summary = pd.DataFrame(
         {
             "method": ["turbo", "turbo"],
-            "kpi": ["hole_rate", "served_rate"],
+            "kpi": ["hole_rate", "sinr_p50_db"],
             "direction": ["minimise", "maximise"],
             "incumbent": [0.2, 0.5],
             "mean": [0.1, 0.6],
@@ -240,7 +300,7 @@ def test_relative_improvement_is_positive_when_better() -> None:
     )
     row = compare.relative_improvement(summary).iloc[0]
     assert row["hole_rate"] == pytest.approx(50.0)
-    assert row["served_rate"] == pytest.approx(20.0)
+    assert row["sinr_p50_db"] == pytest.approx(20.0)
 
 
 def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
@@ -337,17 +397,15 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     assert table.loc[compare.ALL_BANDS, "hole_rate"] == pytest.approx(0.0)
     assert table.loc["hi", "hole_rate"] == pytest.approx(0.5)
     assert table.loc["lo", "hole_rate"] == pytest.approx(0.0)
-    # Every band's share is of all four reports, so the band rows sum to the map's.
-    assert table.loc["hi", "served_rate"] == pytest.approx(0.25)
-    assert table.loc["lo", "served_rate"] == pytest.approx(0.5)
-    assert table.loc[compare.ALL_BANDS, "served_rate"] == pytest.approx(0.75)
-    # 2 PRBs of a 10-PRB limit on each band, so both are at 20% and balanced.
-    assert table.loc[compare.ALL_BANDS, "prb_utilisation_max"] == pytest.approx(0.2)
-    assert table.loc[compare.ALL_BANDS, "load_imbalance"] == pytest.approx(0.0)
+    # One report of four failed; a failure belongs to no single band.
+    assert table.loc[compare.ALL_BANDS, "ue_service_failure_rate"] == pytest.approx(0.25)
+    assert table.loc[["hi", "lo"], "ue_service_failure_rate"].isna().all()
+    # SINR 10 dB everywhere: log2(11) bit/s/Hz on every covered tile.
+    assert table.loc[compare.ALL_BANDS, "se_mean_bps_hz"] == pytest.approx(np.log2(11.0))
 
 
 def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
-    """The series the load KPIs reduce, so a hot cell can be read interval by interval."""
+    """PRB load per cell-band and interval, as a share of the admission ceiling."""
     config = compare.Configuration(
         rsrp=np.full((2, 1, 1, 1), -80.0),
         sinr=np.full((2, 1, 1, 1), 10.0),
@@ -367,13 +425,13 @@ def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
 
 
 def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:
-    """A halved hole rate is +50 %; a served rate up by a tenth of itself is +10 %."""
+    """A halved hole rate is +50 %; a median SE up by a tenth of itself is +10 %."""
     after = dataclasses.replace(
-        incumbent, hole_rate=incumbent.hole_rate / 2, served_rate=incumbent.served_rate * 1.1
+        incumbent, hole_rate=incumbent.hole_rate / 2, se_p50_bps_hz=incumbent.se_p50_bps_hz * 1.1
     )
     table = compare.improvement_table(incumbent, after).set_index("kpi")
     assert table.loc["hole_rate", "improvement_pct"] == pytest.approx(50.0)
-    assert table.loc["served_rate", "improvement_pct"] == pytest.approx(10.0)
+    assert table.loc["se_p50_bps_hz", "improvement_pct"] == pytest.approx(10.0)
     assert table.loc["weak_rate", "improvement_pct"] == 0.0
 
 

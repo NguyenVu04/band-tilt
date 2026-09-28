@@ -1,14 +1,6 @@
 # @package data
-# The verified, typed artifacts src/data/build.py writes from the simulation
-# output, via `task preprocess`. Notebook 02 calls the same functions.
+# Processed tables written by `task preprocess`.
 
 output:
-  # The UE population after schema verification and typing, one row per UE
-  # per interval, including UEs no cell reaches.
+  # Verified, typed UE table: one row per UE per interval.
   ue_file: data/processed/ue.parquet
-  # One row per cell-band pair: the configuration the radio map was solved at,
-  # and the baseline every DeltaTilt is measured against.
-  cell_file: data/processed/cell.parquet
-  # The MDT subset of the UE table, typed. Kept for reference and plots;
-  # nothing scores on it.
-  mdt_file: data/processed/mdt.parquet

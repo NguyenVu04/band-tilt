@@ -37,8 +37,10 @@ def _kpi(**overrides: float) -> KpiVector:
         "rsrp_p50_dbm": -95.0,
         "sinr_p05_db": -3.0,
         "sinr_p50_db": 8.0,
-        "served_rate": 0.20,
-        "load_imbalance": 0.44,
+        "se_p50_bps_hz": 3.0,
+        "se_mean_bps_hz": 3.2,
+        "se_p05_bps_hz": 0.6,
+        "ue_service_failure_rate": 0.20,
         "objective": 0.50,
     }
     return KpiVector(**{**values, **overrides})
@@ -59,31 +61,35 @@ def _score(rsrp: np.ndarray, cfg) -> float:
     return objective(rsrp, cfg)
 
 
-def test_priority_order_is_the_adr_order() -> None:
+def test_reporting_order() -> None:
     """Reordering this changes which column of every table is which."""
     assert KPI_NAMES == (
         "hole_rate",
+        "weak_rate",
         "overlap_rate",
         "overlap_neighbor_mean",
-        "weak_rate",
-        "rsrp_p05_dbm",
         "rsrp_p50_dbm",
-        "sinr_p05_db",
+        "rsrp_p05_dbm",
         "sinr_p50_db",
-        "served_rate",
-        "load_imbalance",
+        "sinr_p05_db",
+        "se_p50_bps_hz",
+        "se_mean_bps_hz",
+        "se_p05_bps_hz",
+        "ue_service_failure_rate",
     )
     assert MEASURE_NAMES == (*KPI_NAMES, "objective")
 
 
-def test_only_the_quality_service_and_objective_measures_are_maximised() -> None:
-    """The usual place a sign error hides: the load measures are minimised."""
+def test_only_the_signal_quality_and_objective_measures_are_maximised() -> None:
+    """The usual place a sign error hides: the rates are minimised."""
     assert MAXIMISED == {
-        "rsrp_p05_dbm",
         "rsrp_p50_dbm",
-        "sinr_p05_db",
+        "rsrp_p05_dbm",
         "sinr_p50_db",
-        "served_rate",
+        "sinr_p05_db",
+        "se_p50_bps_hz",
+        "se_mean_bps_hz",
+        "se_p05_bps_hz",
         "objective",
     }
 
@@ -180,7 +186,8 @@ def test_losing_a_band_never_raises_the_objective(cfg) -> None:
 
     Scoring the preferred band alone would have moved this tile onto a clean 'lo'
     and paid for stripping the crowded 'hi'. The general property does not hold
-    under ADR 0003: shedding a band that scores below the tile's score raises it.
+    under the contraharmonic mean: shedding a band that scores below the tile's
+    score raises it.
     """
     crowded = _map([[-80.0, -82.0, -84.0], [-118.0, -130.0, -130.0]])
     stripped = crowded.copy()
@@ -205,7 +212,7 @@ def test_solver_round_off_does_not_reach_the_objective(cfg) -> None:
 
 def test_the_pick_ignores_every_reported_kpi() -> None:
     """A better rate with a lower objective does not win."""
-    moved = _kpi(hole_rate=0.0, overlap_rate=0.0, served_rate=1.0, objective=0.49)
+    moved = _kpi(hole_rate=0.0, overlap_rate=0.0, ue_service_failure_rate=0.0, objective=0.49)
     assert best_by_objective([_kpi(), moved]) == 0
 
 

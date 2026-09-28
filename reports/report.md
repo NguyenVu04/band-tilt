@@ -10,7 +10,7 @@ This study asks whether a network-wide search over antenna tilts can improve cov
 
 The study area is a 6.2 × 6.5 km urban scene ray-traced with Sionna-RT. It holds four nodes on 25 m masts, with three sectors each (twelve cells), carrying three bands: 700, 1800 and 2600 MHz. That gives 36 absolute-tilt decision variables in [0°, 15°]. The starting tilts are one value per band: 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz. A week-long, time-varying population of 10,087 UE positions was drawn over the scene, and every UE counts, in the search and in the evaluation.
 
-Candidates were ray-traced and scored on one objective J ([ADR 0003](../docs/adr/0003-contraharmonic-objective-and-kpi-set.md)). Per tile, each band scores how cleanly one cell dominates it at usable strength. The tile then takes the *contraharmonic mean* of those band scores, so every covered layer counts in proportion to how well it serves. J lies in [0, 1], is 1 only when every covered band on every tile has a single dominant server at or above the weak threshold, and has no free parameters. Ten KPIs were reported beside it, none of them weighted into it.
+Candidates were ray-traced and scored on one objective J ([ADR 0002](../docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). Per tile, each band scores how cleanly one cell dominates it at usable strength. The tile then takes the *contraharmonic mean* of those band scores, so every covered layer counts in proportion to how well it serves. J lies in [0, 1], is 1 only when every covered band on every tile has a single dominant server at or above the weak threshold, and has no free parameters. Ten KPIs were reported beside it, none of them weighted into it.
 
 Three searches started from the same current configuration:
 - a rule-based per-band sweep,
@@ -28,7 +28,7 @@ Every method worsens overlapping neighbours per covered tile and cell load imbal
 
 Two findings shape how these should be read.
 - **TuRBO's KPI profile is one draw.** Its earlier runs did not reproduce, because GPU ray tracing varies J in the trailing digits and the GP fit turns that into different proposals. J is now rounded to 10⁻⁶ before any search reads it, and the 2026-09-25 run then matched the 2026-09-23 run on every evaluation (Section 6.1). The earlier runs show how far the profile moves under that tiny a perturbation: at J 0.7049, 0.7059 and 0.7054, the overlap rate was 0.3070, 0.3183 and 0.3090. This run changed one search setting, the perturbation probability, and reached J 0.7061 with an overlap rate of 0.3102.
-- **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.4). Nothing in the objective stops a search from buying J by switching a weak layer off. ADR 0003 measures how much of the grid this touches on the 2026-09-25 TuRBO winner; the pipeline does not regenerate it for this one.
+- **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.4). Nothing in the objective stops a search from buying J by switching a weak layer off. ADR 0002 measures how much of the grid this touches on the 2026-09-25 TuRBO winner; the pipeline does not regenerate it for this one.
 
 **Caveats.** The results come from one scenario, one search seed per method, and a simplified capacity model. No configuration is recommended for deployment.
 
@@ -154,11 +154,11 @@ TuRBO-1 [2] keeps one trust region centred on the best point found since the las
 - **Restart.** It restarts with a fresh Sobol design when the side falls below 0.5⁷.
 - **Budget.** 16 Sobol initial points plus 128 trust-region evaluations.
 
-The implementation uses BoTorch/GPyTorch [3] and follows the BoTorch TuRBO-1 tutorial. The GP only chooses where to look; every reported number is ray-traced. Implementation: `src/optim/methods/turbo/search.py`; configuration: `configs/optim/method/turbo.yaml`; decision records: ADR 0002 and ADR 0003.
+The implementation uses BoTorch/GPyTorch [3] and follows the BoTorch TuRBO-1 tutorial. The GP only chooses where to look; every reported number is ray-traced. Implementation: `src/optim/methods/turbo/search.py`; configuration: `configs/optim/method/turbo.yaml`; decision records: ADR 0001 and ADR 0002.
 
 ### 3.4 The objective every solution maximises
 
-The objective is [ADR 0003](../docs/adr/0003-contraharmonic-objective-and-kpi-set.md), implemented in `src/optim/objective.py` on top of `src/kpi/overlap.py::effective_coverage`:
+The objective is [ADR 0002](../docs/adr/0002-contraharmonic-objective-and-kpi-set.md), implemented in `src/optim/objective.py` on top of `src/kpi/overlap.py::effective_coverage`:
 
 $$J = \frac{1}{|G|}\sum_{g\in G} \frac{\sum_b u_{bg}^2}{\sum_b u_{bg}},
 \qquad u_{bg} = \lambda_{bg}\, e^{1-\lambda_{bg}}\, s_{bg},
@@ -194,11 +194,11 @@ It peaks at exactly 1 when one cell dominates the band. This report calls a tile
 
 A second layer lowers a tile only by scoring below the first. The cost is largest, 0.172, when the second layer scores $\sqrt{2} - 1 \approx 0.414$. It vanishes both as that layer becomes as good as the first and as it fades out.
 
-**The consequence: J is not monotone in the layers present.** Removing band $b$ from a tile raises the tile's score whenever $0 < u_{bg} <$ the tile's score. So darkening a weak layer can raise J, which a maximum over bands would rule out by construction. ADR 0003 measures how much of the grid this touches on the 2026-09-25 TuRBO winner. The pipeline does not recompute it (Section 6.8).
+**The consequence: J is not monotone in the layers present.** Removing band $b$ from a tile raises the tile's score whenever $0 < u_{bg} <$ the tile's score. So darkening a weak layer can raise J, which a maximum over bands would rule out by construction. ADR 0002 measures how much of the grid this touches on the 2026-09-25 TuRBO winner. The pipeline does not recompute it (Section 6.8).
 
 **The exchange rate this implies.** Splitting a clean, strong, single-band tile between two cells moves it from λ = 1 to λ = 2 and costs $1 - 2e^{-1} = 0.264$. Closing a hole looks as if it should gain the full 1.000, but it cannot. A tile that has just crossed $T_{\text{cov}}$ sits near −120 dBm, where $s \approx 0$. At −119 dBm a newly covered tile is worth 0.033, and at −110 dBm, 0.333. So one newly crowded strong tile costs as much as several closed holes.
 
-J is therefore primarily a *signal-strength and cleanliness* measure that treats hole-closing as a minor bonus. ADR 0003's "Measured outcome" records its rank correlation with each KPI over random search's 145 candidates. With per-RE noise, J tracks cell-edge RSRP (Spearman 0.87), the weak rate, median RSRP and the hole rate (0.77 to 0.79) most closely. It tracks the overlap rate (0.43), median SINR (0.41), the served rate (0.36) and overlap neighbours (0.30) loosely, and cell-edge SINR (0.12) and load imbalance (−0.04) hardly at all. The pipeline does not produce these correlations; they were recomputed for this report from random search's history.
+J is therefore primarily a *signal-strength and cleanliness* measure that treats hole-closing as a minor bonus. ADR 0002's "Measured outcome" records its rank correlation with each KPI over random search's 145 candidates. With per-RE noise, J tracks cell-edge RSRP (Spearman 0.87), the weak rate, median RSRP and the hole rate (0.77 to 0.79) most closely. It tracks the overlap rate (0.43), median SINR (0.41), the served rate (0.36) and overlap neighbours (0.30) loosely, and cell-edge SINR (0.12) and load imbalance (−0.04) hardly at all. The pipeline does not produce these correlations; they were recomputed for this report from random search's history.
 
 **Why not a preferred band or the best band.** Scoring the most preferred band that clears $T_{\text{cov}}$ would let a tilt raise J by dropping a crowded preferred layer below the threshold. Scoring the best band closes that, but prices nothing on a tile's other layers, so a crowded layer costs nothing wherever another layer is clean. The contraharmonic mean prices every covered layer, and it pays for that with monotonicity.
 
@@ -220,7 +220,7 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
    - served UE ratio ↑
    - cell load imbalance ↓
 
-   A change is labelled only as better or worse (`src/evaluation/compare.py`). Solver noise per KPI has not been measured, so no tie band is applied. None of the ten is weighted into J, so agreement between J and the KPIs is a finding, not a construction. Peak PRB utilisation is not among them: it is bounded by the 0.8 admission ceiling by construction ([ADR 0003](../docs/adr/0003-contraharmonic-objective-and-kpi-set.md)), and it is still computed, as the check that the serving rule held.
+   A change is labelled only as better or worse (`src/evaluation/compare.py`). Solver noise per KPI has not been measured, so no tie band is applied. None of the ten is weighted into J, so agreement between J and the KPIs is a finding, not a construction. Peak PRB utilisation is not among them: it is bounded by the 0.8 admission ceiling by construction ([ADR 0002](../docs/adr/0002-contraharmonic-objective-and-kpi-set.md)), and it is still computed, as the check that the serving rule held.
 3. **Search effectiveness.** Whether the search itself earned the gain. Measured by the winner against the median candidate, sample efficiency, and TuRBO paired with random search on the same seed.
 4. **Robustness.** Where the configuration moves demand, not only area, and how it trades one KPI against another. Nothing in J reads demand, so this criterion is now entirely a check on the objective rather than a reflection of it.
 5. **Cost.** Ray-tracing evaluations, ray-tracing minutes and wall-clock minutes per run.
@@ -526,7 +526,7 @@ These results should be read tentatively, for nine reasons:
    - Changing one search setting, `trust_region.perturbed_dimensions` from 20 to 5, moved the winner's J from 0.7054 to 0.7061 and its overlap rate from 0.3090 to 0.3102.
    - Any per-KPI claim about TuRBO's winner beyond J is one draw.
 4. **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.4).
-   - ADR 0003 measures the reach of this on the 2026-09-25 TuRBO winner, not on this run's. 49.3 % of that winner's tiles have such a band. If each could shed it independently, the ceiling on the gain would be 0.054, more than that winner's whole improvement of 0.040.
+   - ADR 0002 measures the reach of this on the 2026-09-25 TuRBO winner, not on this run's. 49.3 % of that winner's tiles have such a band. If each could shed it independently, the ceiling on the gain would be 0.054, more than that winner's whole improvement of 0.040.
    - That ceiling is not reachable, because darkening a band on one tile changes it on many.
    - Both numbers come from a one-off analysis of the archived radio map, not from the pipeline.
    - Nothing in the objective stops a search from buying J by switching a weak layer off.
@@ -592,7 +592,7 @@ The runs used the committed configuration in `configs/`:
 | Layout | 4 nodes, 1,732 m triangle plus centroid, 3 sectors at 45° / 165° / 285°, 25 m masts |
 | Tilt | Current 12° (2600 MHz), 10° (1800 MHz), 8° (700 MHz); bounds [0°, 15°], every cell-band |
 | KPI thresholds | `hole_dbm` −120, `weak_dbm` −90, `overlap_margin_db` 6, edge percentile 5 |
-| Objective | contraharmonic mean over bands; no parameters; reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`; rounded to 10⁻⁶; `objective_version` 3 (ADR 0003) |
+| Objective | contraharmonic mean over bands; no parameters; reads `hole_dbm`, `weak_dbm` and `overlap_margin_db`; rounded to 10⁻⁶; `objective_version` 3 (ADR 0002) |
 | Capacity | preference 2600 > 1800 > 700 MHz, serving threshold −120 dBm, admission ceiling 0.8, 20 Mbps per UE, SCS 15 kHz, admission in report-time order |
 | Noise | k·T·SCS per resource element at 298.15 K (`simulation.radio_map.bands[].scs_hz`), no receiver noise figure |
 | Search | seed 42; random and TuRBO 16 + 128; TuRBO batch 3, trust region 0.8 / 0.5⁷ / 1.6, success tolerance 3, failure tolerance 12, improvement 10⁻³, perturbed dimensions 5; rule 10 steps × 4 rounds; 4 solutions published |

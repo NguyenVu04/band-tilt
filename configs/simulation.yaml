@@ -1,93 +1,86 @@
 # @package simulation
-# Scenario inputs for the Sionna-RT scene, UE population, and radio maps.
+# Scene, UE population, cells and radio-map solver.
 
 scene:
-  # A scene XML path (root-relative), or a bundled Sionna-RT scene name.
+  # Scene XML path, or a bundled Sionna-RT scene name.
   name: data/external/scene/scene.xml
-  # Use a mono-polarized CUDA variant required by Sionna-RT.
+  # Mitsuba variant; Sionna-RT needs a mono-polarized CUDA one.
   mitsuba_variant: cuda_ad_mono_polarized
-  # Merge buildings into one mesh per material. Nothing calls Scene.edit, so the
-  # per-shape identity is not needed and the merged scene traces faster.
+  # Merge shapes per material; traces faster.
   merge_shapes: true
 
-# Measurement grid shared by UE density and radio maps.
+# Grid shared by UE density and radio maps.
 grid:
-  # Tile side length.
+  # Tile side [m].
   tile_size_m: 20.0
-  # Sub-grid side length; each tile uses n² ray casts.
+  # Ray casts per tile side (n x n per tile).
   subsamples_per_tile: 4
-  # Maximum surface height treated as open ground.
+  # Highest surface still counted as open ground [m].
   free_height_tol_m: 0.5
 
-# UE samples weight radio-map tiles; each interval is an independent draw.
+# UE population; each interval is an independent draw.
 ue:
-  # Inclusive per-interval UE-count range.
+  # UEs per interval, inclusive range.
   count_range: [10, 20]
-  # UE plane; must match the radio-map height.
+  # UE height, also the radio-map plane [m].
   height_m: 1.5
 
-# Time-varying mixture masses over a fixed spatial density.
+# Traffic over time.
 time:
-  # Snapshot duration.
+  # Interval length [s].
   interval_s: 900.0 # 15 minutes
-  # Total simulated duration.
+  # Simulated duration [s].
   horizon_s: 604800.0 # 7 days
-  # Day/night intensity swing; must stay below 1.
+  # Day/night swing, below 1.
   diurnal_amplitude: 0.6
-  # AR(1) log-intensity correlation; must stay below 1.
+  # AR(1) correlation, below 1.
   ar1_rho: 0.85
-  # Scale of the AR(1) shocks. Zero leaves the bare diurnal profile.
+  # AR(1) shock scale; 0 gives the plain diurnal profile.
   ar1_sigma: 0.25
 
-# UE density: uniform open-ground background plus Gaussian hotspots.
+# UE density: uniform background plus Gaussian hotspots.
 density:
-  # Hotspot UE share; remaining UEs use the uniform background.
+  # Share of UEs in hotspots.
   hotspot_mass_fraction: 0.7
-  # How many hotspots. Their centres are drawn afresh per scenario.
+  # Number of hotspots.
   n_hotspots: 4
-  # Range the major axis is drawn uniformly from.
+  # Major-axis sigma range [m].
   sigma_major_m: [80.0, 200.0]
-  # Range the minor axis is drawn from, clamped to at most the major.
+  # Minor-axis sigma range [m], capped at the major axis.
   sigma_minor_m: [40.0, 120.0]
-  # Radius used to weight hotspot centres by nearby building volume.
+  # Radius for the building volume that weights hotspot centres [m].
   built_volume_radius_m: 150.0
-  # Least share of the densest neighbourhood's building volume a tile needs
-  # before it may hold a hotspot centre. Keeps centres off near-empty ground.
+  # Least building volume, as a share of the densest area, for a hotspot centre.
   min_built_volume_fraction: 0.5
-  # Least distance between any two hotspot centres.
+  # Least distance between hotspot centres [m].
   min_hotspot_distance_m: 500.0
 
-# Co-located multi-band cells on four nodes: the corners of an equilateral
-# triangle and its centroid.
+# Multi-band cells on four nodes: a triangle's corners and centre.
 transmitters:
   layout:
-    # Side of the node triangle: the corner-to-corner distance. The centre node
-    # sits spacing / sqrt(3) from each corner.
+    # Triangle side [m].
     node_spacing_m: 1732.0
-    # Cells per node, at evenly spaced azimuths.
+    # Cells per node, evenly spaced in azimuth.
     cells_per_node: 3
-    # Rotation applied to every node's cell fan.
+    # Azimuth of the first cell [deg].
     azimuth_offset_deg: 45.0
-    # Mast height above local ground.
+    # Mast height above ground [m].
     mast_height_m: 25.0
-    # Minimum estimated open-ground share for mast placement.
+    # Least open-ground share at a mast site.
     min_free_fraction: 0.95
-    # Required open-ground clearance around each mast.
+    # Open-ground clearance around a mast [m].
     clearance_radius_m: 20.0
-    # How far to look for open ground when a node's ideal position has none.
-    # Finding none fails the generator rather than placing a mast on a building.
+    # Search radius for open ground near a node [m].
     snap_radius_m: 250.0
-    # Initial per-band tilt for generated cells.
+    # Tilt of generated cells, per band [deg].
     default_tilt:
       b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 15.0]}
       b1800: {baseline_deg: 10.0, bounds_deg: [0.0, 15.0]}
       b700: {baseline_deg: 8.0, bounds_deg: [0.0, 15.0]}
-    # Initial per-band PRB limit for generated cells, the N_RB of each band's
-    # radio_map bandwidth at 15 kHz SCS (TS 38.101-1 Table 5.3.2-1): 40 MHz is
-    # 216, 20 MHz is 106, 10 MHz is 52. Must track both radio_map.bands[].bandwidth
-    # and radio_map.bands[].scs_hz.
+    # PRB limit of generated cells, per band: N_RB at 15 kHz SCS (TS 38.101-1
+    # Table 5.3.2-1). Keep in step with radio_map.bands.
     default_max_prb: {b2600: 216, b1800: 106, b700: 52}
-  # Generated once against the delivered scene and held fixed across scenarios.
+  # Generated once by `task simulation:layout`.
   cells:
     - name: n0c0
       x: 29.20
@@ -210,34 +203,28 @@ transmitters:
         b700: {baseline_deg: 8.0, bounds_deg: [0.0, 15.0]}
       max_prb: {b2600: 216, b1800: 106, b700: 52}
 
-# Radio-map solver settings. Each band is solved separately.
+# Radio-map solver, one solve per band.
 radio_map:
-  # Scene temperature used for thermal-noise power.
+  # Noise temperature [K].
   temperature: 298.15
   # Rays launched per transmitter.
   samples_per_tx: 10000000
   # Longest path the solver traces, in interactions.
   max_depth: 8
-  # Propagation mechanisms recorded with each output map.
+  # Propagation mechanisms.
   los: true
   specular_reflection: true
-  # Enables the material scattering coefficient.
   diffuse_reflection: false
   refraction: true
-  # Diffraction settings; enabling diffraction is expensive.
+  # Diffraction is expensive.
   diffraction: false
   edge_diffraction: false
   diffraction_lit_region: true
-  # Russian-roulette depth; -1 disables it.
+  # Russian roulette; depth -1 disables it.
   rr_depth: -1
   rr_prob: 0.95
-  # Integer Hz values avoid YAML scientific-notation parsing issues.
-  # bandwidth: channel bandwidth. It fixes N_RB, hence max_prb (TS 38.101-1
-  # Table 5.3.2-1), and nothing the solver computes.
-  # scs_hz: subcarrier spacing, the solver's noise bandwidth. power_rs is per
-  # RE, so RSRP, interference and kT*scs_hz noise are all per RE and SINR is
-  # per RE, as SS-SINR is (TS 38.215 5.1.5). A PRB is 12 subcarriers of it
-  # (TS 38.211 4.4.4.1), which sets the PRB rate in src/kpi/capacity.py.
+  # Frequencies in integer Hz. bandwidth sets max_prb; scs_hz is the per-RE
+  # noise bandwidth and a PRB is 12 subcarriers of it.
   bands:
     - name: b2600
       frequency: 2600000000 # 2.6 GHz
@@ -252,12 +239,12 @@ radio_map:
       bandwidth: 10000000 # 10 MHz
       scs_hz: 15000 # 15 kHz
 
-# Sionna-RT planar arrays; spacings are in wavelengths.
+# Sionna-RT planar arrays; spacings in wavelengths.
 antenna:
-  # Per-resource-element reference-signal power in dBm.
+  # Reference-signal power per resource element [dBm].
   power_rs: 4.85
 
-  # Cross-polarized macro-cell array.
+  # Macro-cell array.
   transmitter:
     num_rows: 8
     num_cols: 8
@@ -266,7 +253,7 @@ antenna:
     pattern: "tr38901"
     polarization: "cross"
 
-  # Single vertical dipole; UEs do not beamform.
+  # UE antenna: one vertical dipole.
   receiver:
     num_rows: 1
     num_cols: 1
@@ -275,13 +262,11 @@ antenna:
     pattern: "dipole"
     polarization: "V"
 
-# Output artifacts for scenario inputs and clean maps.
+# Simulation outputs.
 output:
   ue_file: data/external/ue_positions.csv
   manifest_file: data/external/scenario.json
   radio_map_file: data/interim/radio_map.npz
-  # UEs the serving rule admits on the baseline map, with their serving RSRP.
-  mdt_file: data/interim/mdt.csv
 
-# Base seed. GPU ray-map accumulation is not bit-reproducible.
+# Seed.
 seed: ${seed}

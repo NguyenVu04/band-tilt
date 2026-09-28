@@ -3,7 +3,7 @@
 The KPI definitions live in :mod:`src.kpi` and are not restated here. What this
 module adds is what an optimizer needs around them: one value object carrying
 every measurement, the orientation that turns them into "larger is better", and
-the objective (docs/adr/0003-contraharmonic-objective-and-kpi-set.md):
+the objective:
 
     J = mean_g effective_coverage(g)
 
@@ -35,31 +35,33 @@ from omegaconf import DictConfig
 
 from src.kpi.capacity import CapacitySpec, serve_intervals
 from src.kpi.hole import hole_rate
-from src.kpi.load import load_imbalance, prb_by_cell_interval
 from src.kpi.overlap import effective_coverage, overlap_neighbor_mean, overlap_rate
 from src.kpi.quality import (
     LOW_PERCENTILE,
     MEDIAN_PERCENTILE,
     rsrp_percentile_dbm,
     sinr_percentile_db,
+    spectral_efficiency_mean,
+    spectral_efficiency_percentile,
 )
-from src.kpi.served import served_rate
+from src.kpi.served import ue_service_failure_rate
 from src.kpi.weak import weak_rate
 
-# What a deployment reads, in ADR 0003's reporting order: where coverage fails,
-# how crowded it is, how strong it is, whether the traffic got served, and how
-# the load sits.
+# The reporting order: where coverage fails, how crowded it is, how strong and
+# clean the signal is, and whether the traffic got served.
 KPI_NAMES = (
     "hole_rate",
+    "weak_rate",
     "overlap_rate",
     "overlap_neighbor_mean",
-    "weak_rate",
-    "rsrp_p05_dbm",
     "rsrp_p50_dbm",
-    "sinr_p05_db",
+    "rsrp_p05_dbm",
     "sinr_p50_db",
-    "served_rate",
-    "load_imbalance",
+    "sinr_p05_db",
+    "se_p50_bps_hz",
+    "se_mean_bps_hz",
+    "se_p05_bps_hz",
+    "ue_service_failure_rate",
 )
 
 # Everything measured per candidate: the column order of every table.
@@ -69,11 +71,13 @@ MEASURE_NAMES = (*KPI_NAMES, "objective")
 # sign; the rest are minimised.
 MAXIMISED = frozenset(
     {
-        "served_rate",
-        "rsrp_p05_dbm",
         "rsrp_p50_dbm",
-        "sinr_p05_db",
+        "rsrp_p05_dbm",
         "sinr_p50_db",
+        "sinr_p05_db",
+        "se_p50_bps_hz",
+        "se_mean_bps_hz",
+        "se_p05_bps_hz",
         "objective",
     }
 )
@@ -83,33 +87,38 @@ MAXIMISED = frozenset(
 class KpiVector:
     """One configuration's measurement: the KPIs, then the objective.
 
+    The signal-quality measures are over covered tiles at the best server, so
+    they are read beside ``hole_rate``.
+
     Attributes:
         hole_rate: Share of the grid receiving nothing above ``kpi.hole_dbm``,
             counting locations the ray tracer found no path to at all.
-        overlap_rate: Share of the grid with at least one overlapping neighbour.
-        overlap_neighbor_mean: Overlapping co-band neighbours per covered tile,
-            the severity behind that rate's incidence.
         weak_rate: Share of the grid covered but below ``kpi.weak_dbm``.
-        rsrp_p05_dbm: Cell-edge serving RSRP over covered locations only, so it
-            is read beside ``hole_rate``.
-        rsrp_p50_dbm: Median serving RSRP over the same locations.
-        sinr_p05_db: Cell-edge best-server SINR over the same locations.
-        sinr_p50_db: Median best-server SINR over the same locations.
-        served_rate: Share of UE reports admitted to a cell-band.
-        load_imbalance: Coefficient of variation of cell-band utilisation.
+        overlap_rate: Share of the grid with at least one overlapping neighbour.
+        overlap_neighbor_mean: Overlapping co-band neighbours per covered tile.
+        rsrp_p50_dbm: Median best-server RSRP.
+        rsrp_p05_dbm: Cell-edge (5th percentile) best-server RSRP.
+        sinr_p50_db: Median best-server SINR.
+        sinr_p05_db: Cell-edge best-server SINR.
+        se_p50_bps_hz: Median best-server spectral efficiency ``log2(1 + SINR)``.
+        se_mean_bps_hz: Mean of the same.
+        se_p05_bps_hz: Cell-edge value of the same.
+        ue_service_failure_rate: Share of UE reports not admitted to any cell-band.
         objective: See :func:`objective`. In ``[0, 1]``.
     """
 
     hole_rate: float
+    weak_rate: float
     overlap_rate: float
     overlap_neighbor_mean: float
-    weak_rate: float
-    rsrp_p05_dbm: float
     rsrp_p50_dbm: float
-    sinr_p05_db: float
+    rsrp_p05_dbm: float
     sinr_p50_db: float
-    served_rate: float
-    load_imbalance: float
+    sinr_p05_db: float
+    se_p50_bps_hz: float
+    se_mean_bps_hz: float
+    se_p05_bps_hz: float
+    ue_service_failure_rate: float
     objective: float
 
     def as_dict(self) -> dict[str, float]:
@@ -165,10 +174,7 @@ def evaluate_kpis(
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
-    The UE table is served once, here, and the served rate and both load
-    measures read that one assignment: serving is the expensive half of a
-    measurement, and running it three times would treble what a search pays per
-    candidate on top of the ray tracing.
+    The UE table is served once, here, for the service failure rate.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
@@ -176,7 +182,7 @@ def evaluate_kpis(
         sinr: The solver's SINR in dB, same shape as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         ue: The UE table; ``t_index``, ``t_s``, ``tile_row`` and ``tile_col``
-            place the UEs the served rate counts.
+            place the UEs the failure rate counts.
         cfg: Composed config; the measures read ``cfg.kpi``.
         spec: The capacity model already read from ``cfg``; built here when None.
 
@@ -191,19 +197,20 @@ def evaluate_kpis(
     if spec is None:
         spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
     served = serve_intervals(rsrp, sinr, band_labels, ue, cfg, spec=spec)
-    _t_values, prb = prb_by_cell_interval(served, rsrp.shape[0], rsrp.shape[1])
 
     return KpiVector(
         hole_rate=hole_rate(rsrp, cfg),
+        weak_rate=weak_rate(rsrp, cfg),
         overlap_rate=overlap_rate(rsrp, cfg),
         overlap_neighbor_mean=overlap_neighbor_mean(rsrp, cfg),
-        weak_rate=weak_rate(rsrp, cfg),
-        rsrp_p05_dbm=rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
         rsrp_p50_dbm=rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-        sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+        rsrp_p05_dbm=rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
         sinr_p50_db=sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-        served_rate=served_rate(served),
-        load_imbalance=load_imbalance(prb, spec.max_prb),
+        sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+        se_p50_bps_hz=spectral_efficiency_percentile(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
+        se_mean_bps_hz=spectral_efficiency_mean(rsrp, sinr, cfg),
+        se_p05_bps_hz=spectral_efficiency_percentile(rsrp, sinr, cfg, LOW_PERCENTILE),
+        ue_service_failure_rate=ue_service_failure_rate(served),
         objective=objective(rsrp, cfg),
     )
 

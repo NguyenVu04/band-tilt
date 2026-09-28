@@ -13,8 +13,10 @@ from src.kpi import (
     hole_rate,
     overlap_neighbor_mean,
     rsrp_percentile_dbm,
-    served_rate,
     sinr_percentile_db,
+    spectral_efficiency_mean,
+    spectral_efficiency_percentile,
+    ue_service_failure_rate,
     weak_rate,
 )
 from src.kpi.capacity import _tile_index, serve_intervals
@@ -79,7 +81,7 @@ def _ue(rows: list[dict[str, float]]) -> pd.DataFrame:
 
 
 def _served(rsrp: np.ndarray, ue: pd.DataFrame, cfg) -> pd.DataFrame:
-    """The serving assignment the served rate reduces."""
+    """The serving assignment the failure rate reduces."""
     return serve_intervals(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg)
 
 
@@ -140,6 +142,21 @@ def test_sinr_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
     """Nothing covered, nothing to take a percentile of."""
     rsrp = _map([[[np.nan, np.nan]]])
     assert sinr_percentile_db(rsrp, _sinr(rsrp), cfg, 50.0) == -np.inf
+
+
+def test_spectral_efficiency_is_shannon_over_the_best_server_sinr(cfg) -> None:
+    """SINR 0 dB is 1 bit/s/Hz and 10*log10(3) dB is 2; the uncovered tile is no sample."""
+    rsrp = _map([[[-80.0, -90.0, -130.0]]])
+    sinr = _map([[[0.0, 10.0 * math.log10(3.0), 30.0]]])
+    assert spectral_efficiency_percentile(rsrp, sinr, cfg, 0.0) == pytest.approx(1.0)
+    assert spectral_efficiency_percentile(rsrp, sinr, cfg, 100.0) == pytest.approx(2.0)
+    assert spectral_efficiency_mean(rsrp, sinr, cfg) == pytest.approx(1.5)
+
+
+def test_spectral_efficiency_of_a_dead_map_is_minus_infinity(cfg) -> None:
+    """Nothing covered, nothing to average."""
+    rsrp = _map([[[np.nan, np.nan]]])
+    assert spectral_efficiency_mean(rsrp, _sinr(rsrp), cfg) == -np.inf
 
 
 # --- overlap ---------------------------------------------------------------
@@ -255,8 +272,8 @@ def test_losing_a_layer_never_raises_effective_coverage(cfg) -> None:
     """Losing a band that scores at or above the tile's score never raises it.
 
     Stripping the crowded preferred band would once have moved the tile onto a
-    clean lower band and scored it higher. Under ADR 0003, shedding a band that
-    scores below the tile's score does raise it.
+    clean lower band and scored it higher. Under the contraharmonic mean,
+    shedding a band that scores below the tile's score does raise it.
     """
     crowded = _map([[[-80.0], [-82.0]], [[-100.0], [-130.0]]])
     stripped = crowded.copy()
@@ -273,17 +290,17 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
         _tile_index(_ue([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
-# --- served rate -----------------------------------------------------------
+# --- service failure rate --------------------------------------------------
 
 
 def test_every_covered_ue_with_room_is_served(cfg) -> None:
-    """Three UEs on covered tiles, PRBs to spare: all served."""
+    """Three UEs on covered tiles, PRBs to spare: none fails."""
     rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
     ue = _ue(
         [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 2
         + [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1}]
     )
-    assert served_rate(_served(rsrp, ue, cfg)) == pytest.approx(1.0)
+    assert ue_service_failure_rate(_served(rsrp, ue, cfg)) == pytest.approx(0.0)
 
 
 def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
@@ -295,7 +312,7 @@ def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
             {"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1},
         ]
     )
-    assert served_rate(_served(rsrp, ue, cfg)) == pytest.approx(0.5)
+    assert ue_service_failure_rate(_served(rsrp, ue, cfg)) == pytest.approx(0.5)
 
 
 def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
@@ -305,14 +322,10 @@ def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
     cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
     rsrp = _map([[[-80.0]], [[-80.0]]])
     ue = _ue([{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 3)
-    served = _served(rsrp, ue, cfg)
-    assert served_rate(served) == pytest.approx(2.0 / 3.0)
-    # One UE on each band, so each band's own rate is a third of all reports.
-    assert served_rate(served, band=0) == pytest.approx(1.0 / 3.0)
-    assert served_rate(served, band=1) == pytest.approx(1.0 / 3.0)
+    assert ue_service_failure_rate(_served(rsrp, ue, cfg)) == pytest.approx(1.0 / 3.0)
 
 
-def test_served_rate_rejects_an_empty_ue_table(cfg) -> None:
+def test_failure_rate_rejects_an_empty_ue_table(cfg) -> None:
     """No UE, no denominator."""
     with pytest.raises(ValueError, match="no UE"):
-        served_rate(pd.DataFrame(columns=["band"]))
+        ue_service_failure_rate(pd.DataFrame(columns=["band"]))

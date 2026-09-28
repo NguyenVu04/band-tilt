@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap, LogNorm
 from matplotlib.figure import Figure
+from matplotlib.ticker import PercentFormatter
 from omegaconf import DictConfig
 
 from src.evaluation import compare, maps
@@ -219,11 +220,12 @@ def map_row(
     return figure
 
 
-def utilisation_heatmaps(tables: dict[str, pd.DataFrame]) -> Figure:
-    """Peak PRB utilisation per cell-band, one panel per configuration.
+def utilisation_heatmaps(tables: dict[str, pd.DataFrame], max_admission: float) -> Figure:
+    """Peak PRB load per cell-band as a share of its admission ceiling, one panel per configuration.
 
     Args:
         tables: Configuration key to :func:`src.evaluation.compare.cell_band_load` output.
+        max_admission: ``kpi.capacity.max_admission_utilisation``, for the label.
     """
     first = next(iter(tables.values()))
     cell_order = list(dict.fromkeys(first["cell"]))
@@ -246,7 +248,12 @@ def utilisation_heatmaps(tables: dict[str, pd.DataFrame]) -> Figure:
         axis.set_xticks(range(len(band_order)), [label(band) for band in band_order])
         axis.set_yticks(range(len(cell_order)), cell_order if index == 0 else [])
         axis.set_title(label(key))
-    figure.colorbar(image, ax=axes[0].tolist(), label="Peak PRB utilisation, busiest interval")
+    figure.colorbar(
+        image,
+        ax=axes[0].tolist(),
+        label=f"Peak PRB load, % of max_prb x {max_admission:g}",
+        format=PercentFormatter(1.0),
+    )
     figure.suptitle("Cell load per frequency band")
     return figure
 
@@ -512,8 +519,8 @@ def coverage_class_maps(
     return figure
 
 
-def prb_usage_heatmaps(usage: pd.DataFrame, max_utilisation: float) -> Figure:
-    """PRB utilisation of every cell-band over time, one panel per configuration.
+def prb_usage_heatmaps(usage: pd.DataFrame, max_admission: float) -> Figure:
+    """PRB load of every cell-band over time as a share of its admission ceiling.
 
     A heatmap rather than lines: a week of 15-minute intervals against three
     dozen cell-bands is too many series to read, and what a reader looks for
@@ -521,9 +528,7 @@ def prb_usage_heatmaps(usage: pd.DataFrame, max_utilisation: float) -> Figure:
 
     Args:
         usage: :func:`src.evaluation.compare.prb_usage_by_time` output.
-        max_utilisation: The colour-scale top, and the admission ceiling
-            ``kpi.capacity.max_admission_utilisation``: the serving rule cannot
-            produce a value above it, so the scale is the whole reachable range.
+        max_admission: ``kpi.capacity.max_admission_utilisation``, for the label.
     """
     keys = list(dict.fromkeys(usage["configuration"]))
     figure, axes = plt.subplots(
@@ -545,7 +550,7 @@ def prb_usage_heatmaps(usage: pd.DataFrame, max_utilisation: float) -> Figure:
             origin="lower",
             cmap="YlOrRd",
             vmin=0.0,
-            vmax=max_utilisation,
+            vmax=1.0,
             interpolation="nearest",
         )
         axis.grid(False)
@@ -559,7 +564,8 @@ def prb_usage_heatmaps(usage: pd.DataFrame, max_utilisation: float) -> Figure:
     figure.colorbar(
         image,
         ax=axes[0].tolist(),
-        label=f"PRB utilisation (admission ceiling {max_utilisation:.0%})",
+        label=f"PRB load, % of max_prb x {max_admission:g}",
+        format=PercentFormatter(1.0),
     )
     figure.suptitle("Cell-band PRB usage over time")
     return figure

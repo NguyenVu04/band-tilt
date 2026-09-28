@@ -6,7 +6,7 @@ built once at construction and reused for every candidate.
 Only the transmitters are rebuilt per evaluation, which is what
 :func:`src.simulation.radio.solve_bands` already does.
 
-The served rate counts every UE in ``data.output.ue_file``.
+The service failure rate counts every UE in ``data.output.ue_file``.
 
 :class:`ObjectiveEvaluator` is the seam the search depends on. Anything mapping
 a tilt vector to an :class:`EvaluationResult` satisfies it — the ray tracer here

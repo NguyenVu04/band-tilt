@@ -1,14 +1,15 @@
-# 2. TuRBO on a weighted KPI score
+# 1. TuRBO on a weighted KPI score
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
 - **Rewritten:** 2026-09-14 — amendments folded in; the superseded record on
   multi-objective BO on Ax is removed and lives in Git history.
-- **Renumbered:** 2026-09-22 — formerly 0003; see [the README](README.md).
+- **Renumbered:** 2026-09-22 (formerly 0003) and 2026-09-28 (formerly 0002);
+  see [the README](README.md).
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** —
 - **Superseded by:** partly, by
-  [ADR 0003](0003-contraharmonic-objective-and-kpi-set.md) — TuRBO, the matched budgets
+  [ADR 0002](0002-contraharmonic-objective-and-kpi-set.md) — TuRBO, the matched budgets
   and highest-score selection stand; the weighted score it optimizes and
   selects by is replaced by that record's objective, and `kpi.weights`
   and the weight-sensitivity table are deleted. The intermediate objective

@@ -1,8 +1,9 @@
 """Build every evaluation table and figure: the one implementation notebook 04 presents.
 
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
-map and the processed tables only, so like the rest of :mod:`src.evaluation` it
-needs no GPU. UEs are served from ``data.output.ue_file``, every UE.
+map and the processed UE table only, so like the rest of :mod:`src.evaluation`
+it needs no GPU. UEs are served from ``data.output.ue_file``, every UE; the
+cells are read from ``simulation.transmitters.cells``.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
-from src.evaluation import compare, plots
+from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import CapacitySpec, max_rsrp
@@ -48,7 +49,7 @@ def load_runs(
         raise FileNotFoundError(f"No runs under {cfg.optim.output.dir}. Run `task optim` first.")
     if baseline is None:
         baseline = run_store.baseline_map(cfg)
-    checks = run_store.verify(runs, baseline, cfg)
+    checks = run_store.verify(runs, baseline)
     run_store.require(checks)
     return runs, checks
 
@@ -84,7 +85,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("comparability_checks", checks)
 
     ue = pd.read_parquet(cfg.data.output.ue_file)
-    cells = pd.read_parquet(cfg.data.output.cell_file).drop_duplicates("cell")
+    cells = compare.cell_table(cfg)
     band_labels = [str(band) for band in baseline["band_label"]]
     tx_names = [str(name) for name in baseline["tx_name"]]
     add("experiment_setup", compare.experiment_setup(baseline, ue, runs, cfg))
@@ -100,8 +101,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("candidates", searched)
     for x, y in (
         ("hole_rate", "overlap_rate"),
-        ("hole_rate", "served_rate"),
-        ("overlap_rate", "served_rate"),
+        ("hole_rate", "ue_service_failure_rate"),
+        ("overlap_rate", "ue_service_failure_rate"),
     ):
         add(f"tradeoff_{x}_vs_{y}", plots.tradeoff_scatter(searched, x, y))
 
@@ -181,11 +182,11 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
             per_band,
             (
                 "hole_rate",
-                "overlap_rate",
                 "weak_rate",
+                "overlap_rate",
                 "rsrp_p05_dbm",
                 "sinr_p05_db",
-                "served_rate",
+                "se_p05_bps_hz",
             ),
         ),
     )
@@ -195,25 +196,48 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     }
     add("ue_service_summary", pd.DataFrame(service).T.rename_axis("configuration").reset_index())
     add("serving_band_mix", plots.band_share_bars(service, band_labels))
+    add(
+        "ue_failure_maps",
+        plots.map_row(
+            {
+                label(key): maps.failure_share(
+                    configurations[key].served, maps.grid_shape(baseline)
+                )
+                for key in ("incumbent", winner.method)
+            },
+            baseline,
+            colorbar_label="Share of UE reports not served",
+            vmin=0.0,
+            vmax=1.0,
+            cmap="Reds",
+            cells=cells,
+        ),
+    )
+    add(
+        "ue_failure_by_coverage",
+        compare.failure_by_coverage(
+            {key: configurations[key] for key in ("incumbent", winner.method)}, cfg
+        ),
+    )
 
-    max_prb = CapacitySpec.from_config(cfg, band_labels, len(tx_names)).max_prb
+    spec = CapacitySpec.from_config(cfg, band_labels, len(tx_names))
+    admission = spec.max_admission_utilisation
     load = {
-        name: compare.cell_band_load(configurations[name].served, band_labels, tx_names, max_prb)
+        name: compare.cell_band_load(
+            configurations[name].served, band_labels, tx_names, spec.max_prb, admission
+        )
         for name in ("incumbent", winner.method)
     }
-    add("cell_band_utilisation", plots.utilisation_heatmaps(load))
+    add("cell_band_utilisation", plots.utilisation_heatmaps(load, admission))
     add("cell_band_load", pd.concat([f.assign(configuration=k) for k, f in load.items()]))
     usage = compare.prb_usage_by_time(
         {key: configurations[key] for key in ("incumbent", winner.method)},
         band_labels,
         tx_names,
-        max_prb,
+        spec.max_prb * admission,
     )
     add("prb_usage_by_time", usage)
-    add(
-        "prb_usage_heatmaps",
-        plots.prb_usage_heatmaps(usage, float(cfg.kpi.capacity.max_admission_utilisation)),
-    )
+    add("prb_usage_heatmaps", plots.prb_usage_heatmaps(usage, admission))
     add(
         "cell_impact",
         compare.cell_impact(winner.best_tilt, load["incumbent"], load[winner.method], cells),
