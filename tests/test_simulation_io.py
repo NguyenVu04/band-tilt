@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from omegaconf import OmegaConf
 
 from src.core.cell import Cell
-from src.simulation import seeds
+from src.simulation import radio, seeds
 from src.simulation.grid import disc_offsets
 from src.simulation.radio import Band, SolverSpec, baseline_tilts, write_radio_map
 
@@ -27,7 +28,7 @@ def test_disc_offsets_are_the_lattice_points_of_the_disc() -> None:
     assert disc_offsets(0) == [(0, 0)]
 
 
-def _cell(name: str, tilts: dict[str, float]) -> Cell:
+def _cell(name: str, tilts: dict[str, float], max_prb: int = 50) -> Cell:
     return Cell.from_config(
         OmegaConf.create(
             {
@@ -40,10 +41,20 @@ def _cell(name: str, tilts: dict[str, float]) -> Cell:
                     band: {"baseline_deg": tilt, "bounds_deg": [0.0, 15.0]}
                     for band, tilt in tilts.items()
                 },
-                "max_prb": {band: 50 for band in tilts},
+                "max_prb": {band: max_prb for band in tilts},
             }
         )
     )
+
+
+def test_max_prb_must_be_n_rb_for_the_band() -> None:
+    """A max_prb left behind by a bandwidth change is refused before any solve."""
+    cells = (_cell("a", {"b700": 8.0}, max_prb=52),)
+    radio._check_tilt_table(cells, (Band("b700", 7e8, 1e7, 15e3),))
+    with pytest.raises(ValueError, match="a/b700 has 52, needs 106"):
+        radio._check_tilt_table(cells, (Band("b700", 7e8, 2e7, 15e3),))
+    with pytest.raises(ValueError, match="No N_RB"):
+        radio._check_tilt_table(cells, (Band("b700", 7e8, 1.2e7, 15e3),))
 
 
 def test_a_written_radio_map_reads_back_without_pickle(tmp_path) -> None:

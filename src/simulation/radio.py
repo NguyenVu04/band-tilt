@@ -31,6 +31,22 @@ from src.tracking import log_stage
 # reduction instead of competing with the finite values a weak path leaves.
 _NO_PATH = np.nan
 
+# TS 38.101-1 Table 5.3.2-1: FR1 N_RB, keyed by SCS then channel bandwidth, in Hz.
+_N_RB = {
+    15e3: {
+        5e6: 25, 10e6: 52, 15e6: 79, 20e6: 106, 25e6: 133,
+        30e6: 160, 35e6: 188, 40e6: 216, 45e6: 242, 50e6: 270,
+    },
+    30e3: {
+        5e6: 11, 10e6: 24, 15e6: 38, 20e6: 51, 25e6: 65, 30e6: 78, 35e6: 92, 40e6: 106,
+        45e6: 119, 50e6: 133, 60e6: 162, 70e6: 189, 80e6: 217, 90e6: 245, 100e6: 273,
+    },
+    60e3: {
+        10e6: 11, 15e6: 18, 20e6: 24, 25e6: 31, 30e6: 38, 35e6: 44, 40e6: 51,
+        45e6: 58, 50e6: 65, 60e6: 79, 70e6: 93, 80e6: 107, 90e6: 121, 100e6: 135,
+    },
+}  # fmt: skip
+
 
 @dataclass(frozen=True)
 class Band:
@@ -414,13 +430,17 @@ def solve_band(
 
 
 def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
-    """Check every cell carries a tilt and a PRB limit for every band.
+    """Check every cell carries a tilt and a PRB limit for every band, that limit being N_RB.
 
     Checked once, up front, so a mismatched table names every gap rather than
-    failing on whichever band happens to be solved first.
+    failing on whichever band happens to be solved first. Nothing downstream
+    reads ``bandwidth``, so a ``max_prb`` left behind by a bandwidth change
+    would otherwise go unnoticed.
 
     Raises:
-        ValueError: When any cell-band pair has no tilt or no ``max_prb``.
+        ValueError: When any cell-band pair has no tilt or no ``max_prb``, a
+            band's ``scs_hz`` and ``bandwidth`` have no N_RB in TS 38.101-1
+            Table 5.3.2-1, or a ``max_prb`` differs from that N_RB.
     """
     missing = [
         f"{cell.name}/{band.name}"
@@ -433,6 +453,29 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
             f"{len(missing)} cell-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
             f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
             "simulation.radio_map.bands; re-run `task simulation:layout` if the bands changed."
+        )
+    n_rb = {band.name: _N_RB.get(band.scs_hz, {}).get(band.bandwidth_hz) for band in bands}
+    unknown = [
+        f"{band.name} ({band.bandwidth_hz:g} Hz at {band.scs_hz:g} Hz SCS)"
+        for band in bands
+        if n_rb[band.name] is None
+    ]
+    if unknown:
+        raise ValueError(
+            f"No N_RB in TS 38.101-1 Table 5.3.2-1 for {', '.join(unknown)}. Use an FR1 "
+            "channel bandwidth and subcarrier spacing the table lists."
+        )
+    wrong = [
+        f"{cell.name}/{band.name} has {cell.max_prb[band.name]}, needs {n_rb[band.name]}"
+        for cell in cells
+        for band in bands
+        if cell.max_prb[band.name] != n_rb[band.name]
+    ]
+    if wrong:
+        raise ValueError(
+            f"{len(wrong)} cell-band pairs have a max_prb other than N_RB for the band's "
+            f"bandwidth and scs_hz: {', '.join(wrong[:8])}{' ...' if len(wrong) > 8 else ''}. "
+            "Set max_prb in every cell and in transmitters.layout.default_max_prb."
         )
 
 
