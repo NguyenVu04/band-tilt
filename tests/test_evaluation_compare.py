@@ -123,9 +123,6 @@ def incumbent() -> KpiVector:
         rsrp_p05_dbm=-108.0,
         sinr_p50_db=8.0,
         sinr_p05_db=-3.0,
-        se_p50_bps_hz=3.0,
-        se_mean_bps_hz=3.2,
-        se_p05_bps_hz=0.6,
         ue_service_failure_rate=0.009,
         objective=0.40,
     )
@@ -164,10 +161,10 @@ def test_a_change_reads_by_direction(incumbent: KpiVector) -> None:
 
 def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
     """The KPI where up is better, and the usual place a sign error hides."""
-    after = dataclasses.replace(incumbent, se_p05_bps_hz=incumbent.se_p05_bps_hz + 0.05)
+    after = dataclasses.replace(incumbent, sinr_p05_db=incumbent.sinr_p05_db + 0.5)
     table = compare.delta_table(incumbent, after).set_index("kpi")
-    assert table.loc["se_p05_bps_hz", "verdict"] == compare.BETTER
-    assert table.loc["se_p05_bps_hz", "direction"] == "maximise"
+    assert table.loc["sinr_p05_db", "verdict"] == compare.BETTER
+    assert table.loc["sinr_p05_db", "direction"] == "maximise"
 
 
 def test_direction_names_every_kpi() -> None:
@@ -178,9 +175,6 @@ def test_direction_names_every_kpi() -> None:
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
-        "se_p50_bps_hz",
-        "se_mean_bps_hz",
-        "se_p05_bps_hz",
         "objective",
     ]
 
@@ -227,9 +221,6 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "rsrp_p05_dbm": [-108.0] * n,
             "sinr_p50_db": [8.0] * n,
             "sinr_p05_db": [-3.0] * n,
-            "se_p50_bps_hz": [3.0] * n,
-            "se_mean_bps_hz": [3.2] * n,
-            "se_p05_bps_hz": [0.6] * n,
             "ue_service_failure_rate": [0.0] * n,
             "objective": coverage,
         }
@@ -400,8 +391,8 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     # One report of four failed; a failure belongs to no single band.
     assert table.loc[compare.ALL_BANDS, "ue_service_failure_rate"] == pytest.approx(0.25)
     assert table.loc[["hi", "lo"], "ue_service_failure_rate"].isna().all()
-    # SINR 10 dB everywhere: log2(11) bit/s/Hz on every covered tile.
-    assert table.loc[compare.ALL_BANDS, "se_mean_bps_hz"] == pytest.approx(np.log2(11.0))
+    # SINR 10 dB everywhere, so every covered tile reads 10 dB.
+    assert table.loc[compare.ALL_BANDS, "sinr_p50_db"] == pytest.approx(10.0)
 
 
 def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
@@ -425,13 +416,13 @@ def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
 
 
 def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:
-    """A halved hole rate is +50 %; a median SE up by a tenth of itself is +10 %."""
+    """A halved hole rate is +50 %; a median SINR up by a tenth of itself is +10 %."""
     after = dataclasses.replace(
-        incumbent, hole_rate=incumbent.hole_rate / 2, se_p50_bps_hz=incumbent.se_p50_bps_hz * 1.1
+        incumbent, hole_rate=incumbent.hole_rate / 2, sinr_p50_db=incumbent.sinr_p50_db * 1.1
     )
     table = compare.improvement_table(incumbent, after).set_index("kpi")
     assert table.loc["hole_rate", "improvement_pct"] == pytest.approx(50.0)
-    assert table.loc["se_p50_bps_hz", "improvement_pct"] == pytest.approx(10.0)
+    assert table.loc["sinr_p50_db", "improvement_pct"] == pytest.approx(10.0)
     assert table.loc["weak_rate", "improvement_pct"] == 0.0
 
 

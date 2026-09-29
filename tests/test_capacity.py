@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
+from src.evaluation import compare
 from src.kpi import capacity
 
 # 12 subcarriers of 15 kHz: 180 kHz per PRB.
@@ -70,31 +71,39 @@ def test_rate_and_prbs_follow_the_shannon_formula() -> None:
     assert capacity._prb_per_ue(1.0, 0.0) == np.inf
 
 
+def _candidates(
+    rsrp: np.ndarray, rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
+) -> np.ndarray:
+    """One ``[n_band, n_tx]`` location's candidates, most preferred first."""
+    order, heard = capacity._candidate_orders(rsrp[None], rank, threshold_dbm, min_rsrp_dbm)
+    return order[0][heard[0]]
+
+
 def test_the_preferred_band_serves_when_it_clears_the_threshold() -> None:
     """'hi' tx1 is above -100 dBm, so it wins over a much stronger 'lo'."""
     rsrp = np.array([[-105.0, -99.0], [-60.0, -70.0]])
-    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = _candidates(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [1, 2, 3, 0]
 
 
 def test_a_band_below_the_threshold_passes_to_the_next() -> None:
     """No 'hi' cell clears the threshold, so 'lo' comes first, strongest cell first."""
     rsrp = np.array([[-105.0, -110.0], [-95.0, -80.0]])
-    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = _candidates(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [3, 2, 0, 1]
 
 
 def test_below_every_threshold_the_strongest_serves_and_no_path_is_dropped() -> None:
     """The fallback is plain RSRP order; an unreachable layer is never a candidate."""
     rsrp = np.array([[-105.0, np.nan], [-120.0, -101.0]])
-    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0)
+    order = _candidates(rsrp, np.array([0, 1]), -100.0)
     assert order.tolist() == [3, 0, 2]
 
 
 def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
     """-120 dBm is a hole, so only the -119 dBm layer may serve."""
     rsrp = np.array([[-120.0, -119.0], [-130.0, np.nan]])
-    order = capacity._candidate_order(rsrp, np.array([0, 1]), -100.0, -120.0)
+    order = _candidates(rsrp, np.array([0, 1]), -100.0, -120.0)
     assert order.tolist() == [1]
 
 
@@ -250,7 +259,8 @@ def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
     ue = pd.DataFrame(
         {"t_index": [0, 1, 1, 1], "t_s": [0.0] * 4, "tile_row": [0] * 4, "tile_col": [0] * 4}
     )
-    peak = capacity.demand_prb(rsrp, sinr, ["hi", "lo"], ue, cfg)
+    archive = {"rsrp_dbm": rsrp, "sinr_db": sinr, "band_label": np.array(["hi", "lo"])}
+    peak = compare.configuration(archive, ue, cfg).demand
     assert peak.shape == (1, 2)
     assert peak[0, 0] == pytest.approx(3.0)
     assert peak[0, 1] == 0.0

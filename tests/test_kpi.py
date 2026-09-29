@@ -14,8 +14,6 @@ from src.kpi import (
     overlap_neighbor_mean,
     rsrp_percentile_dbm,
     sinr_percentile_db,
-    spectral_efficiency_mean,
-    spectral_efficiency_percentile,
     ue_service_failure_rate,
     weak_rate,
 )
@@ -142,21 +140,6 @@ def test_sinr_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
     """Nothing covered, nothing to take a percentile of."""
     rsrp = _map([[[np.nan, np.nan]]])
     assert sinr_percentile_db(rsrp, _sinr(rsrp), cfg, 50.0) == -np.inf
-
-
-def test_spectral_efficiency_is_shannon_over_the_best_server_sinr(cfg) -> None:
-    """SINR 0 dB is 1 bit/s/Hz and 10*log10(3) dB is 2; the uncovered tile is no sample."""
-    rsrp = _map([[[-80.0, -90.0, -130.0]]])
-    sinr = _map([[[0.0, 10.0 * math.log10(3.0), 30.0]]])
-    assert spectral_efficiency_percentile(rsrp, sinr, cfg, 0.0) == pytest.approx(1.0)
-    assert spectral_efficiency_percentile(rsrp, sinr, cfg, 100.0) == pytest.approx(2.0)
-    assert spectral_efficiency_mean(rsrp, sinr, cfg) == pytest.approx(1.5)
-
-
-def test_spectral_efficiency_of_a_dead_map_is_minus_infinity(cfg) -> None:
-    """Nothing covered, nothing to average."""
-    rsrp = _map([[[np.nan, np.nan]]])
-    assert spectral_efficiency_mean(rsrp, _sinr(rsrp), cfg) == -np.inf
 
 
 # --- overlap ---------------------------------------------------------------

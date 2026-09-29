@@ -186,7 +186,6 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
                 "overlap_rate",
                 "rsrp_p05_dbm",
                 "sinr_p05_db",
-                "se_p05_bps_hz",
             ),
         ),
     )

@@ -107,6 +107,7 @@ def test_serving_band_never_serves_on_a_layer_at_the_hole_threshold() -> None:
 
 def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     """Two UEs on one tile in one interval need twice one UE's PRBs."""
+    from src.evaluation import compare
     from src.kpi import capacity
 
     cfg.kpi.capacity = {
@@ -137,7 +138,8 @@ def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
     ue = pd.DataFrame(
         {"t_index": [0, 0, 0], "t_s": [0.0] * 3, "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]}
     )
-    counts = capacity.demand_prb(rsrp, sinr, ["b"], ue, cfg)
+    archive = {"rsrp_dbm": rsrp, "sinr_db": sinr, "band_label": np.array(["b"])}
+    counts = compare.configuration(archive, ue, cfg).demand
 
     per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(20.0, 180_000.0))
     assert counts.shape == (3, 4)

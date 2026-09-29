@@ -29,8 +29,6 @@ from src.kpi.quality import (
     MEDIAN_PERCENTILE,
     rsrp_percentile_dbm,
     sinr_percentile_db,
-    spectral_efficiency_mean,
-    spectral_efficiency_percentile,
 )
 from src.kpi.served import ue_service_failure_rate
 from src.kpi.weak import weak_rate
@@ -336,7 +334,8 @@ class Configuration:
         rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm.
         sinr: The solver's SINR in dB, same shape.
         served: :func:`src.kpi.capacity.serve_intervals` output.
-        demand: PRBs required per tile in its busiest interval.
+        demand: PRBs required per tile in its busiest interval. A blocked UE
+            still counts at its first choice: this is demand, not what was served.
         t_values: The intervals present, in order.
         prb: PRBs each cell-band carried in each of them,
             ``[n_t, n_band, n_tx]``, aligned to ``t_values``.
@@ -908,13 +907,6 @@ def band_kpis(
                     "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
                     "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
                     "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-                    "se_p50_bps_hz": spectral_efficiency_percentile(
-                        rsrp, sinr, cfg, MEDIAN_PERCENTILE
-                    ),
-                    "se_mean_bps_hz": spectral_efficiency_mean(rsrp, sinr, cfg),
-                    "se_p05_bps_hz": spectral_efficiency_percentile(
-                        rsrp, sinr, cfg, LOW_PERCENTILE
-                    ),
                     "ue_service_failure_rate": ue_service_failure_rate(config.served)
                     if index is None
                     else np.nan,

@@ -68,10 +68,10 @@ loads a local Sionna-RT scene file, generates a time-varying UE population and
 ray-traces per-band radio maps. The search and evaluation both count every UE
 position. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Twelve reported KPIs - the hole, weak and
+from the incumbent configuration. Nine reported KPIs - the hole, weak and
 overlap rates, overlapping neighbours per covered tile, the median and
-5th-percentile best-server RSRP and SINR, the median, mean and 5th-percentile
-spectral efficiency, and the UE service failure rate - are measured for every
+5th-percentile best-server RSRP and SINR, and the UE service failure rate - are
+measured for every
 candidate through [`src/kpi/`](src/kpi/), over all bands and per band
 ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The search maximises
 one objective,
@@ -154,7 +154,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
 | Simulation | UE population, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
-| KPI | The twelve reported KPI definitions, the reductions they share, and the serving-cell / PRB-load model | [`src/kpi/`](src/kpi/) |
+| KPI | The nine reported KPI definitions, the reductions they share, and the serving-cell / PRB-load model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |

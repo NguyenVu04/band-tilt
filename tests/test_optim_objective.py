@@ -37,9 +37,6 @@ def _kpi(**overrides: float) -> KpiVector:
         "rsrp_p50_dbm": -95.0,
         "sinr_p05_db": -3.0,
         "sinr_p50_db": 8.0,
-        "se_p50_bps_hz": 3.0,
-        "se_mean_bps_hz": 3.2,
-        "se_p05_bps_hz": 0.6,
         "ue_service_failure_rate": 0.20,
         "objective": 0.50,
     }
@@ -72,9 +69,6 @@ def test_reporting_order() -> None:
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
-        "se_p50_bps_hz",
-        "se_mean_bps_hz",
-        "se_p05_bps_hz",
         "ue_service_failure_rate",
     )
     assert MEASURE_NAMES == (*KPI_NAMES, "objective")
@@ -87,9 +81,6 @@ def test_only_the_signal_quality_and_objective_measures_are_maximised() -> None:
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
-        "se_p50_bps_hz",
-        "se_mean_bps_hz",
-        "se_p05_bps_hz",
         "objective",
     }
 

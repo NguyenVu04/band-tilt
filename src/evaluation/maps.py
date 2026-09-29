@@ -130,7 +130,7 @@ def underserved(
 
     Args:
         rsrp: The radio map.
-        counts: The demand raster from :func:`src.kpi.capacity.demand_prb`.
+        counts: The demand raster, :attr:`src.evaluation.compare.Configuration.demand`.
         cfg: Composed config; reads ``cfg.kpi``.
         quantile: Demand quantile, taken over occupied tiles only, above which
             a tile counts as busy. Over all tiles the empty ones would drag it

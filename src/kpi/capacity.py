@@ -302,17 +302,6 @@ def _candidate_orders(
     return order, np.take_along_axis(heard, order, axis=-1)
 
 
-def _candidate_order(
-    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
-) -> np.ndarray:
-    """:func:`_candidate_orders` at one ``[n_band, n_tx]`` location, candidates only.
-
-    The first entry is the rule's choice before capacity.
-    """
-    order, heard = _candidate_orders(rsrp[None], band_rank, threshold_dbm, min_rsrp_dbm)
-    return order[0][heard[0]]
-
-
 def _select_serving(
     rsrp: np.ndarray, sinr: np.ndarray, t_s: np.ndarray, spec: CapacitySpec
 ) -> _Serving:
@@ -320,9 +309,9 @@ def _select_serving(
 
     UEs are taken in ``t_s`` order, simultaneous ones strongest RSRP first over
     every layer at the UE, and the order given breaks what remains; each walks
-    its :func:`_candidate_order` and takes the first cell-band where its PRBs fit
-    under ``max_admission_utilisation`` of ``max_prb``, counting the load already
-    there. A cell-band therefore never passes that share.
+    its :func:`_candidate_orders` row and takes the first cell-band where its
+    PRBs fit under ``max_admission_utilisation`` of ``max_prb``, counting the
+    load already there. A cell-band therefore never passes that share.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
@@ -516,29 +505,3 @@ def utilisation(prb: np.ndarray, limit_prb: np.ndarray) -> np.ndarray:
     """
     limit = np.asarray(limit_prb, dtype=float)[None]
     return np.divide(prb, limit, out=np.full(np.shape(prb), np.nan), where=limit > 0)
-
-
-def demand_prb(
-    rsrp: np.ndarray,
-    sinr: np.ndarray,
-    band_labels: Sequence[str],
-    ue: pd.DataFrame,
-    cfg: DictConfig,
-) -> np.ndarray:
-    """PRBs required per tile in its busiest interval, ``[n_rows, n_cols]``.
-
-    A blocked UE still counts at its first choice: this is demand, not what
-    was served.
-
-    Raises:
-        ValueError: As :func:`serve_intervals`.
-    """
-    served = serve_intervals(rsrp, sinr, band_labels, ue, cfg)
-    _, prb = prb_by_interval(
-        served["t_index"].to_numpy(),
-        served["tile_row"].to_numpy(),
-        served["tile_col"].to_numpy(),
-        served["prb_per_ue"].to_numpy(),
-        rsrp.shape[-2:],
-    )
-    return prb.max(axis=0)

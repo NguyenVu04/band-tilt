@@ -21,9 +21,6 @@ KPI = {
     "rsrp_p05_dbm": -108.0,
     "sinr_p50_db": 8.0,
     "sinr_p05_db": -3.0,
-    "se_p50_bps_hz": 3.0,
-    "se_mean_bps_hz": 3.2,
-    "se_p05_bps_hz": 0.6,
     "ue_service_failure_rate": 0.009,
     "objective": 0.40,
 }

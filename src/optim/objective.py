@@ -41,8 +41,6 @@ from src.kpi.quality import (
     MEDIAN_PERCENTILE,
     rsrp_percentile_dbm,
     sinr_percentile_db,
-    spectral_efficiency_mean,
-    spectral_efficiency_percentile,
 )
 from src.kpi.served import ue_service_failure_rate
 from src.kpi.weak import weak_rate
@@ -58,9 +56,6 @@ KPI_NAMES = (
     "rsrp_p05_dbm",
     "sinr_p50_db",
     "sinr_p05_db",
-    "se_p50_bps_hz",
-    "se_mean_bps_hz",
-    "se_p05_bps_hz",
     "ue_service_failure_rate",
 )
 
@@ -75,9 +70,6 @@ MAXIMISED = frozenset(
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
-        "se_p50_bps_hz",
-        "se_mean_bps_hz",
-        "se_p05_bps_hz",
         "objective",
     }
 )
@@ -100,9 +92,6 @@ class KpiVector:
         rsrp_p05_dbm: Cell-edge (5th percentile) best-server RSRP.
         sinr_p50_db: Median best-server SINR.
         sinr_p05_db: Cell-edge best-server SINR.
-        se_p50_bps_hz: Median best-server spectral efficiency ``log2(1 + SINR)``.
-        se_mean_bps_hz: Mean of the same.
-        se_p05_bps_hz: Cell-edge value of the same.
         ue_service_failure_rate: Share of UE reports not admitted to any cell-band.
         objective: See :func:`objective`. In ``[0, 1]``.
     """
@@ -115,9 +104,6 @@ class KpiVector:
     rsrp_p05_dbm: float
     sinr_p50_db: float
     sinr_p05_db: float
-    se_p50_bps_hz: float
-    se_mean_bps_hz: float
-    se_p05_bps_hz: float
     ue_service_failure_rate: float
     objective: float
 
@@ -207,9 +193,6 @@ def evaluate_kpis(
         rsrp_p05_dbm=rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
         sinr_p50_db=sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
         sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-        se_p50_bps_hz=spectral_efficiency_percentile(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-        se_mean_bps_hz=spectral_efficiency_mean(rsrp, sinr, cfg),
-        se_p05_bps_hz=spectral_efficiency_percentile(rsrp, sinr, cfg, LOW_PERCENTILE),
         ue_service_failure_rate=ue_service_failure_rate(served),
         objective=objective(rsrp, cfg),
     )

@@ -5,6 +5,9 @@
 - **Rewritten:** 2026-09-28 — the reported KPI set is replaced (section 3),
   `objective_version` is removed, and the former four-KPI record is deleted;
   see [the README](README.md).
+- **Revised:** 2026-09-29 — *Measured outcome* re-measured on the 2026-09-29
+  runs under the nine KPIs of section 3 and 10 Mbps per UE. The comparison
+  with the best-band maximum is kept as recorded.
 - **Renumbered:** 2026-09-28 (formerly 0003).
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** every earlier objective and KPI record. Their surviving
@@ -28,7 +31,7 @@ are what shaped this record.
   unpriced.** A crowded layer cost nothing wherever another layer at the same
   tile was clean. Over random search's 145 Sobol candidates, `J` then correlated
   only 0.251 with the band-collapsed overlap rate and 0.235 with overlap
-  neighbours, the two weakest of the ten KPIs.
+  neighbours, the two weakest of the ten KPIs then reported.
 
 ## Decision
 
@@ -79,7 +82,7 @@ cell-band.
 
 ### 3. The reported KPIs
 
-Twelve measures, stored beside `objective`, in this order. The best server is
+Nine measures, stored beside `objective`, in this order. The best server is
 the strongest layer over every band and cell, `R_max`; covered tiles are those
 with `R_max > kpi.hole_dbm`.
 
@@ -93,19 +96,12 @@ with `R_max > kpi.hole_dbm`.
 | `rsrp_p05_dbm` | 5th percentile of the same | **maximise** |
 | `sinr_p50_db` | median of the best server's SINR over covered tiles | **maximise** |
 | `sinr_p05_db` | 5th percentile of the same | **maximise** |
-| `se_p50_bps_hz` | median of `log2(1 + SINR)` at the best server over covered tiles | **maximise** |
-| `se_mean_bps_hz` | mean of the same | **maximise** |
-| `se_p05_bps_hz` | 5th percentile of the same | **maximise** |
 | `ue_service_failure_rate` | share of UE reports the serving rule did not admit, `1 - served share` | minimise |
 
 - **They stay tile-uniform and band-collapsed, on purpose**, except the failure
   rate, which counts every UE position. A rate that says how much of the *map*
   is bad answers a different question from an objective, and both are worth
   printing.
-- **Spectral efficiency** is the same Shannon rate per hertz the capacity model
-  charges a UE with (section 4). Its median and 5th percentile are the SINR
-  percentiles mapped through `log2(1 + x)`; the mean adds the weight of the
-  high-SINR tiles.
 - **Per band.** Every KPI is also reported per frequency layer
   (`src.evaluation.compare.band_kpis`), by giving the same function one band's
   slice of the radio map. There is no second definition. The failure rate is
@@ -113,6 +109,9 @@ with `R_max > kpi.hole_dbm`.
 - **Load is not a KPI.** The former `load_imbalance` and `prb_utilisation_max`
   are removed. PRB load stays in the evaluation as a share of the admission
   ceiling, per cell-band and interval.
+- **Spectral efficiency is not a KPI.** The former `se_p50_bps_hz`,
+  `se_mean_bps_hz` and `se_p05_bps_hz` are removed. The Shannon rate
+  `log2(1 + SINR)` stays inside the capacity model (section 4).
 
 ### 4. The capacity model is a Shannon bound, not NR link adaptation
 
@@ -186,9 +185,13 @@ refuses.
 
 ## Measured outcome
 
-The figures in this section were measured under the former ten-KPI set
-(`served_rate`, `load_imbalance`, no spectral efficiency) and 20 Mbps per UE.
-They are kept as the record of the objective decision, not re-measured.
+### Against the best-band maximum, as recorded
+
+This comparison was measured under the former ten-KPI set (`served_rate`,
+`load_imbalance`, no spectral efficiency) and 20 Mbps per UE. It is the record
+of the objective decision and is not re-measured: the maximum column would need
+every random-search candidate re-traced and a TuRBO run under the old objective.
+The contraharmonic mean on the current KPI set is in the next subsection.
 
 Measured at seed 42 against the best-band maximum this record replaces, on the
 same scenario, the same solver settings and the same budgets. Random search
@@ -214,8 +217,9 @@ The best-band maximum column was not rerun.
 | TuRBO − rule sweep on `J` | +0.0136 | +0.0091 |
 | Rule sweep vs TuRBO, head to head on the 10 KPIs | 8–2 | 6–4 |
 
-¹ The rank score is the mean over the ten KPIs of each candidate's percentile
-rank, oriented so that higher is better.
+¹ The rank score is the mean over the KPIs of the set measured (ten here, nine
+in the next subsection) of each candidate's percentile rank, oriented so that
+higher is better.
 
 ² Per tile, with no tilt re-traced. No configuration can collect the ceiling,
 because darkening a band on one tile changes it on many, including tiles where
@@ -238,13 +242,49 @@ served-rate and SINR comparisons are under the earlier noise. With per-RE noise,
 SINR, 0.412 against median SINR, 0.356 against the served rate and −0.038
 against load imbalance.
 
-**On the search, overlap is the measure that moved.** TuRBO lowers the
-band-collapsed overlap rate by 2.3 %, where under the maximum it raised it by
-12.1 %. It improves all three bands: 2600 MHz 0.2010 → 0.1913, 1800 MHz
-0.2067 → 0.1940 and 700 MHz 0.2396 → 0.2237. It improves 8 of the 10 KPIs,
-against 7 under the maximum, and worsens overlap neighbours per covered tile
-(+3.8 %) and load imbalance (+2.9 %). Random search and the rule sweep still
-raise the band-collapsed rate.
+**On the search, overlap is the measure that moved.** In that run TuRBO lowered
+the band-collapsed overlap rate by 2.3 %, where under the maximum it raised it
+by 12.1 %. It improved 8 of the 10 KPIs, against 7 under the maximum.
+
+**What was lost.** Under the maximum, TuRBO's distinctive move was to hand
+traffic from 2600 MHz to 1800 MHz: 16.4 % of UE reports were served on
+1800 MHz, against 10.5 % at the incumbent, both under the earlier noise and
+20 Mbps per UE.
+
+### The contraharmonic mean on the current KPI set
+
+Re-measured on the 2026-09-29 runs: seed 42, the nine KPIs of section 3,
+10 Mbps per UE and per-RE noise. That TuRBO run uses
+`trust_region.perturbed_dimensions` = 5 (the recorded comparison used 20), so
+its winner differs from the one above. The correlations are over random search's
+145 candidates and signed so that a positive value means `J` and the KPI
+improve together. The pipeline does not produce the figures in this subsection;
+they were computed once from the archived histories and radio maps.
+
+| | contraharmonic mean |
+|---|---:|
+| Spearman(`J`, equal-weight rank score over the 9 KPIs)¹ | 0.905 |
+| rho vs band-collapsed overlap rate / overlap neighbours per covered tile | 0.427 / 0.297 |
+| rho vs hole rate / weak rate | 0.770 / 0.787 |
+| rho vs RSRP p50 / RSRP p05 | 0.773 / 0.872 |
+| rho vs SINR p50 / SINR p05 | 0.412 / 0.122 |
+| rho vs UE service failure rate | 0.481 |
+| Tiles where dropping one covered band raises the score, TuRBO winner² | 0.4957 |
+| Ceiling on that gain, `mean_g (max_b u_bg - J(g))`, TuRBO winner² | 0.0543 |
+| TuRBO band-collapsed overlap rate (incumbent 0.3164) | 0.3102 |
+| TuRBO − rule sweep on `J` | +0.0098 |
+| Rule sweep vs TuRBO, head to head on the 9 KPIs | 5–4 |
+
+The correlations with the eight KPIs the two sets share match the per-RE values
+recorded above, because `J` and those KPIs read the radio map alone. The ceiling on the
+non-monotonicity gain, 0.054, again exceeds the winner's whole improvement of
+0.041.
+
+**Overlap still moves.** TuRBO lowers the band-collapsed overlap rate by 2.0 %
+and improves all three bands: 2600 MHz 0.2010 → 0.1915, 1800 MHz
+0.2067 → 0.1894 and 700 MHz 0.2396 → 0.2219. It improves 8 of the 9 KPIs and
+worsens overlap neighbours per covered tile (+2.2 %). Random search and the
+rule sweep still raise the band-collapsed rate.
 
 **TuRBO's margin comes from contention.** Each winner's gain over the incumbent
 splits as follows. The first two columns are the tiles that changed coverage.
@@ -256,20 +296,18 @@ remainder.
 |---|---:|---:|---:|---:|---:|
 | random | +0.0260 | +0.0004 | −0.0001 | +0.0284 | −0.0027 |
 | rule | +0.0312 | +0.0007 | −0.0000 | +0.0459 | −0.0155 |
-| turbo | +0.0402 | +0.0005 | −0.0001 | +0.0394 | +0.0004 |
+| turbo | +0.0410 | +0.0005 | −0.0001 | +0.0392 | +0.0014 |
 
 The sweep's uniform uptilts buy the most strength and pay for it in crowding,
-now that crowding on every layer counts. TuRBO buys less strength and does not
-pay. Hole-closing stays negligible, because a newly covered tile is worth about
-0.09: 588 tiles under TuRBO, 818 under the sweep.
+now that crowding on every layer counts. TuRBO buys less strength and gains on
+contention. Hole-closing stays negligible, because a newly covered tile is worth
+about 0.09: 591 tiles under TuRBO, 818 under the sweep.
 
-**What was lost.** Under the maximum, TuRBO's distinctive move was to hand
-traffic from 2600 MHz to 1800 MHz: 16.4 % of UE reports were served on
-1800 MHz, against 10.5 % at the incumbent, both under the earlier noise. Under
-this objective, with per-RE noise, every method concentrates traffic on
-2600 MHz (62.8–63.2 %, from 60.3 %), and 1800 MHz falls to 4.8–5.4 % (from
-6.8 %). TuRBO's recommended configuration uptilts every 2600 MHz carrier.
-Its five downtilts are three 700 MHz carriers and two 1800 MHz carriers.
+**Traffic concentrates on 2600 MHz.** Every method raises its share of UE
+reports from 64.9 % to 67.2–67.8 %, and 1800 MHz falls from 5.2 % to 3.5–3.9 %.
+TuRBO's recommended configuration uptilts every 2600 MHz carrier. Its six
+downtilts are three 700 MHz carriers and three 1800 MHz carriers, on four
+sectors.
 
 ## Alternatives considered
 
