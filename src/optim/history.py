@@ -8,7 +8,9 @@ only builds frames; :class:`LocalRunWriter` puts them on disk.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,39 @@ from omegaconf import DictConfig, OmegaConf
 from src.optim.evaluator import EvaluationResult
 from src.optim.objective import MEASURE_NAMES, KpiVector, best_by_objective
 from src.optim.space import TiltSpace
+
+# The packages whose version can change a measured number or a proposal.
+_PROVENANCE_PACKAGES = ("numpy", "scipy", "torch", "botorch", "gpytorch", "sionna-rt")
+
+
+def provenance() -> dict[str, Any]:
+    """The code and package versions a run was produced with, for ``run.json``.
+
+    Side effect: runs ``git`` in the working directory. ``git_commit`` is None
+    outside a repository or without git; a package that is not installed maps
+    to None.
+    """
+
+    def git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(["git", *args], capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return done.stdout.strip()
+
+    def installed(name: str) -> str | None:
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            return None
+
+    commit = git("rev-parse", "HEAD")
+    status = git("status", "--porcelain") if commit else None
+    return {
+        "git_commit": commit,
+        "git_dirty": None if status is None else bool(status),
+        "packages": {name: installed(name) for name in _PROVENANCE_PACKAGES},
+    }
 
 
 @dataclass(frozen=True)
@@ -194,9 +229,10 @@ def write_run(
 ) -> dict[str, str]:
     """Write every artifact of one run. Returns the locators, keyed by name.
 
-    The run document carries the whole composed config and the scenario it was
-    solved against, so a result can be traced back to the inputs that produced
-    it without consulting anything outside its own directory.
+    The run document carries the whole composed config, the scenario it was
+    solved against and :func:`provenance`, so a result can be traced back to
+    the inputs that produced it without consulting anything outside its own
+    directory.
 
     Args:
         history: The evaluation log.
@@ -228,6 +264,7 @@ def write_run(
             "incumbent_kpi": incumbent.as_dict(),
             "ray_tracing_seconds": float(frame["seconds"].sum()),
             "config": OmegaConf.to_container(cfg, resolve=True),
+            "provenance": provenance(),
             **(extra or {}),
         },
     )

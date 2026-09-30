@@ -226,12 +226,13 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-205 passed
+196 passed
 ```
 
 `tests/` covers `src/simulation/`'s density, region, traffic and node-layout
-logic, the KPIs, and `src/optim/` and `src/evaluation/` — the parts most worth pinning down
-by hand-computed fixtures. It does not yet cover `src/data/` or `src/core/`; see
+logic, the KPIs, `src/data/`'s schema contract and UE-table build, and `src/optim/` and
+`src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. It does not
+yet cover `src/core/`; see
 [Implementation status](#implementation-status).
 
 To confirm the active package tree is intact:
@@ -261,7 +262,9 @@ optimization run shares — the output directories and the seed — and the
 file per method with that method's own budget or sweep settings. Select one with
 `optim/method=rule`; note the slash, it is a config group and not a key.
 
-[`configs/config.yaml`](configs/config.yaml)'s `mlflow` block holds `enabled`,
+[`configs/config.yaml`](configs/config.yaml)'s `reports` block sets where the notebooks and
+`task evaluate` write tables and figures (`figures_dir`, `tables_dir`; one subdirectory per
+notebook). Its `mlflow` block holds `enabled`,
 `tracking_uri` and `experiment_name`. The tracking URI defaults to
 `sqlite:///mlflow.db`: MLflow 3.x refuses the old `./mlruns` file store unless
 `MLFLOW_ALLOW_FILE_STORE` is set. Artifacts still land in `./mlruns/`. Both are
@@ -348,8 +351,9 @@ fidelity, so every KPI a run writes is a measurement and the run it leaves is
 complete. It needs a GPU.
 
 The default TuRBO and random-search budget is the incumbent plus 16 + 128
-evaluations, 145 in all. A run records its ray-tracing and wall-clock seconds in
-`run.json`; `task evaluate` tabulates them in
+evaluations, 145 in all. A run records its ray-tracing and wall-clock seconds in `run.json`, beside the
+Git commit and the numpy, scipy, torch, botorch, gpytorch and sionna-rt versions
+(`provenance`); `task evaluate` tabulates the seconds in
 `reports/tables/04_evaluation/method_cost.csv`.
 
 The search counts every UE in `data/processed/ue.parquet`.
@@ -386,7 +390,7 @@ band-tilt/
 ├── mlruns/        gitignored; MLflow artifacts (runs are in mlflow.db)
 ├── reports/       report.md, plus gitignored tables, figures and the republished tilt deliverable
 ├── src/           importable project logic
-├── tests/         unit tests for simulation, the KPIs, optim, evaluation and tracking
+├── tests/         unit tests for simulation, data, the KPIs, optim, evaluation and tracking
 └── Taskfile.yml   every command
 ```
 
@@ -435,14 +439,13 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region, traffic and node-layout logic; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region, traffic and node-layout logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py` and
-`transmitter.py` (node positions), `src/kpi/`, `src/optim/`, `src/evaluation/` and
-`src/tracking.py`. `src/data/`,
-`src/core/` and `src/evaluation/run.py` have no tests yet.
+`transmitter.py` (node positions), `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
+and `src/tracking.py`. `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in

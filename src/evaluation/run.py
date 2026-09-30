@@ -28,8 +28,13 @@ from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
 from src.utils.seed import set_seed
 
-FIGURES_DIR = Path("reports/figures/04_evaluation")
-TABLES_DIR = Path("reports/tables/04_evaluation")
+# Subdirectory of cfg.reports.figures_dir and cfg.reports.tables_dir.
+_STAGE = "04_evaluation"
+
+
+def output_dirs(cfg: DictConfig) -> tuple[Path, Path]:
+    """Where :func:`evaluate` writes, ``(figures, tables)``, from ``cfg.reports``."""
+    return Path(cfg.reports.figures_dir) / _STAGE, Path(cfg.reports.tables_dir) / _STAGE
 
 
 def load_runs(
@@ -55,7 +60,7 @@ def load_runs(
 
 
 def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFrame | Figure]:
-    """Build the evaluation tables and figures and write them under ``reports/``.
+    """Build the evaluation tables and figures and write them to :func:`output_dirs`.
 
     Tables are returned and written with display names (:func:`readable`).
     Figures are closed after saving; displaying a closed figure still renders it.
@@ -67,6 +72,14 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
         FileNotFoundError: When ``optim.output.dir`` holds no finished run.
         RunError: When a run is unfinished or the runs are not comparable.
     """
+    return _evaluate(cfg, in_colab=in_colab)[0]
+
+
+def _evaluate(
+    cfg: DictConfig, *, in_colab: bool
+) -> tuple[dict[str, pd.DataFrame | Figure], pd.DataFrame]:
+    """:func:`evaluate`, also returning :func:`compare.seed_summary` before relabelling."""
+    figures_dir, tables_dir = output_dirs(cfg)
     set_seed(cfg.seed)
     setup_plotting()
     results: dict[str, pd.DataFrame | Figure] = {}
@@ -74,9 +87,9 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     def add(name: str, item: pd.DataFrame | Figure) -> None:
         if isinstance(item, pd.DataFrame):
             item = readable(item)
-            save_table(item, name, in_colab=in_colab, directory=TABLES_DIR)
+            save_table(item, name, in_colab=in_colab, directory=tables_dir)
         else:
-            save_fig(item, name, in_colab=in_colab, directory=FIGURES_DIR)
+            save_fig(item, name, in_colab=in_colab, directory=figures_dir)
             plt.close(item)
         results[name] = item
 
@@ -234,15 +247,14 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("convergence", trace)
     add("sample_efficiency", compare.sample_efficiency(trace))
     add("search_progress", plots.convergence_plot(trace))
-    return results
+    return results, summary
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Compare the runs. Entry point for ``task evaluate``."""
     matplotlib.use("Agg")
-    evaluate(cfg)
-    summary = compare.seed_summary(load_runs(cfg)[0])
+    _, summary = _evaluate(cfg, in_colab=False)
     log_stage(
         cfg,
         "evaluation",
@@ -252,7 +264,7 @@ def main(cfg: DictConfig) -> None:
             for row in summary.itertuples()
             if row.kpi in MEASURE_NAMES
         },
-        artifacts=[FIGURES_DIR, TABLES_DIR],
+        artifacts=list(output_dirs(cfg)),
     )
 
 

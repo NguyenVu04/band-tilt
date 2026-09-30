@@ -19,7 +19,7 @@ Dependency direction:
     simulation  ->  core, kpi
     data        ->  simulation
     optim       ->  core, kpi, simulation
-    evaluation  ->  kpi, optim, utils
+    evaluation  ->  core, kpi, optim, utils
 
 There is no cycle. Add none.
 

@@ -31,6 +31,20 @@ _MIN_CANDIDATES = 2000
 _MAX_CANDIDATES = 5000
 _CANDIDATES_PER_DIMENSION = 200
 
+# Purposes a derived seed is drawn for; see _derived_seed.
+_RESTART = 1
+_PROPOSAL = 2
+
+
+def _derived_seed(seed: int, purpose: int, index: int) -> int:
+    """A uint32 seed for the ``index``-th draw of ``purpose`` in a run seeded ``seed``.
+
+    Mixed by ``numpy.random.SeedSequence`` rather than offset from ``seed``: an
+    offset aliases across a seed sweep, so seed 42's first restart would redraw
+    seed 43's initial design.
+    """
+    return int(np.random.SeedSequence([seed, purpose, index]).generate_state(1)[0])
+
 
 @dataclass
 class TrustRegion:
@@ -177,7 +191,11 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             region.restart()
             unit_x.clear()
             score_y.clear()
-            design = sobol(space.n_dim, min(max(n_init, 2), remaining), seed + restarts)
+            design = sobol(
+                space.n_dim,
+                min(max(n_init, 2), remaining),
+                _derived_seed(seed, _RESTART, restarts),
+            )
             evaluate(design, INIT, SOBOL)
             region.best = max(score_y)
             continue
@@ -186,7 +204,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             np.array(score_y),
             region,
             min(batch_size, remaining),
-            seed + len(history),
+            _derived_seed(seed, _PROPOSAL, len(history)),
         )
         region.update(max(evaluate(batch, SEARCH, TURBO)))
     return history

@@ -9,6 +9,11 @@ defaults:
 # Global seed.
 seed: 42
 
+# Notebook and `task evaluate` tables and figures, one subdirectory per notebook.
+reports:
+  figures_dir: reports/figures
+  tables_dir: reports/tables
+
 # MLflow tracking; MLFLOW_TRACKING_URI in .env overrides the URI.
 mlflow:
   enabled: false

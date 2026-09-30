@@ -252,6 +252,17 @@ def test_random_search_opens_with_turbos_initial_design(make_cfg) -> None:
     assert np.allclose(turbo_eval.seen[: 1 + n_init], random_eval.seen[: 1 + n_init])
 
 
+def test_turbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
+    """Seed 42's first restart must not redraw seed 43's initial design, as ``42 + 1`` did."""
+    from src.optim.methods.turbo.search import _PROPOSAL, _RESTART, _derived_seed
+
+    assert _derived_seed(42, _RESTART, 1) == _derived_seed(42, _RESTART, 1)
+    assert _derived_seed(42, _RESTART, 1) != 43
+    assert _derived_seed(42, _PROPOSAL, 20) != _derived_seed(43, _PROPOSAL, 19)
+    assert _derived_seed(42, _RESTART, 1) != _derived_seed(42, _PROPOSAL, 1)
+    assert 0 <= _derived_seed(2**40, _PROPOSAL, 3) < 2**32
+
+
 def test_the_rule_sweep_moves_a_whole_band_together(make_cfg, evaluator) -> None:
     """The operator heuristic: every cell on a band points alike."""
     run_search(evaluator, make_cfg("rule"))

@@ -124,7 +124,9 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
         ``R_max(g)``, shape ``[n_rows, n_cols]``, ``-inf`` where nothing is
         received.
     """
-    return finite(rsrp).max(axis=(0, 1))
+    # fmax skips NaN, so the no-path layers need no full-map -inf copy first.
+    best = np.fmax.reduce(np.reshape(rsrp, (-1, *np.shape(rsrp)[-2:])), axis=0)
+    return np.where(np.isnan(best), -np.inf, best)
 
 
 def covered(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:

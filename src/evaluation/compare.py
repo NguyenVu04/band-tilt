@@ -14,20 +14,7 @@ from src.core.cell import Cell
 from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, covered, finite, serve_intervals
-from src.kpi.hole import hole_rate
-from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
-from src.kpi.quality import (
-    LOW_PERCENTILE,
-    MEDIAN_PERCENTILE,
-    rsrp_percentile_dbm,
-    sinr_percentile_db,
-)
-from src.kpi.served import (
-    throughput_mean_mbps,
-    throughput_percentile_mbps,
-    ue_service_failure_rate,
-)
-from src.kpi.weak import weak_rate
+from src.kpi.overlap import overlap_neighbors
 from src.optim.objective import (
     KPI_NAMES,
     MAXIMISED,
@@ -35,6 +22,8 @@ from src.optim.objective import (
     KpiVector,
     best_by_objective,
     evaluate_kpis,
+    map_kpis,
+    ue_kpis,
 )
 from src.utils.plotting import label as display_name
 
@@ -104,11 +93,12 @@ def improvement_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
     """:func:`delta_table` plus ``improvement_pct``, the change relative to ``before``.
 
     ``improvement_pct`` is positive when the measure moved in its better
-    direction.
+    direction, and NaN where ``before`` is zero, as in :func:`relative_improvement`.
     """
     table = delta_table(before, after)
     sign = np.where(table["kpi"].isin(MAXIMISED), 1.0, -1.0)
-    table["improvement_pct"] = 100.0 * sign * table["delta"] / table["before"].abs()
+    base = table["before"].abs().replace(0.0, np.nan)
+    table["improvement_pct"] = 100.0 * sign * table["delta"] / base
     return table
 
 
@@ -364,10 +354,10 @@ def reproducibility(
 ) -> pd.DataFrame:
     """The KPIs recomputed from each archived map, against what the run recorded.
 
-    The map is the one the run scored, so the two readings are the same
-    measurement twice and ``abs_gap`` is float round-off. Anything a reader can
-    see at the printed precision means the archived map is not the map that was
-    scored.
+    A run's archived winner map is a second solve of the winning tilt at the
+    same solver seed (:func:`src.optim.run.run`), stored as float32, so
+    ``abs_gap`` is GPU ray-tracing non-determinism plus float32 rounding. A gap
+    far beyond that means the archive is not the configuration that was scored.
 
     Returns:
         One row per configuration and KPI: ``configuration``, ``kpi``,
@@ -376,7 +366,7 @@ def reproducibility(
     rows = []
     for name, kpi in recorded.items():
         maps = configurations[name]
-        again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, ue, cfg)
+        again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, ue, cfg, served=maps.served)
         for kpi_name in MEASURE_NAMES:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
@@ -786,17 +776,6 @@ def _band_view(config: Configuration, band: int | None) -> tuple[np.ndarray, np.
     return config.rsrp[layer], config.sinr[layer]
 
 
-def _ue_kpis(served: pd.DataFrame, *, network: bool) -> dict[str, float]:
-    """The UE KPIs of :func:`band_kpis`, NaN on a band row."""
-    values = {
-        "ue_service_failure_rate": ue_service_failure_rate(served),
-        "estimated_throughput_p05_mbps": throughput_percentile_mbps(served, LOW_PERCENTILE),
-        "estimated_throughput_p50_mbps": throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
-        "estimated_throughput_mean_mbps": throughput_mean_mbps(served),
-    }
-    return values if network else dict.fromkeys(values, np.nan)
-
-
 def band_kpis(
     configurations: Mapping[str, Configuration],
     band_labels: Sequence[str],
@@ -821,22 +800,15 @@ def band_kpis(
     """
     rows = []
     for name, config in configurations.items():
+        network = ue_kpis(config.served)
         views = [(ALL_BANDS, None), *((band, index) for index, band in enumerate(band_labels))]
         for band, index in views:
-            rsrp, sinr = _band_view(config, index)
             rows.append(
                 {
                     "configuration": name,
                     "band": band,
-                    "hole_rate": hole_rate(rsrp, cfg),
-                    "weak_rate": weak_rate(rsrp, cfg),
-                    "overlap_rate": overlap_rate(rsrp, cfg),
-                    "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
-                    "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-                    "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
-                    "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-                    "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-                    **_ue_kpis(config.served, network=index is None),
+                    **map_kpis(*_band_view(config, index), cfg),
+                    **(network if index is None else dict.fromkeys(network, np.nan)),
                 }
             )
     return pd.DataFrame(rows)

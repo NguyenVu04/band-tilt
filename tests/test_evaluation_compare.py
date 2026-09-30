@@ -423,3 +423,11 @@ def test_coverage_by_area_and_demand_weighs_every_map_by_the_incumbents_demand(
     ]
     assert table.loc["hole", "Current configuration: Share of demand"] == 1.0
     assert table.loc["good", "TuRBO: Share of demand"] == 1.0
+
+
+def test_improvement_table_is_nan_where_the_incumbent_is_zero(incumbent: KpiVector) -> None:
+    """A hole rate going from 0 to anything has no relative change to report."""
+    before = dataclasses.replace(incumbent, hole_rate=0.0)
+    after = dataclasses.replace(incumbent, hole_rate=0.1)
+    table = compare.improvement_table(before, after).set_index("kpi")
+    assert np.isnan(table.loc["hole_rate", "improvement_pct"])

@@ -215,6 +215,14 @@ def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
     assert "source" not in loaded.history
 
 
+def test_run_json_records_the_code_and_packages_it_ran_with(cfg, stub) -> None:
+    """A result is traceable to a commit and the library versions behind it."""
+    _history, directory = run(cfg)
+    provenance = run_store.load(directory).meta["provenance"]
+    assert set(provenance) == {"git_commit", "git_dirty", "packages"}
+    assert provenance["packages"]["numpy"] == np.__version__
+
+
 def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
     """No row is a prediction, so the stub must have solved every one it offers."""
     _history, directory = run(cfg)

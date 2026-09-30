@@ -171,6 +171,44 @@ def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
     return round(float(effective_coverage(rsrp, cfg).mean()), 6)
 
 
+def map_kpis(rsrp: np.ndarray, sinr: np.ndarray, cfg: DictConfig) -> dict[str, float]:
+    """The KPIs read off the radio map alone, keyed as :data:`KPI_NAMES` names them.
+
+    Args:
+        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``; a band slice
+            gives that band's reading.
+        sinr: The solver's SINR in dB, same shape as ``rsrp``.
+        cfg: Composed config; the measures read ``cfg.kpi``.
+    """
+    return {
+        "hole_rate": hole_rate(rsrp, cfg),
+        "weak_rate": weak_rate(rsrp, cfg),
+        "overlap_rate": overlap_rate(rsrp, cfg),
+        "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
+        "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
+        "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
+        "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
+        "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+    }
+
+
+def ue_kpis(served: pd.DataFrame) -> dict[str, float]:
+    """The KPIs counted over UE reports, keyed as :data:`KPI_NAMES` names them.
+
+    Args:
+        served: :func:`src.kpi.capacity.serve_intervals` output.
+
+    Raises:
+        ValueError: As :func:`src.kpi.served.ue_service_failure_rate`.
+    """
+    return {
+        "ue_service_failure_rate": ue_service_failure_rate(served),
+        "estimated_throughput_p05_mbps": throughput_percentile_mbps(served, LOW_PERCENTILE),
+        "estimated_throughput_p50_mbps": throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
+        "estimated_throughput_mean_mbps": throughput_mean_mbps(served),
+    }
+
+
 def evaluate_kpis(
     rsrp: np.ndarray,
     sinr: np.ndarray,
@@ -178,10 +216,12 @@ def evaluate_kpis(
     ue: pd.DataFrame,
     cfg: DictConfig,
     spec: CapacitySpec | None = None,
+    served: pd.DataFrame | None = None,
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
-    The UE table is served once, here, for the UE KPIs.
+    The UE table is served here for the UE KPIs, unless ``served`` already
+    holds that assignment for this map.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
@@ -192,6 +232,8 @@ def evaluate_kpis(
             place the UEs the UE KPIs count.
         cfg: Composed config; the measures read ``cfg.kpi``.
         spec: The capacity model already read from ``cfg``; built here when None.
+        served: :func:`src.kpi.capacity.serve_intervals` of this map and ``ue``;
+            computed here when None.
 
     Raises:
         ValueError: When ``band_labels`` does not match axis 0 of ``rsrp``, or
@@ -201,25 +243,11 @@ def evaluate_kpis(
         raise ValueError(
             f"{len(band_labels)} band labels for a radio map with {rsrp.shape[0]} bands."
         )
-    if spec is None:
-        spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
-    served = serve_intervals(rsrp, sinr, band_labels, ue, cfg, spec=spec)
-
-    return KpiVector(
-        hole_rate=hole_rate(rsrp, cfg),
-        weak_rate=weak_rate(rsrp, cfg),
-        overlap_rate=overlap_rate(rsrp, cfg),
-        overlap_neighbor_mean=overlap_neighbor_mean(rsrp, cfg),
-        rsrp_p50_dbm=rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-        rsrp_p05_dbm=rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
-        sinr_p50_db=sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-        sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-        ue_service_failure_rate=ue_service_failure_rate(served),
-        estimated_throughput_p05_mbps=throughput_percentile_mbps(served, LOW_PERCENTILE),
-        estimated_throughput_p50_mbps=throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
-        estimated_throughput_mean_mbps=throughput_mean_mbps(served),
-        objective=objective(rsrp, cfg),
-    )
+    if served is None:
+        if spec is None:
+            spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])
+        served = serve_intervals(rsrp, sinr, band_labels, ue, cfg, spec=spec)
+    return KpiVector(**map_kpis(rsrp, sinr, cfg), **ue_kpis(served), objective=objective(rsrp, cfg))
 
 
 def best_by_objective(kpis: Sequence[KpiVector]) -> int:

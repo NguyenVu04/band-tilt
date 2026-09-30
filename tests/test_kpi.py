@@ -17,7 +17,7 @@ from src.kpi import (
     ue_service_failure_rate,
     weak_rate,
 )
-from src.kpi.capacity import _tile_index, serve_intervals
+from src.kpi.capacity import _tile_index, finite, max_rsrp, serve_intervals
 from src.kpi.overlap import effective_coverage, overlap_neighbors
 
 
@@ -327,3 +327,13 @@ def test_failure_rate_rejects_an_empty_ue_table(cfg) -> None:
     """No UE, no denominator."""
     with pytest.raises(ValueError, match="no UE"):
         ue_service_failure_rate(pd.DataFrame(columns=["band"]))
+
+
+def test_max_rsrp_skips_no_path_layers_and_marks_unreached_tiles_minus_infinity() -> None:
+    """It must equal the strongest finite layer, as ``finite(rsrp).max`` defines it."""
+    rsrp = np.random.default_rng(0).uniform(-150.0, -60.0, size=(3, 4, 5, 6))
+    rsrp[rsrp < -110.0] = np.nan
+    rsrp[:, :, 0, 0] = np.nan
+    best = max_rsrp(rsrp)
+    assert best[0, 0] == -np.inf
+    np.testing.assert_array_equal(best, finite(rsrp).max(axis=(0, 1)))

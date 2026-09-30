@@ -153,6 +153,7 @@ TuRBO-1 [2] keeps one trust region centred on the best point found since the las
 - **Region size.** The region starts at side 0.8. A round improves when it beats the best by 10⁻³ of its magnitude (`improvement`). The region doubles (up to 1.6) after three consecutive improving rounds and halves after ⌈max(4, 36) / 3⌉ = 12 failed rounds.
 - **Restart.** It restarts with a fresh Sobol design when the side falls below 0.5⁷.
 - **Budget.** 16 Sobol initial points plus 128 trust-region evaluations.
+- **Seeds.** The initial design is the Sobol sequence seeded with `optim.seed`, the same one random search draws from. Each restart design, and each round's GP fit, candidate pool and perturbation mask, is seeded from `numpy.random.SeedSequence([optim.seed, purpose, index])`, keyed by the restart count or the history length. A derived seed, unlike an offset from `optim.seed`, cannot repeat another search seed's draws, so the runs of a seed sweep stay independent replicates.
 
 The implementation uses BoTorch/GPyTorch [3] and follows the BoTorch TuRBO-1 tutorial. The GP only chooses where to look; every reported number is ray-traced. Implementation: `src/optim/methods/turbo/search.py`; configuration: `configs/optim/method/turbo.yaml`; decision records: ADR 0001 and ADR 0002.
 
@@ -253,7 +254,7 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
 **Evaluation.** `notebooks/04_evaluation.ipynb` calls `src/evaluation/run.py::evaluate`, which reads the finished runs without re-solving anything. It:
 
 1. Checks that all runs share the baseline's scenario, grid, solver settings, bands, band carrier frequencies and KPI definition (23 checks).
-2. Recomputes each archived winner's KPIs from its saved radio map, to confirm they were recorded correctly.
+2. Recomputes each archived winner's KPIs from its saved radio map, to confirm they were recorded correctly. The archived map is a second solve of the winning tilts at the same solver seed, stored as float32, so the check also bounds the GPU ray tracer's run-to-run noise.
 3. Builds the scoreboard against the current configuration.
 4. Compares each winner with the candidates its own search evaluated.
 5. Maps coverage, overlap, the serving-band mix, cell utilisation and tilt movement.
@@ -577,7 +578,7 @@ The runs used the committed configuration in `configs/`:
 | Objective | co-band power share × strength per band, contraharmonic mean over bands; no parameters; reads `hole_dbm` and `weak_dbm`; rounded to 10⁻⁶ (ADR 0002) |
 | Capacity | max-throughput cell selection over an equal share of 0.8 × `max_prb`, candidates above −120 dBm, SCS 15 kHz, connection in report-time order |
 | Noise | k·T·SCS per resource element at 298.15 K (`simulation.radio_map.bands[].scs_hz`), no receiver noise figure |
-| Search | seed 42; random and TuRBO 16 + 128; TuRBO batch 3, trust region 0.8 / 0.5⁷ / 1.6, success tolerance 3, failure tolerance 12, improvement 10⁻³, perturbed dimensions 5; rule 10 steps × 4 rounds; 4 solutions published |
+| Search | seed 42 (`optim.seed`); TuRBO's restart and proposal seeds derived from it by `numpy.random.SeedSequence`; random and TuRBO 16 + 128; TuRBO batch 3, trust region 0.8 / 0.5⁷ / 1.6, success tolerance 3, failure tolerance 12, improvement 10⁻³, perturbed dimensions 5; rule 10 steps × 4 rounds; 4 solutions published |
 
 Runs used in this report:
 
@@ -587,7 +588,24 @@ Runs used in this report:
 | Rule-based sweep | `outputs/optim/rule/2026-09-30_09-10-21/` |
 | TuRBO | `outputs/optim/turbo/2026-09-30_09-17-11/` |
 
-To reproduce, run notebooks `00` through `04` in order, or `task pipeline`; both call the same functions in `src/`. Notebooks 03a and 03b skip any method and seed that already has a run under `outputs/optim/`, so clear that directory first to re-search.
+To reproduce, run notebooks `00` through `04` in order, or `task pipeline`; both call the same functions in `src/`. Notebooks 03a and 03b skip any method and seed that already has a run under `optim.output.dir` (`outputs/optim/`), so clear that directory first to re-search.
+
+Each run's `run.json` records the resolved configuration, the scenario ID and a `provenance` block: the Git commit, whether the working tree was dirty, and the numpy, scipy, torch, botorch, gpytorch and sionna-rt versions.
+
+Every path a stage writes is configurable, so a trial run can be kept apart from the real one. The notebooks read extra Hydra overrides from `BAND_TILT_OVERRIDES`, and `reports.figures_dir` and `reports.tables_dir` (`configs/config.yaml`) set where their tables and figures go. The small-budget check of this pipeline used the settings below, with every output under `outputs/smoke/` and each notebook executed to a copy (`jupyter nbconvert --to notebook --execute notebooks/<nb>.ipynb --output-dir outputs/smoke/notebooks`, 00 through 04 in order):
+
+```text
+BAND_TILT_OVERRIDES="simulation.output.ue_file=outputs/smoke/data/external/ue_positions.csv
+  simulation.output.manifest_file=outputs/smoke/data/external/scenario.json
+  simulation.output.radio_map_file=outputs/smoke/data/interim/radio_map.npz
+  data.output.ue_file=outputs/smoke/data/processed/ue.parquet
+  optim.output.dir=outputs/smoke/optim optim.output.deliverable_dir=outputs/smoke/reports/outputs
+  reports.figures_dir=outputs/smoke/reports/figures reports.tables_dir=outputs/smoke/reports/tables
+  ++optim.method.budget.n_init=4 ++optim.method.budget.n_iter=8
+  ++optim.method.n_steps=3 ++optim.method.n_rounds=1"
+```
+
+The variable is one line, space-separated. The scene, ray-tracing fidelity and seeds keep their defaults.
 
 ### Appendix B. Index of generated tables and figures
 
