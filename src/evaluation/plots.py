@@ -18,12 +18,11 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap, LogNorm
 from matplotlib.figure import Figure
-from matplotlib.ticker import PercentFormatter
 from omegaconf import DictConfig
 
 from src.evaluation import compare, maps
 from src.kpi.capacity import max_rsrp
-from src.optim.objective import MEASURE_NAMES
+from src.optim.objective import KPI_NAMES
 from src.utils.plotting import label
 
 # One colour per configuration, identical in every figure so a reader learns
@@ -135,7 +134,7 @@ def demand_signal_maps(
         if np.isfinite(occupied).any()
         else None,
     )
-    figure.colorbar(image, ax=axes[0], label="PRBs required, busiest interval (log scale)")
+    figure.colorbar(image, ax=axes[0], label="UE reports (log scale)")
     _overlay(axes[0], cells, hotspots)
     _map_axes(axes[0], extent, "Traffic demand")
 
@@ -220,16 +219,23 @@ def map_row(
     return figure
 
 
-def utilisation_heatmaps(tables: dict[str, pd.DataFrame], max_admission: float) -> Figure:
-    """Peak PRB load per cell-band as a share of its admission ceiling, one panel per configuration.
+def cell_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
+    """One value per cell-band as a cell-by-band grid, one panel per configuration.
 
     Args:
         tables: Configuration key to :func:`src.evaluation.compare.cell_band_load` output.
-        max_admission: ``kpi.capacity.max_admission_utilisation``, for the label.
+        value: The column to draw; the colour scale is shared across panels.
     """
     first = next(iter(tables.values()))
     cell_order = list(dict.fromkeys(first["cell"]))
     band_order = list(dict.fromkeys(first["band"]))
+    grids = {
+        key: table.pivot(index="cell", columns="band", values=value)
+        .reindex(index=cell_order, columns=band_order)
+        .to_numpy(float)
+        for key, table in tables.items()
+    }
+    top = max((np.nanmax(g) for g in grids.values() if np.isfinite(g).any()), default=1.0)
     figure, axes = plt.subplots(
         1,
         len(tables),
@@ -238,23 +244,16 @@ def utilisation_heatmaps(tables: dict[str, pd.DataFrame], max_admission: float) 
         squeeze=False,
     )
     image = None
-    for index, (axis, (key, table)) in enumerate(zip(axes[0], tables.items(), strict=True)):
-        grid = table.pivot(index="cell", columns="band", values="peak_utilisation")
-        grid = grid.reindex(index=cell_order, columns=band_order).to_numpy()
-        image = axis.imshow(grid, vmin=0.0, vmax=1.0, cmap="YlOrRd", aspect="auto")
+    for index, (axis, (key, grid)) in enumerate(zip(axes[0], grids.items(), strict=True)):
+        image = axis.imshow(grid, vmin=0.0, vmax=top, cmap="YlGnBu", aspect="auto")
         axis.grid(False)
-        for (row, col), value in np.ndenumerate(grid):
-            axis.text(col, row, f"{value:.0%}", ha="center", va="center", fontsize=7)
+        for (row, col), cell_value in np.ndenumerate(grid):
+            axis.text(col, row, f"{cell_value:.3g}", ha="center", va="center", fontsize=7)
         axis.set_xticks(range(len(band_order)), [label(band) for band in band_order])
         axis.set_yticks(range(len(cell_order)), cell_order if index == 0 else [])
         axis.set_title(label(key))
-    figure.colorbar(
-        image,
-        ax=axes[0].tolist(),
-        label=f"Peak PRB load, % of max_prb x {max_admission:g}",
-        format=PercentFormatter(1.0),
-    )
-    figure.suptitle("Cell load per frequency band")
+    figure.colorbar(image, ax=axes[0].tolist(), label=label(value))
+    figure.suptitle(f"{label(value)} per cell and frequency band")
     return figure
 
 
@@ -290,7 +289,7 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 
 
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean relative improvement over the incumbent per measure, one panel each.
+    """Mean relative improvement over the incumbent per KPI, one panel each.
 
     Relative, in percent of the incumbent's value, so a rate and the cell-edge
     RSRP read on a comparable scale; see
@@ -306,13 +305,13 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
     positions = np.arange(len(methods))
 
     columns = 4
-    rows = -(-len(MEASURE_NAMES) // columns)
+    rows = -(-len(KPI_NAMES) // columns)
     figure, axes = plt.subplots(
         rows, columns, figsize=(3.5 * columns, 3.5 * rows), constrained_layout=True
     )
-    for axis in axes.ravel()[len(MEASURE_NAMES) :]:
+    for axis in axes.ravel()[len(KPI_NAMES) :]:
         axis.set_visible(False)
-    for axis, name in zip(axes.ravel(), MEASURE_NAMES, strict=False):
+    for axis, name in zip(axes.ravel(), KPI_NAMES, strict=False):
         values = improvement[name].to_numpy()
         axis.axhline(0, color="0.4", lw=1, zorder=1)
         bars = axis.bar(
@@ -516,58 +515,6 @@ def coverage_class_maps(
     bar = figure.colorbar(image, ax=axes[0].tolist(), ticks=range(len(maps.COVERAGE_CLASSES)))
     bar.ax.set_yticklabels([name.capitalize() for name in maps.COVERAGE_CLASSES])
     figure.suptitle("Coverage classes")
-    return figure
-
-
-def prb_usage_heatmaps(usage: pd.DataFrame, max_admission: float) -> Figure:
-    """PRB load of every cell-band over time as a share of its admission ceiling.
-
-    A heatmap rather than lines: a week of 15-minute intervals against three
-    dozen cell-bands is too many series to read, and what a reader looks for
-    here is which rows run hot and when.
-
-    Args:
-        usage: :func:`src.evaluation.compare.prb_usage_by_time` output.
-        max_admission: ``kpi.capacity.max_admission_utilisation``, for the label.
-    """
-    keys = list(dict.fromkeys(usage["configuration"]))
-    figure, axes = plt.subplots(
-        1,
-        len(keys),
-        figsize=(5.0 * len(keys) + 1.2, 5.2),
-        constrained_layout=True,
-        squeeze=False,
-    )
-    image = None
-    for index, (axis, key) in enumerate(zip(axes[0], keys, strict=True)):
-        mine = usage[usage["configuration"] == key]
-        grid = mine.pivot_table(
-            index=["band", "cell"], columns="t_index", values="utilisation", sort=False
-        )
-        image = axis.imshow(
-            grid.to_numpy(),
-            aspect="auto",
-            origin="lower",
-            cmap="YlOrRd",
-            vmin=0.0,
-            vmax=1.0,
-            interpolation="nearest",
-        )
-        axis.grid(False)
-        axis.set_xlabel("Interval")
-        axis.set_yticks(
-            range(len(grid.index)),
-            [f"{cell} {label(band)}" for band, cell in grid.index] if index == 0 else [],
-            fontsize=5,
-        )
-        axis.set_title(label(key))
-    figure.colorbar(
-        image,
-        ax=axes[0].tolist(),
-        label=f"PRB load, % of max_prb x {max_admission:g}",
-        format=PercentFormatter(1.0),
-    )
-    figure.suptitle("Cell-band PRB usage over time")
     return figure
 
 

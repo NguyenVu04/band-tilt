@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
@@ -84,68 +83,27 @@ def test_underserved_survives_an_empty_demand_raster(cfg: DictConfig) -> None:
     assert not flagged.any()
 
 
-def test_serving_band_prefers_a_band_above_threshold_else_the_strongest() -> None:
-    """Tile 0: preferred band 0 clears -100 dBm. Tile 1: neither does, band 1 is stronger.
-
-    Tile 2 has no path on any layer.
-    """
-    rsrp = np.array(
-        [
-            [[[-95.0, -110.0, np.nan]], [[-99.0, -120.0, np.nan]]],
-            [[[-60.0, -105.0, np.nan]], [[-70.0, -130.0, np.nan]]],
-        ]
-    )
-    band = maps.serving_band(rsrp, np.array([0, 1]), -100.0, -120.0)
-    assert band.tolist() == [[0, 1, -1]]
-
-
-def test_serving_band_never_serves_on_a_layer_at_the_hole_threshold() -> None:
-    """A layer exactly at min_rsrp_dbm is no candidate, as in the serving rule."""
-    rsrp = np.array([[[[-120.0]]], [[[-125.0]]]])
-    assert maps.serving_band(rsrp, np.array([0, 1]), -120.0, -120.0).tolist() == [[-1]]
-
-
-def test_demand_is_ue_count_times_prbs_per_ue(cfg: DictConfig) -> None:
-    """Two UEs on one tile in one interval need twice one UE's PRBs."""
-    from src.evaluation import compare
+def _spec(max_prb: list[list[float]], scs_hz: list[float]):
+    """A capacity spec with the whole pool usable and the hole at -120 dBm."""
     from src.kpi import capacity
 
-    cfg.kpi.capacity = {
-        "band_preference": ["b"],
-        "rsrp_threshold_dbm": -110.0,
-        "max_admission_utilisation": 1.0,
-        "throughput_per_ue_bps": 1e6,
-    }
-    cfg.simulation = {
-        "seed": 0,
-        "radio_map": {"bands": [{"name": "b", "scs_hz": 15000}]},
-        "transmitters": {
-            "cells": [
-                {
-                    "name": "c0",
-                    "x": 0.0,
-                    "y": 0.0,
-                    "z": 30.0,
-                    "azimuth_deg": 0.0,
-                    "tilt": {},
-                    "max_prb": {"b": 1000},
-                }
-            ]
-        },
-    }
-    rsrp = np.full((1, 1, 3, 4), -90.0)
-    sinr = np.full(rsrp.shape, 20.0)
-    ue = pd.DataFrame(
-        {"t_index": [0, 0, 0], "t_s": [0.0] * 3, "tile_row": [0, 0, 2], "tile_col": [1, 1, 3]}
+    return capacity.CapacitySpec(
+        min_rsrp_dbm=-120.0,
+        max_admission_utilisation=1.0,
+        prb_bandwidth_hz=12.0 * np.array(scs_hz),
+        max_prb=np.array(max_prb),
     )
-    archive = {"rsrp_dbm": rsrp, "sinr_db": sinr, "band_label": np.array(["b"])}
-    counts = compare.configuration(archive, ue, cfg).demand
 
-    per_ue = capacity._prb_per_ue(1e6, capacity._prb_rate_bps(20.0, 180_000.0))
-    assert counts.shape == (3, 4)
-    assert counts[0, 1] == pytest.approx(2 * per_ue)
-    assert counts[2, 3] == pytest.approx(per_ue)
-    assert counts.sum() == pytest.approx(3 * per_ue)
+
+def test_serving_band_is_where_a_lone_ue_gets_the_most_throughput() -> None:
+    """Tile 0: 'hi' wins on SINR. Tile 1: 'lo' wins on its wider PRBs despite a lower SINR.
+
+    Tile 2 is heard only at the hole threshold, tile 3 has no path at all.
+    """
+    rsrp = np.array([[[[-90.0, -90.0, -120.0, np.nan]]], [[[-90.0, -90.0, -125.0, np.nan]]]])
+    sinr = np.array([[[[20.0, 10.0, 10.0, 0.0]]], [[[5.0, 8.0, 10.0, 0.0]]]])
+    band = maps.serving_band(rsrp, sinr, _spec([[10.0], [10.0]], [15000.0, 30000.0]))
+    assert band.tolist() == [[0, 1, -1, -1]]
 
 
 def test_extent_spans_whole_tiles() -> None:

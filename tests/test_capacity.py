@@ -1,4 +1,4 @@
-"""The serving rule and the PRB formulas, on fixtures small enough to check by hand."""
+"""The serving rule and the throughput formulas, on fixtures small enough to check by hand."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from src.kpi import capacity
 
 # 12 subcarriers of 15 kHz: 180 kHz per PRB.
 _B_PRB = 180_000.0
+# The SINR at which log2(1 + SINR) = 0.6: a 'lo' PRB carries 0.6 of a 0 dB one.
+_SINR_SE_06 = 10.0 * np.log10(2.0**0.6 - 1.0)
 
 
 def _cells(*max_prb: dict[str, int]) -> list[dict]:
@@ -25,24 +27,23 @@ def _cells(*max_prb: dict[str, int]) -> list[dict]:
 
 @pytest.fixture
 def cfg():
-    """Two bands, 'hi' preferred, one cell of 10 PRBs per band."""
+    """Two bands at 15 kHz SCS, one cell of 10 PRBs per band, the whole pool usable."""
     return OmegaConf.create(
         {
-            "kpi": {
-                "hole_dbm": -120.0,
-                "capacity": {
-                    "band_preference": ["hi", "lo"],
-                    "rsrp_threshold_dbm": -100.0,
-                    "max_admission_utilisation": 1.0,
-                    "throughput_per_ue_bps": _B_PRB,
-                },
-            },
+            "kpi": {"hole_dbm": -120.0, "capacity": {"max_admission_utilisation": 1.0}},
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
                 "transmitters": {"cells": _cells({"hi": 10, "lo": 10})},
             },
         }
     )
+
+
+def _two_layers(n_ue: int, rsrp_dbm: float = -90.0) -> tuple[np.ndarray, np.ndarray]:
+    """``n_ue`` UEs hearing both bands; a 'hi' PRB carries 180 kbit/s, a 'lo' one 108."""
+    rsrp = np.full((n_ue, 2, 1), rsrp_dbm)
+    sinr = np.stack([np.zeros((n_ue, 1)), np.full((n_ue, 1), _SINR_SE_06)], axis=1)
+    return rsrp, sinr
 
 
 def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
@@ -53,255 +54,120 @@ def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
 
 def test_the_spec_reads_scs_from_the_radio_map_bands(cfg) -> None:
     """SCS is the solver's noise bandwidth, so capacity reads the same entry."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 10}, {"hi": 10, "lo": 10})
     cfg.simulation.radio_map.bands[1].scs_hz = 30000
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 2)
-    assert spec.scs_hz.tolist() == [15000.0, 30000.0]
-    cfg.kpi.capacity.band_preference.append("mid")
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    assert spec.prb_bandwidth_hz.tolist() == [_B_PRB, 2 * _B_PRB]
     with pytest.raises(ValueError, match="No simulation.radio_map.bands entry for mid"):
-        capacity.CapacitySpec.from_config(cfg, ["hi", "mid"], 2)
+        capacity.CapacitySpec.from_config(cfg, ["hi", "mid"], 1)
 
 
-def test_rate_and_prbs_follow_the_shannon_formula() -> None:
-    """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
-    assert capacity.spectral_efficiency(0.0) == pytest.approx(1.0)
-    rate = capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0))
-    assert rate == pytest.approx(_B_PRB)
-    assert capacity._prb_per_ue(5 * _B_PRB, rate) == pytest.approx(5.0)
-    assert capacity._prb_per_ue(1.0, 0.0) == np.inf
-
-
-def _candidates(
-    rsrp: np.ndarray, rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
-) -> np.ndarray:
-    """One ``[n_band, n_tx]`` location's candidates, most preferred first."""
-    order, heard = capacity._candidate_orders(rsrp[None], rank, threshold_dbm, min_rsrp_dbm)
-    return order[0][heard[0]]
-
-
-def test_the_preferred_band_serves_when_it_clears_the_threshold() -> None:
-    """'hi' tx1 is above -100 dBm, so it wins over a much stronger 'lo'."""
-    rsrp = np.array([[-105.0, -99.0], [-60.0, -70.0]])
-    order = _candidates(rsrp, np.array([0, 1]), -100.0)
-    assert order.tolist() == [1, 2, 3, 0]
-
-
-def test_a_band_below_the_threshold_passes_to_the_next() -> None:
-    """No 'hi' cell clears the threshold, so 'lo' comes first, strongest cell first."""
-    rsrp = np.array([[-105.0, -110.0], [-95.0, -80.0]])
-    order = _candidates(rsrp, np.array([0, 1]), -100.0)
-    assert order.tolist() == [3, 2, 0, 1]
-
-
-def test_below_every_threshold_the_strongest_serves_and_no_path_is_dropped() -> None:
-    """The fallback is plain RSRP order; an unreachable layer is never a candidate."""
-    rsrp = np.array([[-105.0, np.nan], [-120.0, -101.0]])
-    order = _candidates(rsrp, np.array([0, 1]), -100.0)
-    assert order.tolist() == [3, 0, 2]
-
-
-def test_a_layer_at_or_below_the_hole_threshold_is_never_a_candidate() -> None:
-    """-120 dBm is a hole, so only the -119 dBm layer may serve."""
-    rsrp = np.array([[-120.0, -119.0], [-130.0, np.nan]])
-    order = _candidates(rsrp, np.array([0, 1]), -100.0, -120.0)
-    assert order.tolist() == [1]
-
-
-def test_the_batched_ranking_matches_the_rule_stated_as_a_sort_key() -> None:
-    """Ties, no-path layers and layers at the hole threshold, against a plain sort."""
-    generator = np.random.default_rng(0)
-    rsrp = generator.choice([-130.0, -120.0, -110.0, -100.0, -90.0, np.nan], size=(200, 3, 4))
-    rank = np.array([2, 0, 1])
-    order, heard = capacity._candidate_orders(rsrp, rank, -100.0, -120.0)
-    for location, layers in enumerate(rsrp.reshape(len(rsrp), -1)):
-        # Above the threshold first, by band rank; then by RSRP; then by index.
-        expected = sorted(
-            (index for index, value in enumerate(layers) if value > -120.0),
-            key=lambda i: (
-                layers[i] < -100.0,
-                rank[i // 4] if layers[i] >= -100.0 else 0,
-                -layers[i],
-                i,
-            ),
-        )
-        assert order[location][heard[location]].tolist() == expected
-    assert capacity._candidate_orders(rsrp[:0], rank, -100.0)[0].shape == (0, 12)
-
-
-def test_simultaneous_ues_are_admitted_strongest_first_whatever_the_row_order(cfg) -> None:
-    """Room for one 6-PRB UE on 'hi' and no path on 'lo': the -80 dBm UE takes it."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    rsrp = np.array([[[-95.0], [np.nan]], [[-90.0], [np.nan]], [[-80.0], [np.nan]]])
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    band, _tx, _per_ue = capacity.serve_rows(rsrp, sinr, np.zeros(3, dtype=int), np.zeros(3), spec)
-    assert band.tolist() == [-1, -1, 0]
-    flipped, _, _ = capacity.serve_rows(rsrp[::-1], sinr, np.zeros(3, dtype=int), np.zeros(3), spec)
-    assert flipped.tolist() == [0, -1, -1]
-
-
-def test_the_earlier_ue_is_admitted_before_a_stronger_later_one(cfg) -> None:
-    """Room for one 6-PRB UE: the -95 dBm UE reporting first takes it, not the -80 dBm one."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 10, "lo": 1})
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    rsrp = np.array([[[-95.0], [np.nan]], [[-80.0], [np.nan]]])
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-
-    serving = capacity._select_serving(rsrp, sinr, np.array([10.0, 20.0]), spec)
-    assert serving.band.tolist() == [0, -1]
-
-    # Swap only the report times and the stronger UE wins instead.
-    later_first = capacity._select_serving(rsrp, sinr, np.array([20.0, 10.0]), spec)
-    assert later_first.band.tolist() == [-1, 0]
-
-
-def test_a_full_cell_band_passes_the_ue_to_the_next_candidate(cfg) -> None:
-    """Each UE needs 6 PRBs of a 10-PRB limit, so the second UE moves on."""
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    rsrp = np.array([[[-90.0], [-95.0]]] * 2)  # [ue, band, tx]
-    # log2(1 + SINR) = 1/6 at the first choice, 1/6 at the second.
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
-    assert serving.band.tolist() == [0, 1]
-    assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
-    assert serving.load[:, 0].tolist() == pytest.approx([6.0, 6.0])
-
-
-def test_the_admission_share_is_a_ceiling_on_the_resulting_load(cfg) -> None:
-    """At 0.5 of 10 PRBs no cell-band may pass 5, so a 3-PRB UE fits only once.
-
-    The second UE would still sit under ``max_prb`` on 'hi' (6 <= 10) and under
-    the share before its own PRBs are counted (3 <= 5); it is refused because
-    admitting it would end the interval at 6, above the ceiling. It takes 'lo'
-    instead, and the third UE fits nowhere.
-    """
-    cfg.kpi.capacity.max_admission_utilisation = 0.5
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    rsrp = np.array([[[-90.0], [-95.0]]] * 3)
-    # log2(1 + SINR) = 1/3: each UE needs 3 PRBs.
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 3.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
-    assert serving.band.tolist() == [0, 1, -1]
-    assert serving.load[:, 0].tolist() == pytest.approx([3.0, 3.0])
-    assert (serving.load <= 0.5 * spec.max_prb).all()
-
-
-def test_the_admission_share_is_checked_against_config(cfg) -> None:
-    """Zero would admit nobody; above one would never bind."""
+def test_the_usable_share_is_checked_against_config(cfg) -> None:
+    """Zero would leave no PRB to share; above one would share PRBs that do not exist."""
     for bad in (0.0, 1.5):
         cfg.kpi.capacity.max_admission_utilisation = bad
         with pytest.raises(ValueError, match="max_admission_utilisation"):
             capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
 
 
-def test_a_ue_with_no_room_anywhere_is_blocked_but_keeps_its_demand(cfg) -> None:
-    """Demand is a requirement: the blocked UE is counted at its first choice."""
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
-    rsrp = np.array([[[-90.0], [np.nan]]] * 2)
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    serving = capacity._select_serving(rsrp, sinr, np.zeros(len(rsrp)), spec)
-    assert serving.band.tolist() == [0, -1]
-    assert serving.prb_per_ue.tolist() == pytest.approx([6.0, 6.0])
+def test_the_prb_rate_follows_the_shannon_formula() -> None:
+    """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
+    assert capacity.spectral_efficiency(0.0) == pytest.approx(1.0)
+    assert capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0)) == pytest.approx(_B_PRB)
 
 
-def test_each_cell_band_has_its_own_limit_and_intervals_do_not_share_prbs(cfg) -> None:
-    """tx0 holds 5 PRBs, tx1 10; each UE needs 6.
+def test_each_ue_takes_the_cell_band_with_the_largest_equal_share(cfg) -> None:
+    """'hi' is worth 1.8 Mbit/s whole, 'lo' 1.08.
 
-    The first UE skips the stronger tx0 for tx1, the second finds tx1 full and
-    is blocked, and a UE in the next interval finds tx1 empty again.
+    The first UE takes 'hi'. The second finds half of 'hi' (0.9) below all of
+    'lo' and takes 'lo'. The third finds a third of 'hi' (0.6) above half of
+    'lo' (0.54) and takes 'hi'. Each UE ends at its cell-band's final share.
     """
-    cfg.simulation.transmitters.cells = _cells({"hi": 5}, {"hi": 10})
-    spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 2)
-    rsrp = np.array([[[-90.0, -95.0]]] * 3)  # [ue, band, tx]
-    sinr = np.full(rsrp.shape, 10.0 * np.log10(2.0 ** (1.0 / 6.0) - 1.0))
-    band, tx, per_ue = capacity.serve_rows(rsrp, sinr, np.array([0, 0, 1]), np.zeros(3), spec)
-    # The two interval-0 UEs are identical, so the tie keeps row order.
-    assert band[:2].tolist() == [0, -1]
-    assert tx[:2].tolist() == [1, -1]
-    assert (band[2], tx[2]) == (0, 1)
-    assert per_ue.tolist() == pytest.approx([6.0, 6.0, 6.0])
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp, sinr = _two_layers(3)
+    layer, throughput = capacity._select_serving(rsrp, sinr, np.arange(3.0), spec)
+    assert layer.tolist() == [0, 1, 0]
+    assert (throughput / 1e6).tolist() == pytest.approx([0.9, 1.08, 0.9])
 
 
-def test_prb_by_interval_sums_each_tile_within_each_interval() -> None:
-    """Two UEs share a tile in interval 3; a UE with no path adds nothing."""
-    t_values, prb = capacity.prb_by_interval(
-        np.array([3, 3, 5]),
-        np.array([0, 0, 1]),
-        np.array([1, 1, 0]),
-        np.array([1.0, 2.0, np.nan]),
-        (2, 2),
+def test_the_usable_share_scales_the_pool(cfg) -> None:
+    """Half of 10 PRBs at 180 kbit/s each: 0.9 Mbit/s for a lone UE."""
+    cfg.kpi.capacity.max_admission_utilisation = 0.5
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp = np.array([[[-90.0], [np.nan]]])
+    _, throughput = capacity._select_serving(rsrp, np.zeros(rsrp.shape), np.zeros(1), spec)
+    assert throughput[0] / 1e6 == pytest.approx(0.9)
+
+
+def test_the_earlier_ue_connects_first_and_simultaneous_ones_strongest_first(cfg) -> None:
+    """Whoever connects first takes 'hi' and pushes the other onto 'lo'."""
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp, sinr = _two_layers(2)
+    rsrp[1] = -80.0
+    # Simultaneous: the -80 dBm UE goes first, whatever the row order.
+    layer, _ = capacity._select_serving(rsrp, sinr, np.zeros(2), spec)
+    assert layer.tolist() == [1, 0]
+    flipped, _ = capacity._select_serving(rsrp[::-1], sinr, np.zeros(2), spec)
+    assert flipped.tolist() == [0, 1]
+    # Reporting first beats reporting stronger.
+    layer, _ = capacity._select_serving(rsrp, sinr, np.array([10.0, 20.0]), spec)
+    assert layer.tolist() == [0, 1]
+
+
+def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
+    """-120 dBm is a hole and no path is no candidate."""
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rsrp = np.array([[[-120.0], [np.nan]], [[np.nan], [-121.0]], [[-119.0], [np.nan]]])
+    layer, throughput = capacity._select_serving(rsrp, np.zeros(rsrp.shape), np.zeros(3), spec)
+    assert layer.tolist() == [-1, -1, 0]
+    assert np.isnan(throughput[:2]).all()
+    assert throughput[2] / 1e6 == pytest.approx(1.8)
+
+
+def test_intervals_do_not_share_prbs(cfg) -> None:
+    """Two UEs split 'hi' in interval 0; the lone UE of interval 1 has it whole."""
+    cfg.simulation.transmitters.cells = _cells({"hi": 10})
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 1)
+    rsrp = np.full((3, 1, 1), -90.0)
+    band, tx, throughput = capacity.serve_rows(
+        rsrp, np.zeros(rsrp.shape), np.array([0, 0, 1]), np.zeros(3), spec
     )
-    assert t_values.tolist() == [3, 5]
-    assert prb.shape == (2, 2, 2)
-    assert prb[0, 0, 1] == pytest.approx(3.0)
-    assert prb.sum() == pytest.approx(3.0)
+    assert band.tolist() == [0, 0, 0]
+    assert tx.tolist() == [0, 0, 0]
+    assert (throughput / 1e6).tolist() == pytest.approx([0.9, 0.9, 1.8])
 
 
-def test_prb_by_interval_accepts_the_processed_int16_tiles() -> None:
-    """The processed UE table stores tiles as int16; row * n_cols overflows it on a large grid."""
-    shape = (300, 300)
-    _, prb = capacity.prb_by_interval(
-        np.array([0]),
-        np.array([299], dtype=np.int16),
-        np.array([299], dtype=np.int16),
-        np.array([2.0]),
-        shape,
-    )
-    assert prb[0, 299, 299] == pytest.approx(2.0)
-
-
-def test_demand_keeps_the_busiest_interval_per_tile(cfg) -> None:
-    """One UE on the tile in interval 0, three in interval 1: the raster holds three."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 1000, "lo": 1000})
-    rsrp = np.array([[[[-90.0, np.nan]]], [[[np.nan, np.nan]]]])  # [band, tx, row, col]
-    # 0 dB wherever a path exists: 1 bit/s/Hz, so each UE needs exactly one PRB.
-    sinr = np.where(np.isfinite(rsrp), 0.0, np.nan)
-    ue = pd.DataFrame(
-        {"t_index": [0, 1, 1, 1], "t_s": [0.0] * 4, "tile_row": [0] * 4, "tile_col": [0] * 4}
-    )
-    archive = {"rsrp_dbm": rsrp, "sinr_db": sinr, "band_label": np.array(["hi", "lo"])}
-    peak = compare.configuration(archive, ue, cfg).demand
-    assert peak.shape == (1, 2)
-    assert peak[0, 0] == pytest.approx(3.0)
-    assert peak[0, 1] == 0.0
-
-
-def test_serve_intervals_reports_the_stored_sinr_at_the_serving_layer(cfg) -> None:
-    """SINR is read from the map passed in, not derived from RSRP."""
+def test_serve_intervals_reports_the_stored_sinr_and_throughput_at_the_serving_layer(
+    cfg,
+) -> None:
+    """SINR is read from the map passed in, not derived from RSRP; 'hi' wins on it."""
     rsrp = np.array([[[[-90.0]]], [[[-80.0]]]])
     sinr = np.array([[[[7.0]]], [[[3.0]]]])
-    ue = pd.DataFrame({"t_index": [0], "t_s": [0.0], "tile_row": [0], "tile_col": [0]})
+    ue = pd.DataFrame(
+        {"t_index": [0, 1], "t_s": [0.0, 0.0], "tile_row": [0, 0], "tile_col": [0, 0]}
+    )
     served = capacity.serve_intervals(rsrp, sinr, ["hi", "lo"], ue, cfg)
-    assert served["band"].tolist() == [0]
-    assert served["sinr_db"].tolist() == [7.0]
+    assert served["band"].tolist() == [0, 0]
+    assert served["sinr_db"].tolist() == [7.0, 7.0]
+    expected = 10 * _B_PRB * np.log2(1.0 + 10**0.7) / 1e6
+    assert served["estimated_throughput_mbps"].tolist() == pytest.approx([expected] * 2)
 
 
-def _assignment(rows: list[tuple[int, int, int, float]]) -> pd.DataFrame:
-    """A serving assignment from ``(t_index, band, tx, prb_per_ue)`` tuples."""
-    return pd.DataFrame(rows, columns=["t_index", "band", "tx", "prb_per_ue"])
-
-
-def test_prb_by_cell_interval_sums_each_cell_band_within_each_interval() -> None:
-    """Two UEs share a cell-band in interval 0; interval 1 starts it empty again."""
-    served = _assignment([(0, 0, 1, 2.0), (0, 0, 1, 3.0), (0, 1, 0, 4.0), (1, 0, 1, 1.0)])
-    t_values, prb = capacity.prb_by_cell_interval(served, n_band=2, n_tx=2)
-    assert t_values.tolist() == [0, 1]
-    assert prb[0, 0, 1] == pytest.approx(5.0)
-    assert prb[0, 1, 0] == pytest.approx(4.0)
-    assert prb[1, 0, 1] == pytest.approx(1.0)
-    assert prb.sum() == pytest.approx(10.0)
-
-
-def test_a_blocked_ue_loads_nothing_but_still_marks_its_interval() -> None:
-    """Only admitted UEs load a cell-band, and an idle interval is still an interval."""
-    served = _assignment([(0, -1, -1, 6.0), (1, 0, 0, 2.0)])
-    t_values, prb = capacity.prb_by_cell_interval(served, n_band=1, n_tx=1)
-    assert t_values.tolist() == [0, 1]
-    assert prb[:, 0, 0].tolist() == pytest.approx([0.0, 2.0])
-
-
-def test_utilisation_is_nan_where_a_cell_band_has_no_prbs() -> None:
-    """A limit of zero carries no traffic; a ratio over it would sort to the top."""
-    share = capacity.utilisation(np.array([[[4.0, 0.0]]]), np.array([[10.0, 0.0]]))
-    assert share[0, 0, 0] == pytest.approx(0.4)
-    assert np.isnan(share[0, 0, 1])
+def test_demand_counts_every_ue_report_per_tile_served_or_not(cfg) -> None:
+    """Four reports on (0, 0), none elsewhere; the processed table's int16 tiles do not overflow."""
+    n = 300
+    rsrp = np.full((2, 1, n, n), np.nan)
+    rsrp[0, 0, 0, 0] = -90.0
+    sinr = np.zeros(rsrp.shape)
+    ue = pd.DataFrame(
+        {
+            "t_index": [0, 1, 1, 1, 2],
+            "t_s": [0.0] * 5,
+            "tile_row": np.array([0, 0, 0, 0, n - 1], dtype=np.int16),
+            "tile_col": np.array([0, 0, 0, 0, n - 1], dtype=np.int16),
+        }
+    )
+    archive = {"rsrp_dbm": rsrp, "sinr_db": sinr, "band_label": np.array(["hi", "lo"])}
+    demand = compare.configuration(archive, ue, cfg).demand
+    assert demand[0, 0] == 4
+    assert demand[n - 1, n - 1] == 1
+    assert demand.sum() == 5

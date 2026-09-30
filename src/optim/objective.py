@@ -8,17 +8,17 @@ the objective:
     J = mean_g effective_coverage(g)
 
 :func:`src.kpi.overlap.effective_coverage` scores every band and takes the
-contraharmonic mean over the tile's layers: one dominant cell at or above
-``kpi.weak_dbm`` is worth 1, a second cell inside the overlap margin costs a
-quarter, and a server barely above ``kpi.hole_dbm`` is worth near nothing. So J
-is the share of the grid served cleanly and strongly by one cell, bounded in
-``[0, 1]``.
+contraharmonic mean over the tile's layers: a band is worth its strongest cell's
+share of the band's received power, scaled by that cell's strength between
+``kpi.hole_dbm`` and ``kpi.weak_dbm``. One cell alone at or above
+``kpi.weak_dbm`` is worth 1, an equal co-band rival halves it, and a server
+barely above ``kpi.hole_dbm`` is worth near nothing. So J is the share of the
+grid served cleanly and strongly by one cell, bounded in ``[0, 1]``.
 
 The mean is bounded by the best layer but, unlike a maximum over bands, it is not
 monotone in the layers present: a weak extra layer lowers a tile's score. The
-objective has no parameters of its own: it reads ``kpi.hole_dbm``,
-``kpi.weak_dbm`` and ``kpi.overlap_margin_db``, each of which the reported KPIs
-already define.
+objective has no parameters of its own: it reads ``kpi.hole_dbm`` and
+``kpi.weak_dbm``, which the reported KPIs already define.
 
 :data:`KPI_NAMES` are reported and no selection reads them; ``objective`` is
 stored beside them, so a history is ranked without re-reading a radio map.
@@ -42,11 +42,15 @@ from src.kpi.quality import (
     rsrp_percentile_dbm,
     sinr_percentile_db,
 )
-from src.kpi.served import ue_service_failure_rate
+from src.kpi.served import (
+    throughput_mean_mbps,
+    throughput_percentile_mbps,
+    ue_service_failure_rate,
+)
 from src.kpi.weak import weak_rate
 
 # The reporting order: where coverage fails, how crowded it is, how strong and
-# clean the signal is, and whether the traffic got served.
+# clean the signal is, whether the traffic got served, and at what throughput.
 KPI_NAMES = (
     "hole_rate",
     "weak_rate",
@@ -57,6 +61,9 @@ KPI_NAMES = (
     "sinr_p50_db",
     "sinr_p05_db",
     "ue_service_failure_rate",
+    "estimated_throughput_p05_mbps",
+    "estimated_throughput_p50_mbps",
+    "estimated_throughput_mean_mbps",
 )
 
 # Everything measured per candidate: the column order of every table.
@@ -70,6 +77,9 @@ MAXIMISED = frozenset(
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
+        "estimated_throughput_p05_mbps",
+        "estimated_throughput_p50_mbps",
+        "estimated_throughput_mean_mbps",
         "objective",
     }
 )
@@ -92,7 +102,14 @@ class KpiVector:
         rsrp_p05_dbm: Cell-edge (5th percentile) best-server RSRP.
         sinr_p50_db: Median best-server SINR.
         sinr_p05_db: Cell-edge best-server SINR.
-        ue_service_failure_rate: Share of UE reports not admitted to any cell-band.
+        ue_service_failure_rate: Share of UE reports with no cell-band above
+            ``kpi.hole_dbm``.
+        estimated_throughput_p05_mbps: Cell-edge (5th percentile) estimated
+            throughput of the served UE reports.
+        estimated_throughput_p50_mbps: Median estimated throughput of the
+            served UE reports.
+        estimated_throughput_mean_mbps: Mean estimated throughput of the
+            served UE reports.
         objective: See :func:`objective`. In ``[0, 1]``.
     """
 
@@ -105,6 +122,9 @@ class KpiVector:
     sinr_p50_db: float
     sinr_p05_db: float
     ue_service_failure_rate: float
+    estimated_throughput_p05_mbps: float
+    estimated_throughput_p50_mbps: float
+    estimated_throughput_mean_mbps: float
     objective: float
 
     def as_dict(self) -> dict[str, float]:
@@ -131,11 +151,11 @@ def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
 
     The mean of :func:`src.kpi.overlap.effective_coverage` over every tile of the
     grid. A band scores its full 1 only when one cell reaches ``kpi.weak_dbm`` on
-    it with nothing else on that band within ``kpi.overlap_margin_db``. A second
-    cell inside the margin costs it a quarter and a third nearly two thirds; a
-    server just above ``kpi.hole_dbm`` keeps almost none of it. The tile takes the
-    contraharmonic mean over bands. A hole scores 0, and so does a tile the ray
-    tracer found no path to.
+    it with no other cell on that band above ``kpi.hole_dbm``. Each such rival
+    costs in proportion to its power relative to the strongest cell, so an equal
+    one halves the band; a server just above ``kpi.hole_dbm`` keeps almost none
+    of it. The tile takes the contraharmonic mean over bands. A hole scores 0, and
+    so does a tile the ray tracer found no path to.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
@@ -143,7 +163,8 @@ def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
 
     Returns:
         A value in ``[0, 1]``, rounded to 1e-6, reaching 1 only if every covered
-        band on every tile has one server at or above ``kpi.weak_dbm``. Maximised.
+        band on every tile has one server at or above ``kpi.weak_dbm`` and no
+        co-band rival above ``kpi.hole_dbm``. Maximised.
     """
     # GPU ray-map accumulation order varies the trailing digits, and TuRBO's GP
     # fit turns any difference in J into a different proposal.
@@ -160,7 +181,7 @@ def evaluate_kpis(
 ) -> KpiVector:
     """Measure one radio map on every KPI and the objective.
 
-    The UE table is served once, here, for the service failure rate.
+    The UE table is served once, here, for the UE KPIs.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
@@ -168,7 +189,7 @@ def evaluate_kpis(
         sinr: The solver's SINR in dB, same shape as ``rsrp``.
         band_labels: Band names aligned to axis 0 of ``rsrp``.
         ue: The UE table; ``t_index``, ``t_s``, ``tile_row`` and ``tile_col``
-            place the UEs the failure rate counts.
+            place the UEs the UE KPIs count.
         cfg: Composed config; the measures read ``cfg.kpi``.
         spec: The capacity model already read from ``cfg``; built here when None.
 
@@ -194,6 +215,9 @@ def evaluate_kpis(
         sinr_p50_db=sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
         sinr_p05_db=sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
         ue_service_failure_rate=ue_service_failure_rate(served),
+        estimated_throughput_p05_mbps=throughput_percentile_mbps(served, LOW_PERCENTILE),
+        estimated_throughput_p50_mbps=throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
+        estimated_throughput_mean_mbps=throughput_mean_mbps(served),
         objective=objective(rsrp, cfg),
     )
 

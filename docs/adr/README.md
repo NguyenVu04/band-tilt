@@ -102,6 +102,14 @@ rewritten in place with the new KPI set and without `objective_version`. A
 reference to "ADR 0002" or "ADR 0003" written before this date means the record
 now numbered one lower.
 
+On 2026-09-30, again at the maintainer's direction, sections 2 to 4 of 0002 were
+rewritten in place and the record retitled when the band-preference serving rule
+and its admission gate were replaced by max-throughput cell selection over an
+equal PRB share, and the estimated-throughput KPIs joined the set. Later the
+same day, again at the maintainer's direction, section 1 of 0002 was rewritten
+in place when the per-band utility `lambda e^(1 - lambda)` was replaced by the
+strongest cell's share of the band's received power.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -111,7 +119,7 @@ is the thing these records exist to preserve.
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
 | [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0002 | 2026-09-13 | 2026-09-14 |
-| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, a load ceiling, and the reported KPI set | Proposed | 2026-09-22 | 2026-09-28 |
+| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput cell selection, and the reported KPI set | Proposed | 2026-09-22 | 2026-09-30 |
 
 Every other record is deleted and lives in Git history. Numbers were reused
 on 2026-09-22 and 2026-09-28; see above.

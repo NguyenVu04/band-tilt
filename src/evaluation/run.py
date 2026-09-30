@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
-from src.kpi.capacity import CapacitySpec, max_rsrp
+from src.kpi.capacity import max_rsrp
 from src.kpi.overlap import overlap_neighbors
 from src.optim.objective import MEASURE_NAMES
 from src.tracking import log_stage
@@ -196,47 +196,30 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("ue_service_summary", pd.DataFrame(service).T.rename_axis("configuration").reset_index())
     add("serving_band_mix", plots.band_share_bars(service, band_labels))
     add(
-        "ue_failure_maps",
+        "ue_throughput_maps",
         plots.map_row(
             {
-                label(key): maps.failure_share(
-                    configurations[key].served, maps.grid_shape(baseline)
+                label(key): maps.tile_median(
+                    configurations[key].served,
+                    "estimated_throughput_mbps",
+                    maps.grid_shape(baseline),
                 )
                 for key in ("incumbent", winner.method)
             },
             baseline,
-            colorbar_label="Share of UE reports not served",
+            colorbar_label="Median estimated throughput [Mbit/s]",
             vmin=0.0,
-            vmax=1.0,
-            cmap="Reds",
+            cmap="viridis",
             cells=cells,
         ),
     )
-    add(
-        "ue_failure_by_coverage",
-        compare.failure_by_coverage(
-            {key: configurations[key] for key in ("incumbent", winner.method)}, cfg
-        ),
-    )
 
-    spec = CapacitySpec.from_config(cfg, band_labels, len(tx_names))
-    admission = spec.max_admission_utilisation
     load = {
-        name: compare.cell_band_load(
-            configurations[name].served, band_labels, tx_names, spec.max_prb, admission
-        )
+        name: compare.cell_band_load(configurations[name].served, band_labels, tx_names)
         for name in ("incumbent", winner.method)
     }
-    add("cell_band_utilisation", plots.utilisation_heatmaps(load, admission))
+    add("cell_band_throughput", plots.cell_band_heatmaps(load, "median_throughput_mbps"))
     add("cell_band_load", pd.concat([f.assign(configuration=k) for k, f in load.items()]))
-    usage = compare.prb_usage_by_time(
-        {key: configurations[key] for key in ("incumbent", winner.method)},
-        band_labels,
-        tx_names,
-        spec.max_prb * admission,
-    )
-    add("prb_usage_by_time", usage)
-    add("prb_usage_heatmaps", plots.prb_usage_heatmaps(usage, admission))
     add(
         "cell_impact",
         compare.cell_impact(winner.best_tilt, load["incumbent"], load[winner.method], cells),

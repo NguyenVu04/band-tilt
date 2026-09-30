@@ -22,6 +22,9 @@ KPI = {
     "sinr_p50_db": 8.0,
     "sinr_p05_db": -3.0,
     "ue_service_failure_rate": 0.009,
+    "estimated_throughput_p05_mbps": 1.0,
+    "estimated_throughput_p50_mbps": 5.0,
+    "estimated_throughput_mean_mbps": 6.0,
     "objective": 0.40,
 }
 
@@ -63,8 +66,7 @@ def make_run(
     *,
     n: int = 3,
     seed: int = 0,
-    throughput_per_ue_bps: float = 1e6,
-    band_preference: list[str] | None = None,
+    max_admission_utilisation: float = 0.8,
     bandwidth: int = 10000000,
     scs_hz: int = 15000,
     **radio: object,
@@ -111,10 +113,7 @@ def make_run(
                         "hole_dbm": -120.0,
                         "weak_dbm": -90.0,
                         "overlap_margin_db": 6.0,
-                        "capacity": {
-                            "throughput_per_ue_bps": throughput_per_ue_bps,
-                            "band_preference": band_preference or ["b2600", "b700"],
-                        },
+                        "capacity": {"max_admission_utilisation": max_admission_utilisation},
                     },
                     "simulation": {
                         "transmitters": {"cells": [{"name": "n0c0", "max_prb": {"b700": 106}}]},
@@ -218,11 +217,11 @@ def test_verify_catches_a_different_fidelity(tmp_path) -> None:
 
 
 def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
-    """The failure rate depends on kpi.capacity, so a changed demand is another measurement."""
+    """Throughput depends on kpi.capacity, so a changed PRB share is another measurement."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
         run_store.load(
-            make_run(tmp_path, "random", "2026-01-01_00-00-00", throughput_per_ue_bps=2e6)
+            make_run(tmp_path, "random", "2026-01-01_00-00-00", max_admission_utilisation=1.0)
         ),
     ]
     checks = run_store.verify(runs, radio_archive())
@@ -241,27 +240,8 @@ def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
     assert "band carrier frequencies match the baseline, in order" in failed
 
 
-def test_verify_catches_a_different_band_priority(tmp_path) -> None:
-    """The priority picks the band lambda is counted on, so it defines the objective."""
-    runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
-        run_store.load(
-            make_run(
-                tmp_path,
-                "random",
-                "2026-01-01_00-00-00",
-                band_preference=["b700", "b2600"],
-            )
-        ),
-    ]
-    checks = run_store.verify(runs, radio_archive())
-    failed = checks[~checks["holds"]]
-    assert failed["check"].tolist() == ["KPI definition agrees across runs"]
-    assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
-
-
 def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
-    """Bandwidth fixes max_prb, so it sets the failure rate."""
+    """Bandwidth fixes max_prb, so it sets the estimated throughput."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
@@ -271,7 +251,7 @@ def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
 
 
 def test_verify_catches_a_different_scs(tmp_path) -> None:
-    """SCS sets the per-RE noise floor and the PRB bandwidth, so SINR and the failure rate."""
+    """SCS sets the per-RE noise floor and the PRB bandwidth, so SINR and the throughput."""
     runs = [
         run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", scs_hz=30000)),

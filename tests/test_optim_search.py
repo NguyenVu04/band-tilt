@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "capacity": {"band_preference": ["high", "low"]},
+        "capacity": {"max_admission_utilisation": 0.8},
     },
     "optim": {
         "output": {
@@ -104,6 +104,9 @@ class StubEvaluator:
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
                 ue_service_failure_rate=float(np.mean((unit - 0.8) ** 2)),
+                estimated_throughput_p05_mbps=float(np.mean(unit)),
+                estimated_throughput_p50_mbps=float(2.0 * np.mean(unit)),
+                estimated_throughput_mean_mbps=float(3.0 * np.mean(unit)),
                 objective=float(1.0 - np.mean((unit - 0.3) ** 2)),
             ),
             seconds=0.0,
@@ -338,7 +341,7 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
     assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
-    assert run["config"]["kpi"]["capacity"]["band_preference"] == ["high", "low"]
+    assert run["config"]["kpi"]["capacity"]["max_admission_utilisation"] == 0.8
 
 
 def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:

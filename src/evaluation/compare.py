@@ -13,15 +13,7 @@ from scipy import stats
 from src.core.cell import Cell
 from src.evaluation import maps
 from src.evaluation.runs import Run
-from src.kpi.capacity import (
-    CapacitySpec,
-    covered,
-    finite,
-    prb_by_cell_interval,
-    prb_by_interval,
-    serve_intervals,
-    utilisation,
-)
+from src.kpi.capacity import CapacitySpec, covered, finite, serve_intervals
 from src.kpi.hole import hole_rate
 from src.kpi.overlap import overlap_neighbor_mean, overlap_neighbors, overlap_rate
 from src.kpi.quality import (
@@ -30,9 +22,14 @@ from src.kpi.quality import (
     rsrp_percentile_dbm,
     sinr_percentile_db,
 )
-from src.kpi.served import ue_service_failure_rate
+from src.kpi.served import (
+    throughput_mean_mbps,
+    throughput_percentile_mbps,
+    ue_service_failure_rate,
+)
 from src.kpi.weak import weak_rate
 from src.optim.objective import (
+    KPI_NAMES,
     MAXIMISED,
     MEASURE_NAMES,
     KpiVector,
@@ -334,48 +331,28 @@ class Configuration:
         rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm.
         sinr: The solver's SINR in dB, same shape.
         served: :func:`src.kpi.capacity.serve_intervals` output.
-        demand: PRBs required per tile in its busiest interval. A blocked UE
-            still counts at its first choice: this is demand, not what was served.
-        t_values: The intervals present, in order.
-        prb: PRBs each cell-band carried in each of them,
-            ``[n_t, n_band, n_tx]``, aligned to ``t_values``.
+        demand: UE reports per tile over every interval, served or not: this
+            is where the traffic is, not what was served.
     """
 
     rsrp: np.ndarray
     sinr: np.ndarray
     served: pd.DataFrame
     demand: np.ndarray
-    t_values: np.ndarray
-    prb: np.ndarray
 
 
 def configuration(
     archive: Mapping[str, np.ndarray], ue: pd.DataFrame, cfg: DictConfig
 ) -> Configuration:
-    """Serve the UEs on one archived radio map.
-
-    Serves once and keeps both reductions the evaluation needs: the per-tile
-    demand raster and the per-cell-band load series.
-    """
+    """Serve the UEs on one archived radio map, and count the reports per tile."""
     rsrp = archive["rsrp_dbm"].astype(float)
     sinr = archive["sinr_db"].astype(float)
     served = serve_intervals(rsrp, sinr, [str(b) for b in archive["band_label"]], ue, cfg)
-    _, prb = prb_by_interval(
-        served["t_index"].to_numpy(),
-        served["tile_row"].to_numpy(),
-        served["tile_col"].to_numpy(),
-        served["prb_per_ue"].to_numpy(),
-        rsrp.shape[-2:],
-    )
-    t_values, cell_prb = prb_by_cell_interval(served, rsrp.shape[0], rsrp.shape[1])
-    return Configuration(
-        rsrp=rsrp,
-        sinr=sinr,
-        served=served,
-        demand=prb.max(axis=0),
-        t_values=t_values,
-        prb=cell_prb,
-    )
+    n_rows, n_cols = rsrp.shape[-2:]
+    # int64 first: the processed UE table stores tiles as int16, and row * n_cols overflows it.
+    flat = served["tile_row"].to_numpy(np.int64) * n_cols + served["tile_col"].to_numpy(np.int64)
+    demand = np.bincount(flat, minlength=n_rows * n_cols).reshape(n_rows, n_cols)
+    return Configuration(rsrp=rsrp, sinr=sinr, served=served, demand=demand)
 
 
 def reproducibility(
@@ -415,54 +392,37 @@ def reproducibility(
 
 
 def cell_band_load(
-    served: pd.DataFrame,
-    band_labels: Sequence[str],
-    tx_names: Sequence[str],
-    max_prb: np.ndarray,
-    max_admission_utilisation: float,
+    served: pd.DataFrame, band_labels: Sequence[str], tx_names: Sequence[str]
 ) -> pd.DataFrame:
-    """PRB load and service per cell-band for one configuration.
+    """UEs and their estimated throughput per cell-band for one configuration.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output.
         band_labels: Band names, the ``band`` index order.
         tx_names: Cell names, the ``tx`` index order.
-        max_prb: ``[n_band, n_tx]`` limits, as ``CapacitySpec.max_prb``.
-        max_admission_utilisation: ``kpi.capacity.max_admission_utilisation``.
 
     Returns:
         One row per cell-band: ``cell``, ``band``, ``served_reports``,
-        ``mean_prb`` (averaged over every interval, idle ones as zero),
-        ``peak_prb``, ``max_prb``, ``ceiling_prb`` (``max_prb`` times the
-        admission share), ``peak_utilisation`` (``peak_prb`` over
-        ``ceiling_prb``, so 1 is a full cell-band) and ``median_sinr_db`` of the
-        UEs it served. Only admitted UEs load a cell-band.
+        ``peak_ues`` (the most UEs sharing it in one interval), and the
+        ``median_throughput_mbps`` and ``median_sinr_db`` of the UEs it served.
     """
-    n_intervals = max(served["t_index"].nunique(), 1)
-    admitted = served[served["band"] >= 0]
     rows = []
     for b, band in enumerate(band_labels):
         for t, cell in enumerate(tx_names):
-            mine = admitted[(admitted["band"] == b) & (admitted["tx"] == t)]
-            load = mine.groupby("t_index")["prb_per_ue"].sum()
+            mine = served[(served["band"] == b) & (served["tx"] == t)]
             rows.append(
                 {
                     "cell": cell,
                     "band": band,
                     "served_reports": len(mine),
-                    "mean_prb": float(load.sum()) / n_intervals,
-                    "peak_prb": float(load.max()) if len(load) else 0.0,
-                    "max_prb": float(max_prb[b, t]),
+                    "peak_ues": int(mine.groupby("t_index").size().max()) if len(mine) else 0,
+                    "median_throughput_mbps": float(mine["estimated_throughput_mbps"].median())
+                    if len(mine)
+                    else np.nan,
                     "median_sinr_db": float(mine["sinr_db"].median()) if len(mine) else np.nan,
                 }
             )
-    frame = pd.DataFrame(rows)
-    frame["ceiling_prb"] = frame["max_prb"] * float(max_admission_utilisation)
-    # A zero ceiling carries no traffic; inf would sort it to the top of every table.
-    frame["peak_utilisation"] = (frame["peak_prb"] / frame["ceiling_prb"]).where(
-        frame["ceiling_prb"] > 0
-    )
-    return frame
+    return pd.DataFrame(rows)
 
 
 def cell_impact(
@@ -483,7 +443,7 @@ def cell_impact(
         Sorted by the size of the traffic shift, largest first, so the cells to
         watch after rollout lead.
     """
-    columns = ["cell", "band", "served_reports", "peak_utilisation", "median_sinr_db"]
+    columns = ["cell", "band", "served_reports", "median_throughput_mbps", "median_sinr_db"]
     impact = (
         best_tilt[["cell", "band", "current_tilt_deg", "optimized_tilt_deg", "delta_tilt_deg"]]
         .astype({"cell": str, "band": str})
@@ -491,7 +451,7 @@ def cell_impact(
         .merge(after[columns], on=["cell", "band"], suffixes=("_before", "_after"))
         .merge(cells[["cell", "node", "azimuth_deg"]].astype({"cell": str}), on="cell")
     )
-    for name in ("served_reports", "peak_utilisation", "median_sinr_db"):
+    for name in ("served_reports", "median_throughput_mbps", "median_sinr_db"):
         impact[f"{name}_change"] = impact[f"{name}_after"] - impact[f"{name}_before"]
     leading = ["node", "cell", "azimuth_deg", "band"]
     impact = impact[leading + [c for c in impact.columns if c not in leading]]
@@ -528,9 +488,9 @@ def service_summary(served: pd.DataFrame, band_labels: Sequence[str]) -> dict[st
 
     Returns:
         ``reports`` (how many rows the shares are taken over),
-        ``not_served_share`` (blocked by PRB limits, or no path), the 10th
-        percentile and median SINR of served reports, their median PRBs per
-        UE, and ``share_<band>`` of all reports served on each band.
+        ``not_served_share`` (no layer above ``kpi.hole_dbm``), the 10th
+        percentile and median SINR of served reports, and ``share_<band>`` of
+        all reports served on each band.
     """
     band = served["band"].to_numpy()
     admitted = band >= 0
@@ -540,7 +500,6 @@ def service_summary(served: pd.DataFrame, band_labels: Sequence[str]) -> dict[st
         "not_served_share": float((~admitted).mean()),
         "sinr_p10_db": float(sinr.quantile(0.1)),
         "sinr_median_db": float(sinr.median()),
-        "prb_per_served_ue_median": float(served.loc[admitted, "prb_per_ue"].median()),
     }
     for index, label in enumerate(band_labels):
         summary[f"share_{label}"] = float((band == index).mean())
@@ -565,43 +524,6 @@ def coverage_comparison(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
         )
         merged = part if merged is None else merged.merge(part, on="coverage")
     return merged if merged is not None else pd.DataFrame()
-
-
-def failure_by_coverage(
-    configurations: Mapping[str, Configuration], cfg: DictConfig
-) -> pd.DataFrame:
-    """UE reports and failures per coverage class of the tile each UE stands on.
-
-    A failure on a hole tile had no cell to serve it; one on a weak or good tile
-    was refused by the PRB ceiling of every candidate cell-band.
-
-    Returns:
-        One row per configuration and class: ``configuration``, ``coverage``,
-        ``reports``, ``failed``, ``failure_share`` (of the class's reports) and
-        ``share_of_failures`` (of the configuration's failures).
-    """
-    rows = []
-    for name, config in configurations.items():
-        served = config.served
-        tile_class = maps.coverage_class(config.rsrp, cfg)[
-            served["tile_row"].to_numpy(), served["tile_col"].to_numpy()
-        ]
-        failed = served["band"].to_numpy() < 0
-        for index, coverage in enumerate(maps.COVERAGE_CLASSES):
-            mine = tile_class == index
-            rows.append(
-                {
-                    "configuration": name,
-                    "coverage": coverage,
-                    "reports": int(mine.sum()),
-                    "failed": int((failed & mine).sum()),
-                    "failure_share": float(failed[mine].mean()) if mine.any() else np.nan,
-                    "share_of_failures": float((failed & mine).sum() / failed.sum())
-                    if failed.any()
-                    else np.nan,
-                }
-            )
-    return pd.DataFrame(rows)
 
 
 def coverage_by_area_and_demand(
@@ -654,12 +576,8 @@ def experiment_setup(
         ("Weak coverage upper bound [dBm]", f"{float(cfg.kpi.weak_dbm):g}"),
         ("Overlap margin [dB]", f"{float(cfg.kpi.overlap_margin_db):g}"),
         (
-            "Admission ceiling [share of max_prb]",
+            "Usable PRB share [of max_prb]",
             f"{float(cfg.kpi.capacity.max_admission_utilisation):g}",
-        ),
-        (
-            "Serving band priority",
-            ", ".join(display_name(str(band)) for band in cfg.kpi.capacity.band_preference),
         ),
     ]
     for run in runs:
@@ -682,9 +600,10 @@ def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
         summary: :func:`seed_summary` output.
 
     Returns:
-        One row per method, one column per measure. NaN where the
-        incumbent is zero.
+        One row per method, one column per KPI in :data:`KPI_NAMES`; the
+        objective is left out. NaN where the incumbent is zero.
     """
+    summary = summary[summary["kpi"].isin(KPI_NAMES)]
     sign = np.where(summary["direction"] == "maximise", 1.0, -1.0)
     base = summary["incumbent"].abs().replace(0.0, np.nan)
     frame = summary.assign(improvement=sign * (summary["mean"] - summary["incumbent"]) / base * 100)
@@ -817,17 +736,16 @@ def band_layer_summary(
     Returns:
         One row per configuration and band: ``coverage_share`` (tiles where the
         band's strongest cell is above ``kpi.hole_dbm``), ``mean_band_rsrp_dbm``
-        over those tiles, ``serving_tile_share`` (tiles the serving rule puts on
-        the band, before PRB limits), ``served_share`` (UE reports admitted on
-        the band, after them) and ``served_sinr_median_db`` of those reports.
+        over those tiles, ``serving_tile_share`` (tiles where a lone UE would be
+        served on the band, :func:`src.evaluation.maps.serving_band`),
+        ``served_share`` (UE reports served on the band, with every UE
+        connected) and ``served_sinr_median_db`` of those reports.
     """
     hole_dbm = float(cfg.kpi.hole_dbm)
     rows = []
     for name, config in configurations.items():
         spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
-        tile_band = maps.serving_band(
-            config.rsrp, spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
-        )
+        tile_band = maps.serving_band(config.rsrp, config.sinr, spec)
         strongest = finite(config.rsrp).max(axis=1)
         served_band = config.served["band"].to_numpy()
         for index, band in enumerate(band_labels):
@@ -868,6 +786,17 @@ def _band_view(config: Configuration, band: int | None) -> tuple[np.ndarray, np.
     return config.rsrp[layer], config.sinr[layer]
 
 
+def _ue_kpis(served: pd.DataFrame, *, network: bool) -> dict[str, float]:
+    """The UE KPIs of :func:`band_kpis`, NaN on a band row."""
+    values = {
+        "ue_service_failure_rate": ue_service_failure_rate(served),
+        "estimated_throughput_p05_mbps": throughput_percentile_mbps(served, LOW_PERCENTILE),
+        "estimated_throughput_p50_mbps": throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
+        "estimated_throughput_mean_mbps": throughput_mean_mbps(served),
+    }
+    return values if network else dict.fromkeys(values, np.nan)
+
+
 def band_kpis(
     configurations: Mapping[str, Configuration],
     band_labels: Sequence[str],
@@ -882,9 +811,9 @@ def band_kpis(
     over tiles do not sum across bands, because a tile can be a hole on two
     bands at once.
 
-    ``ue_service_failure_rate`` is NaN on band rows: a UE fails when every band
-    refuses it, so the failure belongs to the network, not to one band.
-    ``objective`` is not here for the same reason.
+    The UE KPIs are NaN on band rows: a UE fails when no band reaches it and
+    takes its throughput from whichever band it chose, so both belong to the
+    network, not to one band. ``objective`` is not here for the same reason.
 
     Returns:
         One row per configuration and band: ``configuration``, ``band``, then
@@ -907,48 +836,7 @@ def band_kpis(
                     "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
                     "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
                     "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-                    "ue_service_failure_rate": ue_service_failure_rate(config.served)
-                    if index is None
-                    else np.nan,
+                    **_ue_kpis(config.served, network=index is None),
                 }
             )
     return pd.DataFrame(rows)
-
-
-def prb_usage_by_time(
-    configurations: Mapping[str, Configuration],
-    band_labels: Sequence[str],
-    tx_names: Sequence[str],
-    ceiling_prb: np.ndarray,
-) -> pd.DataFrame:
-    """PRBs each cell-band carried in each interval, and that as a share of its ceiling.
-
-    Args:
-        configurations: Configuration key to its :class:`Configuration`.
-        band_labels: Band names, the ``band`` index order.
-        tx_names: Cell names, the ``tx`` index order.
-        ceiling_prb: ``[n_band, n_tx]`` admission ceilings,
-            ``max_prb * max_admission_utilisation``. The serving rule never
-            loads a cell-band past it, so ``utilisation`` stays in ``[0, 1]``.
-
-    Returns:
-        Long form: ``configuration``, ``cell``, ``band``, ``t_index``,
-        ``prb_load``, ``utilisation``.
-    """
-    frames = []
-    for name, config in configurations.items():
-        share = utilisation(config.prb, ceiling_prb)
-        n_t, n_band, n_tx = config.prb.shape
-        frames.append(
-            pd.DataFrame(
-                {
-                    "configuration": name,
-                    "cell": np.tile(list(tx_names), n_t * n_band),
-                    "band": np.tile(np.repeat(list(band_labels), n_tx), n_t),
-                    "t_index": np.repeat(config.t_values, n_band * n_tx),
-                    "prb_load": config.prb.reshape(-1),
-                    "utilisation": share.reshape(-1),
-                }
-            )
-        )
-    return pd.concat(frames, ignore_index=True)

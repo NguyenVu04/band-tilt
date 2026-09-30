@@ -1,27 +1,22 @@
-"""Serving-cell choice and PRB demand.
+"""Serving-cell choice and the throughput each UE gets.
 
-The one serving rule in the project, read by the service failure rate and the
-PRB load tables: prefer bands in ``kpi.capacity.band_preference`` order while
-the band's strongest cell clears ``kpi.capacity.rsrp_threshold_dbm``, else take
-the strongest cell-band. That fallback is unreachable while
-``kpi.capacity.rsrp_threshold_dbm`` equals ``kpi.hole_dbm``, as the committed
-config sets them: a layer below the threshold is not a candidate at all, so
-band preference always decides. A cell-band admits a UE only while the UE's PRBs
-and the PRBs already on the cell-band together stay at or under
-``kpi.capacity.max_admission_utilisation`` of ``max_prb``; otherwise the UE
-passes to the next candidate in that same ranking. The cap is therefore a
-ceiling on the resulting load and not a gate on the load before admission: no
-cell-band ever ends an interval above that share of ``max_prb``. A layer at or
-below ``kpi.hole_dbm`` is never a candidate.
+The one serving rule in the project, read by the UE KPIs and the per-cell-band
+tables. Within an interval UEs connect one at a time. A UE's candidates are the
+cell-bands above ``kpi.hole_dbm``; it joins the one where its equal share of the
+usable PRBs, ``kpi.capacity.max_admission_utilisation`` of ``max_prb`` split over
+the UEs already there plus itself, carries the most throughput. Nobody is
+refused: a UE with no candidate is the only one not served.
 
-Within an interval UEs are admitted in ``t_s`` order: a cell fills in the order
-its reports arrive, not best-first. Two UEs reporting at the same instant are
-taken strongest RSRP first, over every layer at the UE, and row order breaks
-what remains.
+Its estimated throughput is read after the interval's last UE has connected,
+at the equal share of its cell-band's final UE count, so a UE's figure falls as
+later UEs join the same cell-band.
+
+UEs connect in ``t_s`` order. Two UEs reporting at the same instant are taken
+strongest RSRP first, over every layer at the UE, and row order breaks what
+remains.
 
 SINR is an input, never computed here: the solver's own, from the radio map
-(:func:`src.simulation.radio.solve_band`). PRBs are kept fractional: an average
-over an interval, and smooth in tilt.
+(:func:`src.simulation.radio.solve_band`).
 
 :func:`max_rsrp`, the strongest layer at each location (the best server), and
 :func:`serving_sinr`, that layer's SINR, also live here: the hole, weak and
@@ -43,46 +38,27 @@ from src.core.cell import Cell
 _SUBCARRIERS_PER_PRB = 12
 
 
-def band_rank(cfg: DictConfig, band_labels: Sequence[str]) -> np.ndarray:
-    """Serving preference of each band, 0 most preferred, aligned to ``band_labels``.
-
-    The serving rule and :func:`src.evaluation.maps.serving_band` both rank
-    bands by ``kpi.capacity.band_preference``, so it is read in one place. The
-    objective does not.
-
-    Raises:
-        ValueError: When a band is absent from ``band_preference``, which would
-            leave its rank undefined.
-    """
-    preference = [str(label) for label in cfg.kpi.capacity.band_preference]
-    missing = [label for label in band_labels if label not in preference]
-    if missing:
-        raise ValueError(f"No kpi.capacity.band_preference entry for {', '.join(missing)}.")
-    return np.array([preference.index(label) for label in band_labels])
-
-
 @dataclass(frozen=True)
 class CapacitySpec:
     """The serving and PRB settings, aligned to the radio map's bands and cells.
 
     Attributes:
-        band_rank: Preference per band, 0 most preferred, shape ``[n_band]``.
-        rsrp_threshold_dbm: Below this a band is skipped for the next one.
-        max_admission_utilisation: Share of ``max_prb`` a cell-band's load may
-            not exceed; an admission that would carry it past this is refused.
         min_rsrp_dbm: A layer at or below this is never a candidate.
-        throughput_per_ue_bps: Assumed throughput each UE requires.
-        scs_hz: Subcarrier spacing per band, shape ``[n_band]``.
+        max_admission_utilisation: Share of ``max_prb`` shared among a
+            cell-band's UEs.
+        prb_bandwidth_hz: Bandwidth of one PRB per band, shape ``[n_band]``.
         max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
     """
 
-    band_rank: np.ndarray
-    rsrp_threshold_dbm: float
-    max_admission_utilisation: float
     min_rsrp_dbm: float
-    throughput_per_ue_bps: float
-    scs_hz: np.ndarray
+    max_admission_utilisation: float
+    prb_bandwidth_hz: np.ndarray
     max_prb: np.ndarray
+
+    @property
+    def pool_prb(self) -> np.ndarray:
+        """PRBs shared among a cell-band's UEs, ``[n_band, n_tx]``."""
+        return self.max_admission_utilisation * self.max_prb
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
@@ -95,19 +71,16 @@ class CapacitySpec:
         bandwidth uses.
 
         Raises:
-            ValueError: As :func:`band_rank`, or when a band has no
-                ``simulation.radio_map.bands`` entry, the config holds other
-                than ``n_tx`` cells, or ``max_admission_utilisation`` is
-                outside ``(0, 1]``.
+            ValueError: When a band has no ``simulation.radio_map.bands`` entry,
+                the config holds other than ``n_tx`` cells, or
+                ``max_admission_utilisation`` is outside ``(0, 1]``.
             KeyError: When a cell has no ``max_prb`` for a band.
         """
-        capacity = cfg.kpi.capacity
-        admission = float(capacity.max_admission_utilisation)
+        admission = float(cfg.kpi.capacity.max_admission_utilisation)
         if not 0.0 < admission <= 1.0:
             raise ValueError(
                 f"kpi.capacity.max_admission_utilisation must be in (0, 1], got {admission}"
             )
-        rank = band_rank(cfg, band_labels)
         bands = {str(entry.name): entry for entry in cfg.simulation.radio_map.bands}
         missing = [label for label in band_labels if label not in bands]
         if missing:
@@ -119,36 +92,15 @@ class CapacitySpec:
                 f"{n_tx} transmitters."
             )
         return cls(
-            band_rank=rank,
-            rsrp_threshold_dbm=float(capacity.rsrp_threshold_dbm),
-            max_admission_utilisation=admission,
             min_rsrp_dbm=float(cfg.kpi.hole_dbm),
-            throughput_per_ue_bps=float(capacity.throughput_per_ue_bps),
-            scs_hz=np.array([float(bands[label].scs_hz) for label in band_labels]),
+            max_admission_utilisation=admission,
+            prb_bandwidth_hz=_prb_bandwidth_hz(
+                [float(bands[label].scs_hz) for label in band_labels]
+            ),
             max_prb=np.array(
                 [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
             ),
         )
-
-
-@dataclass(frozen=True)
-class _Serving:
-    """One interval's assignment.
-
-    Attributes:
-        band: Serving band index per UE, ``-1`` where blocked or unreachable.
-        tx: Serving transmitter index per UE, ``-1`` likewise.
-        prb_per_ue: PRBs each UE needs at its serving cell-band; when blocked,
-            at the first candidate whose need is finite. NaN when the UE has no
-            such candidate, whether because no layer reaches it or because every
-            layer that does would need unbounded PRBs at its SINR.
-        load: PRBs assigned per cell-band, shape ``[n_band, n_tx]``.
-    """
-
-    band: np.ndarray
-    tx: np.ndarray
-    prb_per_ue: np.ndarray
-    load: np.ndarray
 
 
 def finite(rsrp: np.ndarray) -> np.ndarray:
@@ -233,13 +185,13 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
     return row, col
 
 
-# The PRB requirement below is a Shannon bound, not an NR link adaptation model.
+# The throughput below is a Shannon bound, not an NR link adaptation model.
 # Three deviations from 3GPP, all in the optimistic direction, kept because the
 # search needs a quantity that is smooth in tilt and this one is:
 #
 # - No modulation and coding ceiling or floor. log2(1 + SINR) has neither, so a
-#   high-SINR UE is charged too few PRBs and a UE below the lowest schedulable
-#   rate is charged a finite number rather than being refused.
+#   high-SINR UE is credited more than the top MCS carries and a UE below the
+#   lowest schedulable rate is credited a small positive rate, not zero.
 # - The rate basis is the nominal RB bandwidth, 12 * SCS. The UE data rate of
 #   TS 38.306 4.1.2 uses the symbol rate 12 / T_s^mu, T_s^mu = 1e-3 / (14 * 2^mu),
 #   and scales by (1 - OH) with OH = 0.14 for downlink FR1.
@@ -256,7 +208,7 @@ def spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
     return np.log2(1.0 + 10.0 ** (np.asarray(sinr, dtype=float) / 10.0))
 
 
-def _prb_bandwidth_hz(scs_hz: float | np.ndarray) -> np.ndarray:
+def _prb_bandwidth_hz(scs_hz: float | Sequence[float] | np.ndarray) -> np.ndarray:
     """Bandwidth of one PRB: 12 subcarriers of ``scs_hz``."""
     return _SUBCARRIERS_PER_PRB * np.asarray(scs_hz, dtype=float)
 
@@ -266,94 +218,51 @@ def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndar
     return np.asarray(bandwidth_hz, dtype=float) * spectral_efficiency(sinr)
 
 
-def _prb_per_ue(per_ue_bps: float, rate_bps: float | np.ndarray) -> np.ndarray:
-    """PRBs one UE needs at a given per-PRB rate; ``inf`` where the rate is zero."""
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.divide(per_ue_bps, np.asarray(rate_bps, dtype=float))
-
-
-def _candidate_orders(
-    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float = -np.inf
-) -> tuple[np.ndarray, np.ndarray]:
-    """Cell-bands each location may be served by, most preferred first.
-
-    Args:
-        rsrp: ``[n_loc, n_band, n_tx]`` RSRP in dBm, NaN where no path.
-        band_rank: Preference per band, 0 most preferred.
-        threshold_dbm: The RSRP a layer needs to be taken on band preference.
-        min_rsrp_dbm: A layer at or below this is left out.
-
-    Returns:
-        ``(order, heard)``, each ``[n_loc, n_band * n_tx]``. ``order`` holds flat
-        layer indices: layers at or above the threshold by band preference then
-        RSRP, followed by the rest by RSRP. ``heard`` marks, in that same order,
-        the entries that are candidates at all; no-path layers and layers at or
-        below ``min_rsrp_dbm`` sort last and are unmarked.
-    """
-    flat = rsrp.reshape(rsrp.shape[0], rsrp.shape[1] * rsrp.shape[2])
-    band = np.repeat(np.arange(rsrp.shape[1]), rsrp.shape[2])
-    # NaN compares False, so no-path layers drop out here too.
-    heard = flat > min_rsrp_dbm
-    above = heard & (flat >= threshold_dbm)
-    strength = np.where(heard, -flat, np.inf)
-    # np.lexsort sorts by the last key first, and is stable, so equal keys keep
-    # flat-index order.
-    order = np.lexsort((strength, np.where(above, band_rank[band], 0), ~above), axis=-1)
-    return order, np.take_along_axis(heard, order, axis=-1)
-
-
 def _select_serving(
     rsrp: np.ndarray, sinr: np.ndarray, t_s: np.ndarray, spec: CapacitySpec
-) -> _Serving:
-    """Assign one interval's UEs to cell-bands under the PRB limits.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Connect one interval's UEs, each to the cell-band that gives it the most throughput.
 
     UEs are taken in ``t_s`` order, simultaneous ones strongest RSRP first over
-    every layer at the UE, and the order given breaks what remains; each walks
-    its :func:`_candidate_orders` row and takes the first cell-band where its
-    PRBs fit under ``max_admission_utilisation`` of ``max_prb``, counting the
-    load already there. A cell-band therefore never passes that share.
+    every layer at the UE, and the order given breaks what remains. Each takes
+    the candidate maximising ``pool_prb / (n + 1) * rate``, ``n`` the UEs
+    already there; a tie keeps the lower flat layer index.
 
     Args:
         rsrp: ``[n_ue, n_band, n_tx]`` RSRP at each UE's location.
         sinr: ``[n_ue, n_band, n_tx]`` SINR in dB at the same locations.
         t_s: ``[n_ue]`` report time of each UE, in seconds.
         spec: The capacity settings.
-    """
-    n_ue, n_band, n_tx = rsrp.shape
-    bandwidth = _prb_bandwidth_hz(spec.scs_hz)[None, :, None]
-    need = _prb_per_ue(spec.throughput_per_ue_bps, _prb_rate_bps(sinr, bandwidth))
-    limit = spec.max_prb.ravel()
 
-    band = np.full(n_ue, -1)
-    tx = np.full(n_ue, -1)
-    per_ue = np.full(n_ue, np.nan)
-    load = np.zeros(n_band * n_tx)
+    Returns:
+        ``(layer, throughput_bps)`` per UE: the flat ``band * n_tx + tx``
+        index, ``-1`` where no layer is above ``min_rsrp_dbm``, and the
+        throughput at the interval's final UE count, NaN where not served.
+    """
+    n_ue = rsrp.shape[0]
+    rate = _prb_rate_bps(sinr, spec.prb_bandwidth_hz[None, :, None]).reshape(n_ue, -1)
+    pool = spec.pool_prb.ravel()
+    # NaN compares False, so no-path layers drop out here too.
+    candidate = (rsrp.reshape(n_ue, -1) > spec.min_rsrp_dbm) & np.isfinite(rate)
+
+    layer = np.full(n_ue, -1)
+    count = np.zeros(pool.size)
     strongest = finite(rsrp).reshape(n_ue, -1).max(axis=1) if n_ue else np.empty(0)
     # np.lexsort sorts by the last key first, and is stable, so row order breaks
     # a UE pair tied on both time and strength.
-    admission_order = np.lexsort((-strongest, t_s))
-    orders, heard = _candidate_orders(
-        rsrp, spec.band_rank, spec.rsrp_threshold_dbm, spec.min_rsrp_dbm
-    )
-    need = need.reshape(n_ue, n_band * n_tx)
-    # The ranking is vectorised above; admission stays a loop because each UE
-    # sees the load the earlier ones left.
-    for ue in admission_order:
-        ue_need = need[ue]
-        order = orders[ue][heard[ue]]
-        order = order[np.isfinite(ue_need[order])]
-        if order.size == 0:
+    # The choice stays a loop because each UE sees the counts the earlier ones left.
+    for ue in np.lexsort((-strongest, t_s)):
+        if not candidate[ue].any():
             continue
-        ceiling = spec.max_admission_utilisation * limit[order]
-        fits = order[load[order] + ue_need[order] <= ceiling]
-        if fits.size == 0:
-            per_ue[ue] = ue_need[order[0]]
-            continue
-        chosen = fits[0]
-        load[chosen] += ue_need[chosen]
-        per_ue[ue] = ue_need[chosen]
-        band[ue], tx[ue] = divmod(int(chosen), n_tx)
-    return _Serving(band=band, tx=tx, prb_per_ue=per_ue, load=load.reshape(n_band, n_tx))
+        offer = np.where(candidate[ue], pool / (count + 1.0) * rate[ue], -np.inf)
+        layer[ue] = int(np.argmax(offer))
+        count[layer[ue]] += 1.0
+
+    throughput = np.full(n_ue, np.nan)
+    served = np.flatnonzero(layer >= 0)
+    chosen = layer[served]
+    throughput[served] = pool[chosen] / count[chosen] * rate[served, chosen]
+    return layer, throughput
 
 
 def serve_rows(
@@ -366,24 +275,26 @@ def serve_rows(
     """Run :func:`_select_serving` once per interval.
 
     Args:
-        rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees, clean or reported.
+        rsrp: ``[n_ue, n_band, n_tx]`` RSRP each UE sees.
         sinr: ``[n_ue, n_band, n_tx]`` SINR in dB at the same UEs.
-        t_index: Interval of each UE; UEs compete for PRBs only within one.
-        t_s: Report time of each UE; sets the admission order inside an interval.
+        t_index: Interval of each UE; UEs share PRBs only within one.
+        t_s: Report time of each UE; sets the connect order inside an interval.
         spec: The capacity settings.
 
     Returns:
-        ``(band, tx, prb_per_ue)`` per UE, in input order, as :class:`_Serving`
-        holds them.
+        ``(band, tx, throughput_bps)`` per UE, in input order; band and tx are
+        ``-1`` and throughput NaN where no layer is above ``min_rsrp_dbm``.
     """
-    band = np.full(len(t_index), -1)
-    tx = np.full(len(t_index), -1)
-    per_ue = np.full(len(t_index), np.nan)
+    n_tx = rsrp.shape[2]
+    layer = np.full(len(t_index), -1)
+    throughput = np.full(len(t_index), np.nan)
     for value in np.unique(t_index):
         at = np.flatnonzero(t_index == value)
-        serving = _select_serving(rsrp[at], sinr[at], t_s[at], spec)
-        band[at], tx[at], per_ue[at] = serving.band, serving.tx, serving.prb_per_ue
-    return band, tx, per_ue
+        layer[at], throughput[at] = _select_serving(rsrp[at], sinr[at], t_s[at], spec)
+    band, tx = np.divmod(layer, n_tx)
+    unserved = layer < 0
+    band[unserved], tx[unserved] = -1, -1
+    return band, tx, throughput
 
 
 def serve_intervals(
@@ -408,8 +319,9 @@ def serve_intervals(
 
     Returns:
         One row per UE row, index aligned: ``t_index``, ``tile_row``,
-        ``tile_col``, ``band``, ``tx``, ``prb_per_ue``, ``sinr_db`` (at the
-        serving cell-band, NaN when blocked).
+        ``tile_col``, ``band``, ``tx`` (``-1`` when not served), ``sinr_db``
+        and ``estimated_throughput_mbps`` at the serving cell-band, NaN when
+        not served.
 
     Raises:
         ValueError: When the UE table is off the map's grid or the config does not
@@ -420,7 +332,7 @@ def serve_intervals(
     row, col = _tile_index(ue, rsrp.shape[-2:])
     t_index = ue["t_index"].to_numpy()
 
-    band, tx, per_ue = serve_rows(
+    band, tx, throughput = serve_rows(
         rsrp[:, :, row, col].transpose(2, 0, 1),
         sinr[:, :, row, col].transpose(2, 0, 1),
         t_index,
@@ -428,80 +340,9 @@ def serve_intervals(
         spec,
     )
     out = pd.DataFrame({"t_index": t_index, "tile_row": row, "tile_col": col}, index=ue.index)
-    out["band"], out["tx"], out["prb_per_ue"] = band, tx, per_ue
+    out["band"], out["tx"] = band, tx
     served = band >= 0
     out["sinr_db"] = np.nan
     out.loc[served, "sinr_db"] = sinr[band[served], tx[served], row[served], col[served]]
+    out["estimated_throughput_mbps"] = throughput / 1e6
     return out
-
-
-def prb_by_interval(
-    t_index: np.ndarray,
-    row: np.ndarray,
-    col: np.ndarray,
-    prb_per_ue: np.ndarray,
-    shape: tuple[int, int],
-) -> tuple[np.ndarray, np.ndarray]:
-    """PRBs required per tile in each interval: the sum of its UEs' PRBs.
-
-    A UE with no reachable cell-band (NaN) adds nothing.
-
-    Returns:
-        ``(t_values, prb)``: the sorted intervals present, and ``prb`` shaped
-        ``[n_t, n_rows, n_cols]`` aligned to them.
-    """
-    n_rows, n_cols = shape
-    size = n_rows * n_cols
-    t_values, t_pos = np.unique(t_index, return_inverse=True)
-    # int64 first: the processed UE table stores tiles as int16, and row * n_cols overflows it.
-    flat = t_pos * size + np.asarray(row, dtype=np.int64) * n_cols + np.asarray(col, dtype=np.int64)
-    prb = np.bincount(flat, weights=np.nan_to_num(prb_per_ue), minlength=len(t_values) * size)
-    return t_values, prb.reshape(len(t_values), n_rows, n_cols)
-
-
-def prb_by_cell_interval(
-    served: pd.DataFrame, n_band: int, n_tx: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """PRBs each cell-band carries in each interval; only admitted UEs load one.
-
-    Args:
-        served: :func:`serve_intervals` output.
-        n_band: Bands on the radio map, the ``band`` index range.
-        n_tx: Transmitters on the radio map, the ``tx`` index range.
-
-    Returns:
-        ``(t_values, prb)``: the sorted intervals present in ``served``,
-        including ones where nothing was admitted, and ``prb`` shaped
-        ``[n_t, n_band, n_tx]`` aligned to them.
-    """
-    t_values, t_pos = np.unique(served["t_index"].to_numpy(), return_inverse=True)
-    band = served["band"].to_numpy()
-    admitted = band >= 0
-    size = n_band * n_tx
-    flat = (
-        t_pos[admitted].astype(np.int64) * size
-        + band[admitted].astype(np.int64) * n_tx
-        + served["tx"].to_numpy()[admitted].astype(np.int64)
-    )
-    prb = np.bincount(
-        flat,
-        weights=np.nan_to_num(served["prb_per_ue"].to_numpy()[admitted]),
-        minlength=len(t_values) * size,
-    )
-    return t_values, prb.reshape(len(t_values), n_band, n_tx)
-
-
-def utilisation(prb: np.ndarray, limit_prb: np.ndarray) -> np.ndarray:
-    """PRB load as a share of each cell-band's limit.
-
-    Args:
-        prb: ``[n_t, n_band, n_tx]`` from :func:`prb_by_cell_interval`.
-        limit_prb: ``[n_band, n_tx]`` limits, e.g. the admission ceiling
-            ``max_prb * max_admission_utilisation``.
-
-    Returns:
-        ``[n_t, n_band, n_tx]``, NaN where the limit is zero, so an idle
-        zero-capacity cell-band does not sort to the top of a table.
-    """
-    limit = np.asarray(limit_prb, dtype=float)[None]
-    return np.divide(prb, limit, out=np.full(np.shape(prb), np.nan), where=limit > 0)

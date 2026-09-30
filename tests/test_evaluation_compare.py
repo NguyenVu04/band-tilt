@@ -16,38 +16,32 @@ from src.optim.objective import MEASURE_NAMES, KpiVector
 
 
 def _served() -> pd.DataFrame:
-    """Serve_intervals-shaped rows: two intervals, one blocked report."""
+    """Serve_intervals-shaped rows: two intervals, one report with no cell."""
     return pd.DataFrame(
         {
             "t_index": [0, 0, 1, 1],
             "band": [0, 0, 1, -1],
             "tx": [1, 1, 0, -1],
-            "prb_per_ue": [2.0, 3.0, 4.0, 9.0],
             "sinr_db": [10.0, 20.0, 5.0, np.nan],
+            "estimated_throughput_mbps": [4.0, 6.0, 9.0, np.nan],
         }
     )
 
 
-def test_cell_band_load_sums_admitted_prbs_per_interval() -> None:
-    """Band 0 / tx 1 carries 5 PRBs in interval 0 only; the blocked report loads nothing.
-
-    Utilisation is against the admission ceiling, 0.5 x 10 PRBs, so 5 PRBs is full.
-    """
-    load = compare.cell_band_load(
-        _served(), ["hi", "lo"], ["c0", "c1"], np.array([[10.0, 10.0], [10.0, 10.0]]), 0.5
-    ).set_index(["cell", "band"])
+def test_cell_band_load_counts_ues_and_their_throughput_per_cell_band() -> None:
+    """Band 0 / tx 1 serves two UEs in interval 0; the unserved report loads nothing."""
+    load = compare.cell_band_load(_served(), ["hi", "lo"], ["c0", "c1"]).set_index(["cell", "band"])
     assert load.loc[("c1", "hi"), "served_reports"] == 2
-    assert load.loc[("c1", "hi"), "peak_prb"] == pytest.approx(5.0)
-    assert load.loc[("c1", "hi"), "mean_prb"] == pytest.approx(2.5)
-    assert load.loc[("c1", "hi"), "ceiling_prb"] == pytest.approx(5.0)
-    assert load.loc[("c1", "hi"), "peak_utilisation"] == pytest.approx(1.0)
+    assert load.loc[("c1", "hi"), "peak_ues"] == 2
+    assert load.loc[("c1", "hi"), "median_throughput_mbps"] == pytest.approx(5.0)
     assert load.loc[("c1", "hi"), "median_sinr_db"] == pytest.approx(15.0)
-    assert load.loc[("c0", "lo"), "peak_prb"] == pytest.approx(4.0)
-    assert load["peak_prb"].sum() == pytest.approx(9.0)
+    assert load.loc[("c0", "lo"), "peak_ues"] == 1
+    assert load.loc[("c0", "hi"), "served_reports"] == 0
+    assert np.isnan(load.loc[("c0", "hi"), "median_throughput_mbps"])
 
 
-def test_service_summary_counts_blocked_reports_as_not_served() -> None:
-    """One report of four is blocked; shares are of all reports."""
+def test_service_summary_counts_unserved_reports_as_not_served() -> None:
+    """One report of four has no cell; shares are of all reports."""
     summary = compare.service_summary(_served(), ["hi", "lo"])
     assert summary["not_served_share"] == pytest.approx(0.25)
     assert summary["share_hi"] == pytest.approx(0.5)
@@ -55,30 +49,18 @@ def test_service_summary_counts_blocked_reports_as_not_served() -> None:
     assert summary["sinr_median_db"] == pytest.approx(10.0)
 
 
-def test_failure_share_is_per_tile_and_blank_where_nobody_reported() -> None:
-    """Tile (0, 0): one of two reports failed. Tile (0, 1): none. Tile (0, 2): no report."""
-    served = pd.DataFrame({"tile_row": [0, 0, 0], "tile_col": [0, 0, 1], "band": [0, -1, 1]})
-    share = maps.failure_share(served, (1, 3))
-    assert share[0, :2].tolist() == pytest.approx([0.5, 0.0])
-    assert np.isnan(share[0, 2])
-
-
-def test_failure_by_coverage_splits_failures_by_the_ue_tile(cfg: DictConfig) -> None:
-    """Tile 0 is a hole, tile 1 good: the hole's UE fails, one of two good-tile UEs is refused."""
-    served = pd.DataFrame({"tile_row": [0, 0, 0], "tile_col": [0, 1, 1], "band": [-1, 0, -1]})
-    config = compare.Configuration(
-        rsrp=np.array([[[[-130.0, -80.0]]]]),
-        sinr=np.zeros((1, 1, 1, 2)),
-        served=served,
-        demand=np.zeros((1, 2)),
-        t_values=np.zeros(1, dtype=int),
-        prb=np.zeros((1, 1, 1)),
+def test_tile_median_is_per_tile_and_blank_where_nobody_was_served() -> None:
+    """Tile (0, 0): 4 and 8 Mbit/s. Tile (0, 1): one unserved report. Tile (0, 2): no report."""
+    served = pd.DataFrame(
+        {
+            "tile_row": [0, 0, 0],
+            "tile_col": [0, 0, 1],
+            "estimated_throughput_mbps": [4.0, 8.0, np.nan],
+        }
     )
-    table = compare.failure_by_coverage({"incumbent": config}, cfg).set_index("coverage")
-    assert table.loc["hole", "failure_share"] == pytest.approx(1.0)
-    assert table.loc["good", "failure_share"] == pytest.approx(0.5)
-    assert table.loc["good", "share_of_failures"] == pytest.approx(0.5)
-    assert table.loc["weak", "reports"] == 0
+    median = maps.tile_median(served, "estimated_throughput_mbps", (1, 3))
+    assert median[0, 0] == pytest.approx(6.0)
+    assert np.isnan(median[0, 1:]).all()
 
 
 def test_cell_table_reads_the_configured_cells() -> None:
@@ -124,6 +106,9 @@ def incumbent() -> KpiVector:
         sinr_p50_db=8.0,
         sinr_p05_db=-3.0,
         ue_service_failure_rate=0.009,
+        estimated_throughput_p05_mbps=1.0,
+        estimated_throughput_p50_mbps=5.0,
+        estimated_throughput_mean_mbps=6.0,
         objective=0.40,
     )
 
@@ -168,13 +153,16 @@ def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
 
 
 def test_direction_names_every_kpi() -> None:
-    """The maximised set is the signal-quality measures and J; any other is a sign error."""
+    """The maximised set is signal quality, throughput and J; any other is a sign error."""
     maximised = [name for name in MEASURE_NAMES if compare.direction(name) == "maximise"]
     assert maximised == [
         "rsrp_p50_dbm",
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
+        "estimated_throughput_p05_mbps",
+        "estimated_throughput_p50_mbps",
+        "estimated_throughput_mean_mbps",
         "objective",
     ]
 
@@ -222,6 +210,9 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "sinr_p50_db": [8.0] * n,
             "sinr_p05_db": [-3.0] * n,
             "ue_service_failure_rate": [0.0] * n,
+            "estimated_throughput_p05_mbps": [1.0] * n,
+            "estimated_throughput_p50_mbps": [5.0] * n,
+            "estimated_throughput_mean_mbps": [6.0] * n,
             "objective": coverage,
         }
     )
@@ -279,19 +270,20 @@ def test_pareto_front_reads_each_column_in_its_direction() -> None:
 
 
 def test_relative_improvement_is_positive_when_better() -> None:
-    """A falling hole rate and a rising median SINR both read as gains."""
+    """A falling hole rate and a rising median SINR both read as gains; J is not a KPI."""
     summary = pd.DataFrame(
         {
-            "method": ["turbo", "turbo"],
-            "kpi": ["hole_rate", "sinr_p50_db"],
-            "direction": ["minimise", "maximise"],
-            "incumbent": [0.2, 0.5],
-            "mean": [0.1, 0.6],
+            "method": ["turbo", "turbo", "turbo"],
+            "kpi": ["hole_rate", "sinr_p50_db", "objective"],
+            "direction": ["minimise", "maximise", "maximise"],
+            "incumbent": [0.2, 0.5, 0.6],
+            "mean": [0.1, 0.6, 0.7],
         }
     )
     row = compare.relative_improvement(summary).iloc[0]
     assert row["hole_rate"] == pytest.approx(50.0)
     assert row["sinr_p50_db"] == pytest.approx(20.0)
+    assert "objective" not in row
 
 
 def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
@@ -314,8 +306,6 @@ def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
         sinr=rsrp,
         served=pd.DataFrame(),
         demand=np.zeros(1),
-        t_values=np.zeros(0, dtype=int),
-        prb=np.zeros((0, 1, 3)),
     )
     row = compare.overlap_neighbour_summary({"incumbent": config}, cfg).iloc[0]
     assert row["mean_neighbours_covered"] == pytest.approx(2.0)
@@ -331,12 +321,7 @@ def _capacity_cfg() -> DictConfig:
                 "hole_dbm": -120.0,
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
-                "capacity": {
-                    "band_preference": ["hi", "lo"],
-                    "rsrp_threshold_dbm": -120.0,
-                    "max_admission_utilisation": 0.8,
-                    "throughput_per_ue_bps": 1.0,
-                },
+                "capacity": {"max_admission_utilisation": 0.8},
             },
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
@@ -370,7 +355,7 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
             "t_index": [0, 0, 0, 0],
             "band": [0, 1, 1, -1],
             "tx": [0, 0, 0, -1],
-            "prb_per_ue": [2.0, 1.0, 1.0, np.nan],
+            "estimated_throughput_mbps": [2.0, 4.0, 6.0, np.nan],
         }
     )
     config = compare.Configuration(
@@ -378,8 +363,6 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
         sinr=np.full(rsrp.shape, 10.0),
         served=served,
         demand=np.zeros((1, 2)),
-        t_values=np.array([0]),
-        prb=np.array([[[2.0], [2.0]]]),
     )
     table = compare.band_kpis({"incumbent": config}, ["hi", "lo"], _capacity_cfg())
     table = table.set_index("band")
@@ -391,28 +374,12 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     # One report of four failed; a failure belongs to no single band.
     assert table.loc[compare.ALL_BANDS, "ue_service_failure_rate"] == pytest.approx(0.25)
     assert table.loc[["hi", "lo"], "ue_service_failure_rate"].isna().all()
+    # Throughput is over the three served reports only, and network-wide too.
+    assert table.loc[compare.ALL_BANDS, "estimated_throughput_p50_mbps"] == pytest.approx(4.0)
+    assert table.loc[compare.ALL_BANDS, "estimated_throughput_mean_mbps"] == pytest.approx(4.0)
+    assert table.loc[["hi", "lo"], "estimated_throughput_mean_mbps"].isna().all()
     # SINR 10 dB everywhere, so every covered tile reads 10 dB.
     assert table.loc[compare.ALL_BANDS, "sinr_p50_db"] == pytest.approx(10.0)
-
-
-def test_prb_usage_by_time_labels_every_cell_band_and_interval() -> None:
-    """PRB load per cell-band and interval, as a share of the admission ceiling."""
-    config = compare.Configuration(
-        rsrp=np.full((2, 1, 1, 1), -80.0),
-        sinr=np.full((2, 1, 1, 1), 10.0),
-        served=pd.DataFrame(),
-        demand=np.zeros((1, 1)),
-        t_values=np.array([0, 1]),
-        prb=np.array([[[4.0], [0.0]], [[0.0], [5.0]]]),
-    )
-    usage = compare.prb_usage_by_time(
-        {"incumbent": config}, ["hi", "lo"], ["c0"], np.array([[10.0], [10.0]])
-    )
-    assert len(usage) == 4
-    hot = usage.set_index(["t_index", "band"])["utilisation"]
-    assert hot.loc[(0, "hi")] == pytest.approx(0.4)
-    assert hot.loc[(1, "lo")] == pytest.approx(0.5)
-    assert hot.loc[(1, "hi")] == pytest.approx(0.0)
 
 
 def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:
@@ -439,8 +406,6 @@ def test_coverage_by_area_and_demand_weighs_every_map_by_the_incumbents_demand(
             sinr=rsrp,
             served=pd.DataFrame(),
             demand=demand,
-            t_values=np.zeros(0, dtype=int),
-            prb=np.zeros((0, 1, 1)),
         )
 
     table = compare.coverage_by_area_and_demand(

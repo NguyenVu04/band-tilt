@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -14,11 +12,13 @@ from src.kpi import (
     overlap_neighbor_mean,
     rsrp_percentile_dbm,
     sinr_percentile_db,
+    throughput_mean_mbps,
+    throughput_percentile_mbps,
     ue_service_failure_rate,
     weak_rate,
 )
 from src.kpi.capacity import _tile_index, serve_intervals
-from src.kpi.overlap import effective_coverage, overlap_neighbors, overlap_neighbors_per_band
+from src.kpi.overlap import effective_coverage, overlap_neighbors
 
 
 @pytest.fixture
@@ -30,13 +30,7 @@ def cfg():
                 "hole_dbm": -120.0,
                 "weak_dbm": -90.0,
                 "overlap_margin_db": 6.0,
-                "capacity": {
-                    "band_preference": ["hi", "lo"],
-                    "rsrp_threshold_dbm": -100.0,
-                    "max_admission_utilisation": 1.0,
-                    # Low enough that no fixture UE is blocked unless it asks to be.
-                    "throughput_per_ue_bps": 1.0,
-                },
+                "capacity": {"max_admission_utilisation": 1.0},
             },
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
@@ -79,7 +73,7 @@ def _ue(rows: list[dict[str, float]]) -> pd.DataFrame:
 
 
 def _served(rsrp: np.ndarray, ue: pd.DataFrame, cfg) -> pd.DataFrame:
-    """The serving assignment the failure rate reduces."""
+    """The serving assignment the UE KPIs reduce."""
     return serve_intervals(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg)
 
 
@@ -187,14 +181,14 @@ def test_overlap_neighbor_mean_of_a_dead_map_is_nan(cfg) -> None:
 
 
 def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
-    """The objective reads one band's column of the same array the KPI sums."""
+    """A band's slice counts that band alone, which is how the per-layer KPIs read it."""
     rsrp = _map(
         [
             [[-80.0, -80.0], [-84.0, -130.0]],
             [[-90.0, -100.0], [-94.0, -130.0]],
         ]
     )
-    per_band = overlap_neighbors_per_band(rsrp, cfg)
+    per_band = np.stack([overlap_neighbors(rsrp[b : b + 1], cfg) for b in range(2)])
     assert per_band.tolist() == [[[1, 0]], [[1, 0]]]
     assert per_band.sum(axis=0).tolist() == overlap_neighbors(rsrp, cfg).tolist()
 
@@ -202,13 +196,13 @@ def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
 # --- effective coverage, the quantity the objective scores --------------------
 
 
-def _u(multiplicity: float) -> float:
-    """``lambda e^(1 - lambda)``, before the strength factor scales it."""
-    return multiplicity * math.exp(1.0 - multiplicity)
+def _share(*relative_db: float) -> float:
+    """The strongest cell's power share, before the strength factor scales it."""
+    return 1.0 / (1.0 + sum(10.0 ** (db / 10.0) for db in relative_db))
 
 
 def test_effective_coverage_is_the_contraharmonic_mean_over_bands(cfg) -> None:
-    """Tile 0: 'hi' crowded, 'lo' clean. Tile 1: 'hi' clean, 'lo' at two-thirds strength.
+    """Tile 0: 'hi' rival 4 dB down, 'lo' 20 dB down. Tile 1: 'hi' alone, 'lo' at 2/3 strength.
 
     Each band is weighted by its own utility, so neither tile reaches its best band.
     """
@@ -218,16 +212,22 @@ def test_effective_coverage_is_the_contraharmonic_mean_over_bands(cfg) -> None:
             [[-90.0, -100.0], [-110.0, -130.0]],
         ]
     )
-    crowded, clean, weaker = _u(2.0), _u(1.0), _u(1.0) * 2.0 / 3.0
-    tile_0 = (crowded**2 + clean**2) / (crowded + clean)
+    crowded, faint, clean, weaker = _share(-4.0), _share(-20.0), 1.0, 2.0 / 3.0
+    tile_0 = (crowded**2 + faint**2) / (crowded + faint)
     tile_1 = (clean**2 + weaker**2) / (clean + weaker)
     assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([tile_0, tile_1])
 
 
-def test_effective_coverage_counts_neighbours_within_the_winning_band(cfg) -> None:
+def test_effective_coverage_prices_rivals_within_each_band(cfg) -> None:
     """Every band crowded means no clean layer to escape to."""
     rsrp = _map([[[-80.0], [-84.0]], [[-90.0], [-94.0]]])
-    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([_u(2.0)])
+    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([_share(-4.0)])
+
+
+def test_effective_coverage_ignores_rivals_at_or_below_the_hole_threshold(cfg) -> None:
+    """A rival that serves nobody crowds nobody."""
+    rsrp = _map([[[-90.0], [-120.0]]])
+    assert effective_coverage(rsrp, cfg).ravel().tolist() == pytest.approx([1.0])
 
 
 def test_effective_coverage_is_zero_where_no_band_is_covered(cfg) -> None:
@@ -258,7 +258,7 @@ def test_losing_a_layer_never_raises_effective_coverage(cfg) -> None:
     clean lower band and scored it higher. Under the contraharmonic mean,
     shedding a band that scores below the tile's score does raise it.
     """
-    crowded = _map([[[-80.0], [-82.0]], [[-100.0], [-130.0]]])
+    crowded = _map([[[-80.0], [-86.0]], [[-100.0], [-130.0]]])
     stripped = crowded.copy()
     stripped[0] = -130.0
     assert effective_coverage(stripped, cfg) <= effective_coverage(crowded, cfg)
@@ -273,11 +273,11 @@ def test_tile_index_rejects_a_ue_off_the_map() -> None:
         _tile_index(_ue([{"tile_row": 0, "tile_col": 5}]), (1, 4))
 
 
-# --- service failure rate --------------------------------------------------
+# --- UE KPIs ---------------------------------------------------------------
 
 
-def test_every_covered_ue_with_room_is_served(cfg) -> None:
-    """Three UEs on covered tiles, PRBs to spare: none fails."""
+def test_every_covered_ue_is_served(cfg) -> None:
+    """Three UEs on covered tiles: none fails, because nobody is refused."""
     rsrp = _map([[[-95.0, -105.0]], [[-70.0, -85.0]]])
     ue = _ue(
         [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 2
@@ -298,14 +298,29 @@ def test_a_ue_on_a_hole_counts_as_not_served(cfg) -> None:
     assert ue_service_failure_rate(_served(rsrp, ue, cfg)) == pytest.approx(0.5)
 
 
-def test_a_blocked_ue_counts_as_not_served(cfg) -> None:
-    """Each band holds one UE's PRBs: two of three UEs fit."""
-    # At 0 dB one PRB carries 180 kbit/s, so each UE needs 0.6 PRB.
-    cfg.kpi.capacity.throughput_per_ue_bps = 0.6 * 180_000.0
-    cfg.simulation.transmitters.cells[0].max_prb = {"hi": 1, "lo": 1}
-    rsrp = _map([[[-80.0]], [[-80.0]]])
-    ue = _ue([{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 3)
-    assert ue_service_failure_rate(_served(rsrp, ue, cfg)) == pytest.approx(1.0 / 3.0)
+def test_throughput_statistics_read_only_the_served_ues(cfg) -> None:
+    """Two UEs split 100 PRBs on tile 0 and a third is on a hole.
+
+    At 0 dB one PRB carries 180 kbit/s, so each served UE gets 9 Mbit/s; the
+    hole UE is a failure and is not a zero in the statistics.
+    """
+    rsrp = _map([[[-80.0, -130.0]], [[np.nan, np.nan]]])
+    ue = _ue(
+        [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 0}] * 2
+        + [{"t_index": 0, "t_s": 0.0, "tile_row": 0, "tile_col": 1}]
+    )
+    served = _served(rsrp, ue, cfg)
+    assert ue_service_failure_rate(served) == pytest.approx(1.0 / 3.0)
+    assert throughput_percentile_mbps(served, 5.0) == pytest.approx(9.0)
+    assert throughput_percentile_mbps(served, 50.0) == pytest.approx(9.0)
+    assert throughput_mean_mbps(served) == pytest.approx(9.0)
+
+
+def test_throughput_statistics_are_zero_when_nobody_is_served() -> None:
+    """A total outage orders below any configuration that serves someone."""
+    served = pd.DataFrame({"band": [-1], "estimated_throughput_mbps": [np.nan]})
+    assert throughput_percentile_mbps(served, 5.0) == 0.0
+    assert throughput_mean_mbps(served) == 0.0
 
 
 def test_failure_rate_rejects_an_empty_ue_table(cfg) -> None:

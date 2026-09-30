@@ -45,7 +45,7 @@ _CONFIG = {
     "kpi": {
         "hole_dbm": -120.0,
         "overlap_margin_db": 6.0,
-        "capacity": {"band_preference": ["high", "low"]},
+        "capacity": {"max_admission_utilisation": 0.8},
     },
     "optim": {
         # `rule` rather than `turbo`: deterministic, no model, and it still
@@ -93,6 +93,9 @@ class StubEvaluator:
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
                 ue_service_failure_rate=float(np.mean((unit - 0.75) ** 2)),
+                estimated_throughput_p05_mbps=float(np.mean(unit)),
+                estimated_throughput_p50_mbps=float(2.0 * np.mean(unit)),
+                estimated_throughput_mean_mbps=float(3.0 * np.mean(unit)),
                 objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
             ),
             seconds=1.0,
@@ -151,6 +154,9 @@ def _kpi(objective: float, rng: np.random.Generator | None = None) -> KpiVector:
         sinr_p05_db=-3.0,
         sinr_p50_db=8.0,
         ue_service_failure_rate=draw(),
+        estimated_throughput_p05_mbps=draw(),
+        estimated_throughput_p50_mbps=draw(),
+        estimated_throughput_mean_mbps=draw(),
         objective=objective,
     )
 

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import finite, max_rsrp
+from src.kpi.capacity import CapacitySpec, max_rsrp, spectral_efficiency
 
 # Display range for RSRP images. The lower bound mirrors kpi.hole_dbm in
 # configs/kpi.yaml, so the darkest colour and "uncovered" mean the same thing to
@@ -29,34 +29,30 @@ COVERAGE_CLASSES = ("hole", "weak", "good")
 HOLE, WEAK, GOOD = range(3)
 
 
-def serving_band(
-    rsrp: np.ndarray, band_rank: np.ndarray, threshold_dbm: float, min_rsrp_dbm: float
-) -> np.ndarray:
-    """Band each tile is served on by the serving rule, before PRB limits.
+def serving_band(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> np.ndarray:
+    """Band a lone UE on each tile would be served on.
 
-    The rule of :mod:`src.kpi.capacity` per tile: among bands whose strongest
-    cell is above ``min_rsrp_dbm``, the most preferred one that also clears
-    ``threshold_dbm``, else the strongest of them.
+    The serving rule of :mod:`src.kpi.capacity` with nobody else connected: the
+    candidate above ``spec.min_rsrp_dbm`` whose whole PRB pool carries the most
+    throughput. With other UEs connected the choice also depends on load, so
+    this is the map's static reading of the rule, not a UE's assignment.
 
     Args:
         rsrp: ``[n_band, n_tx, n_rows, n_cols]`` in dBm, NaN where no path.
-        band_rank: Preference per band, 0 most preferred; ``CapacitySpec.band_rank``.
-        threshold_dbm: ``CapacitySpec.rsrp_threshold_dbm``.
-        min_rsrp_dbm: ``CapacitySpec.min_rsrp_dbm``; a layer at or below it is
-            never a candidate.
+        sinr: The solver's SINR in dB, same shape.
+        spec: The capacity settings.
 
     Returns:
         ``[n_rows, n_cols]`` band index, ``-1`` where no layer is above
-        ``min_rsrp_dbm``.
+        ``spec.min_rsrp_dbm``.
     """
-    best = finite(rsrp).max(axis=1)
-    heard = best > min_rsrp_dbm
-    above = heard & (best >= threshold_dbm)
-    rank = np.asarray(band_rank)[:, None, None]
-    preferred = np.where(above, rank, np.iinfo(np.int64).max).argmin(axis=0)
-    strongest = np.where(heard, best, -np.inf).argmax(axis=0)
-    band = np.where(above.any(axis=0), preferred, strongest)
-    return np.where(heard.any(axis=0), band, -1)
+    n_tx = rsrp.shape[1]
+    rate = spectral_efficiency(sinr) * spec.prb_bandwidth_hz[:, None, None, None]
+    offer = spec.pool_prb[:, :, None, None] * rate
+    candidate = (rsrp > spec.min_rsrp_dbm) & np.isfinite(offer)
+    layers = np.where(candidate, offer, -np.inf).reshape(-1, *rsrp.shape[-2:])
+    band = layers.argmax(axis=0) // n_tx
+    return np.where(candidate.any(axis=(0, 1)), band, -1)
 
 
 def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -75,10 +71,10 @@ def coverage_table(rsrp: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> pd.
     """Coverage by area and by demand, one row per class.
 
     Returns:
-        Columns ``tiles``, ``tile_share``, ``prb``, ``demand_share``.
+        Columns ``tiles``, ``tile_share``, ``reports``, ``demand_share``.
 
         ``tile_share`` for the hole row is the hole rate KPI; ``demand_share``
-        is the share of PRB demand standing on such a tile. They can differ by
+        is the share of UE reports standing on such a tile. They can differ by
         a large factor, because holes need not fall where anyone is, and that
         difference is the reason this table exists.
     """
@@ -87,14 +83,14 @@ def coverage_table(rsrp: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> pd.
     rows = []
     for index, name in enumerate(COVERAGE_CLASSES):
         mask = classes == index
-        prb = float(counts[mask].sum())
+        reports = float(counts[mask].sum())
         rows.append(
             {
                 "coverage": name,
                 "tiles": int(mask.sum()),
                 "tile_share": float(mask.mean()),
-                "prb": prb,
-                "demand_share": float(prb / total) if total else float("nan"),
+                "reports": reports,
+                "demand_share": float(reports / total) if total else float("nan"),
             }
         )
     return pd.DataFrame(rows)
@@ -147,23 +143,22 @@ def underserved(
     return busy & (coverage_class(rsrp, cfg) != GOOD)
 
 
-def failure_share(served: pd.DataFrame, shape: tuple[int, int]) -> np.ndarray:
-    """Share of each tile's UE reports the serving rule did not admit.
+def tile_median(served: pd.DataFrame, column: str, shape: tuple[int, int]) -> np.ndarray:
+    """Median of one column of the UE reports on each tile, over every interval.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output.
+        column: The column to reduce, e.g. ``estimated_throughput_mbps``.
         shape: The grid's ``(n_rows, n_cols)``.
 
     Returns:
-        ``[n_rows, n_cols]`` in ``[0, 1]``, NaN on a tile with no report: "no
-        one here" is not "everyone here was served".
+        ``[n_rows, n_cols]``, NaN on a tile with no report or none with a value:
+        "no one here" is not "everyone here got nothing".
     """
-    size = shape[0] * shape[1]
-    flat = served["tile_row"].to_numpy(np.int64) * shape[1] + served["tile_col"].to_numpy(np.int64)
-    reports = np.bincount(flat, minlength=size)
-    failed = np.bincount(flat, weights=served["band"].to_numpy() < 0, minlength=size)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return np.where(reports > 0, failed / reports, np.nan).reshape(shape)
+    median = served.groupby(["tile_row", "tile_col"])[column].median()
+    grid = np.full(shape, np.nan)
+    grid[median.index.get_level_values(0), median.index.get_level_values(1)] = median.to_numpy()
+    return grid
 
 
 def extent_of(radio: dict[str, Any]) -> list[float]:

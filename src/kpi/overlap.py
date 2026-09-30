@@ -4,8 +4,9 @@ The overlap rule is CO-BAND: within one band, the strongest transmitter serves
 and the other transmitters on that same band are its neighbours. Two carriers of
 one cell are therefore never neighbours of each other.
 
-:func:`effective_coverage` reads those same counts on every band and takes their
-contraharmonic mean. It is what the objective scores.
+:func:`effective_coverage` prices the same co-band crowding smoothly, as the
+strongest cell's share of its band's received power, and takes the
+contraharmonic mean over bands. It is what the objective scores.
 """
 
 from __future__ import annotations
@@ -16,8 +17,8 @@ from omegaconf import DictConfig
 from src.kpi.capacity import covered, finite
 
 
-def overlap_neighbors_per_band(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
-    """Count overlapping neighbours at each location, per band.
+def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
+    """Count overlapping neighbours at each location, summed over bands.
 
     A neighbour of band ``b``'s strongest transmitter is another transmitter on
     ``b`` that is itself above ``cfg.kpi.hole_dbm`` and within
@@ -29,8 +30,8 @@ def overlap_neighbors_per_band(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
             ``cfg.kpi.overlap_margin_db``.
 
     Returns:
-        ``[n_band, n_rows, n_cols]``. A band scores zero where it covers
-        nothing: it has nothing to overlap with there.
+        ``N_ov(g)``, shape ``[n_rows, n_cols]``. A band contributes zero where
+        it covers nothing: it has nothing to overlap with there.
     """
     hole_dbm = float(cfg.kpi.hole_dbm)
     margin_db = float(cfg.kpi.overlap_margin_db)
@@ -43,33 +44,20 @@ def overlap_neighbors_per_band(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     counted = (layers >= serving - margin_db) & (layers > hole_dbm) & covered
     # The serving transmitter is within the margin of itself; drop it, but only
     # where the band is covered, or an uncovered location would count -1.
-    return np.where(covered[:, 0], counted.sum(axis=1) - 1, 0)
-
-
-def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
-    """Count overlapping neighbours at each location, summed over bands.
-
-    Args:
-        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; as :func:`overlap_neighbors_per_band`.
-
-    Returns:
-        ``N_ov(g)``, shape ``[n_rows, n_cols]``. Uncovered locations contribute
-        zero: they have nothing to overlap with.
-    """
-    return overlap_neighbors_per_band(rsrp, cfg).sum(axis=0)
+    return np.where(covered[:, 0], counted.sum(axis=1) - 1, 0).sum(axis=0)
 
 
 def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     """How well each tile is served, over its layers, in ``[0, 1]``.
 
-    Per band, ``lambda_b = 1 + `` :func:`overlap_neighbors_per_band` where the band
-    clears ``cfg.kpi.hole_dbm``, and ``lambda_b e^(1 - lambda_b)`` peaks at exactly
-    1 for a single dominant cell. That is scaled by how far the band's strongest
-    cell sits between ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``, so a server
-    barely above the hole threshold scores near nothing and one at or above the
-    weak threshold scores in full. The tile takes the contraharmonic mean of those
-    per-band utilities, ``sum_b u_b^2 / sum_b u_b``.
+    Per band, the strongest cell ``s`` holds the share
+    ``1 / (1 + sum_i 10^((R_i - R_s) / 10))`` of the band's received power, over
+    every other cell ``i`` on that band above ``cfg.kpi.hole_dbm``: 1 for a lone
+    server, 1/2 for two equal ones. That is scaled by how far ``R_s`` sits between
+    ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``, so a server barely above the
+    hole threshold scores near nothing and one at or above the weak threshold
+    scores in full. The tile takes the contraharmonic mean of those per-band
+    utilities, ``sum_b u_b^2 / sum_b u_b``.
 
     Each band is weighted by its own utility, so the result never exceeds the best
     band and an uncovered band carries no weight.
@@ -79,21 +67,30 @@ def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.hole_dbm``, ``cfg.kpi.weak_dbm`` and
-            ``cfg.kpi.overlap_margin_db``.
+        cfg: Composed config; reads ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``.
 
     Returns:
         ``[n_rows, n_cols]`` in ``[0, 1]``, zero where no band is covered, which
         includes every location the ray tracer found no path to.
+
+    Raises:
+        ValueError: When ``kpi.weak_dbm`` does not exceed ``kpi.hole_dbm``.
     """
     hole_dbm = float(cfg.kpi.hole_dbm)
     weak_dbm = float(cfg.kpi.weak_dbm)
     if weak_dbm <= hole_dbm:
         raise ValueError(f"kpi.weak_dbm ({weak_dbm}) must exceed kpi.hole_dbm ({hole_dbm}).")
-    strongest = finite(rsrp).max(axis=1)
-    multiplicity = np.where(strongest > hole_dbm, overlap_neighbors_per_band(rsrp, cfg) + 1.0, 0.0)
+    layers = finite(rsrp)
+    strongest = layers.max(axis=1)
+    # Only covered layers are differenced: `-inf - -inf` is NaN, and warns.
+    relative_db = np.subtract(
+        layers, strongest[:, None], out=np.full_like(layers, -np.inf), where=layers > hole_dbm
+    )
+    # `s` itself contributes 10^0, so this is the whole denominator.
+    received = (10.0 ** (relative_db / 10.0)).sum(axis=1)
+    share = np.divide(1.0, received, out=np.zeros_like(received), where=received > 0.0)
     strength = np.clip((strongest - hole_dbm) / (weak_dbm - hole_dbm), 0.0, 1.0)
-    utility = multiplicity * np.exp(1.0 - multiplicity) * strength
+    utility = share * strength
     total = utility.sum(axis=0)
     # 0/0 on a tile no band covers; it scores 0.
     return np.divide((utility**2).sum(axis=0), total, out=np.zeros_like(total), where=total > 0.0)

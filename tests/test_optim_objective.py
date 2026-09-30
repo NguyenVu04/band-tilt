@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
@@ -20,10 +18,8 @@ from src.optim.objective import (
 
 @pytest.fixture
 def cfg():
-    """The three thresholds the objective reads. It reads nothing else."""
-    return OmegaConf.create(
-        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
-    )
+    """The two thresholds the objective reads. It reads nothing else."""
+    return OmegaConf.create({"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0}})
 
 
 def _kpi(**overrides: float) -> KpiVector:
@@ -38,14 +34,17 @@ def _kpi(**overrides: float) -> KpiVector:
         "sinr_p05_db": -3.0,
         "sinr_p50_db": 8.0,
         "ue_service_failure_rate": 0.20,
+        "estimated_throughput_p05_mbps": 1.0,
+        "estimated_throughput_p50_mbps": 5.0,
+        "estimated_throughput_mean_mbps": 6.0,
         "objective": 0.50,
     }
     return KpiVector(**{**values, **overrides})
 
 
-def _u(multiplicity: float) -> float:
-    """The utility of a tile served by that many cells: ``lambda e^(1 - lambda)``."""
-    return multiplicity * math.exp(1.0 - multiplicity)
+def _share(*relative_db: float) -> float:
+    """The strongest cell's power share, rivals given in dB relative to it."""
+    return 1.0 / (1.0 + sum(10.0 ** (db / 10.0) for db in relative_db))
 
 
 def _map(values: list[list[float]]) -> np.ndarray:
@@ -70,17 +69,23 @@ def test_reporting_order() -> None:
         "sinr_p50_db",
         "sinr_p05_db",
         "ue_service_failure_rate",
+        "estimated_throughput_p05_mbps",
+        "estimated_throughput_p50_mbps",
+        "estimated_throughput_mean_mbps",
     )
     assert MEASURE_NAMES == (*KPI_NAMES, "objective")
 
 
-def test_only_the_signal_quality_and_objective_measures_are_maximised() -> None:
+def test_only_the_signal_quality_throughput_and_objective_measures_are_maximised() -> None:
     """The usual place a sign error hides: the rates are minimised."""
     assert MAXIMISED == {
         "rsrp_p50_dbm",
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
+        "estimated_throughput_p05_mbps",
+        "estimated_throughput_p50_mbps",
+        "estimated_throughput_mean_mbps",
         "objective",
     }
 
@@ -99,10 +104,10 @@ def test_from_mapping_names_a_missing_measure() -> None:
         KpiVector.from_mapping(values)
 
 
-# --- lambda, the count the objective scores ---------------------------------
+# --- the power share the objective scores -------------------------------------
 #
 # Every RSRP below is at or above kpi.weak_dbm, so the strength factor is 1 and
-# these fixtures isolate the multiplicity. Strength has its own tests further on.
+# these fixtures isolate the share. Strength has its own tests further on.
 
 
 def test_one_dominant_cell_scores_the_maximum(cfg) -> None:
@@ -110,46 +115,50 @@ def test_one_dominant_cell_scores_the_maximum(cfg) -> None:
     assert _score(_map([[-90.0, -130.0]]), cfg) == pytest.approx(1.0)
 
 
-def test_a_second_cell_inside_the_margin_costs_a_quarter(cfg) -> None:
-    """A neighbour 4 dB down is inside the 6 dB margin; one 7 dB down is not."""
-    assert _score(_map([[-80.0, -84.0]]), cfg) == pytest.approx(_u(2.0))
-    assert _score(_map([[-80.0, -87.0]]), cfg) == pytest.approx(1.0)
+def test_an_equal_rival_halves_the_band(cfg) -> None:
+    """Two cells at the same power each hold half of it."""
+    assert _score(_map([[-80.0, -80.0]]), cfg) == pytest.approx(0.5)
+
+
+def test_a_rival_costs_in_proportion_to_its_power(cfg) -> None:
+    """No margin: a rival 20 dB down still costs its 1 %, and a nearer one costs more."""
+    near = _score(_map([[-80.0, -84.0]]), cfg)
+    far = _score(_map([[-80.0, -100.0]]), cfg)
+    assert near == pytest.approx(_share(-4.0), abs=5e-7)
+    assert far == pytest.approx(_share(-20.0), abs=5e-7)
+    assert near < far < 1.0
 
 
 def test_a_third_cell_costs_more_than_the_second(cfg) -> None:
     """The utility keeps falling, so the search never trades one crowd for a worse one."""
     two = _score(_map([[-80.0, -84.0, -130.0]]), cfg)
     three = _score(_map([[-80.0, -84.0, -85.0]]), cfg)
-    assert three == pytest.approx(_u(3.0))
+    assert three == pytest.approx(_share(-4.0, -5.0), abs=5e-7)
     assert three < two < 1.0
 
 
-def test_the_margin_is_inclusive(cfg) -> None:
-    """A neighbour exactly 6 dB down overlaps; 6.01 dB down does not."""
-    assert _score(_map([[-80.0, -86.0]]), cfg) == pytest.approx(_u(2.0))
-    assert _score(_map([[-80.0, -86.01]]), cfg) == pytest.approx(1.0)
-
-
 def test_a_neighbour_below_the_hole_threshold_does_not_count(cfg) -> None:
-    """Within the margin but unusable: -122 dBm serves nobody, so it crowds nobody."""
+    """-122 dBm serves nobody, so it crowds nobody."""
     marginal = _map([[-118.0, -122.0]])
-    assert _score(marginal, cfg) == pytest.approx(_u(1.0) * (120.0 - 118.0) / 30.0, abs=5e-7)
+    assert _score(marginal, cfg) == pytest.approx((120.0 - 118.0) / 30.0, abs=5e-7)
 
 
 def test_bands_are_weighted_by_utility_not_preference(cfg) -> None:
-    """Strength and cleanliness weight the layers, not kpi.capacity.band_preference.
+    """Strength and cleanliness weight the layers, not a band order.
 
     'hi' is barely covered and alone; 'lo' is 49 dB stronger and crowded. The
     contraharmonic mean leans on 'lo', and the marginal 'hi' still pulls it down.
     """
     rsrp = _map([[-119.0, -130.0], [-70.0, -71.0]])
-    hi, lo = _u(1.0) / 30.0, _u(2.0)
-    assert _score(rsrp, cfg) == pytest.approx((hi**2 + lo**2) / (hi + lo))
+    hi, lo = 1.0 / 30.0, _share(-1.0)
+    assert _score(rsrp, cfg) == pytest.approx((hi**2 + lo**2) / (hi + lo), abs=5e-7)
 
 
 def test_a_band_that_goes_dark_leaves_the_other_untouched(cfg) -> None:
     """With 'hi' below the threshold the tile still has 'lo', crowding and all."""
-    assert _score(_map([[-130.0, -130.0], [-70.0, -71.0]]), cfg) == pytest.approx(_u(2.0))
+    assert _score(_map([[-130.0, -130.0], [-70.0, -71.0]]), cfg) == pytest.approx(
+        _share(-1.0), abs=5e-7
+    )
 
 
 def test_a_tile_no_band_covers_scores_zero(cfg) -> None:

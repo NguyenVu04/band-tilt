@@ -68,30 +68,33 @@ loads a local Sionna-RT scene file, generates a time-varying UE population and
 ray-traces per-band radio maps. The search and evaluation both count every UE
 position. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Nine reported KPIs - the hole, weak and
+from the incumbent configuration. Twelve reported KPIs - the hole, weak and
 overlap rates, overlapping neighbours per covered tile, the median and
-5th-percentile best-server RSRP and SINR, and the UE service failure rate - are
+5th-percentile best-server RSRP and SINR, the UE service failure rate, and the
+5th-percentile, median and mean estimated UE throughput - are
 measured for every
 candidate through [`src/kpi/`](src/kpi/), over all bands and per band
 ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The search maximises
 one objective,
 `J = mean_g sum_b u_bg^2 / sum_b u_bg` with
-`u_bg = lambda_bg * exp(1 - lambda_bg) * s_bg`
-([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). `lambda_bg`
-counts the cells contending to serve tile `g` on band `b`: that band's strongest
-above `kpi.hole_dbm`, plus every co-band cell within `kpi.overlap_margin_db` of
-it. `lambda e^(1 - lambda)` is worth exactly 1 when one cell dominates, 0.74 when
-a second crowds it, and 0 where nothing covers the tile. `s_bg` scales that by how
+`u_bg = s_bg / (1 + sum_i 10^((R_bi - R_bs) / 10))`
+([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)): the share of
+band `b`'s received power at tile `g` held by its strongest cell `s`, over every
+other co-band cell `i` above `kpi.hole_dbm`. It is exactly 1 when one cell is
+alone on the band, 1/2 with an equal rival, and 0 where nothing covers the tile.
+`s_bg` scales that by how
 far the band's strongest sits between `kpi.hole_dbm` and `kpi.weak_dbm`, clipped
 to `[0, 1]`, so a server barely out of a hole scores near nothing. Each tile takes
 the contraharmonic mean of its bands' `u_bg`, which is bounded by its best band
 but, unlike a maximum over bands, is not monotone in the layers present: a weak extra layer lowers it. `J`
 is the share of the grid *effectively covered*, in `[0, 1]`. The objective has no parameters of its own.
-[`src/kpi/capacity.py`](src/kpi/capacity.py) picks a serving cell-band per UE by
-band preference then RSRP, admitting UEs in report-time order and refusing any
-admission that would carry a cell-band past
-`kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit; the UE service
-failure rate counts what it does not admit.
+[`src/kpi/capacity.py`](src/kpi/capacity.py) connects each interval's UEs in
+report-time order, each to the cell-band above `kpi.hole_dbm` where an equal
+share of `kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit,
+split over the UEs already there and itself, carries the most Shannon
+throughput. Nobody is refused: the UE service failure rate counts the UEs with no
+cell-band above the hole threshold, and every other UE's estimated throughput is
+its cell-band's equal share at the end of the interval.
 
 Sionna-RT scores every candidate the search proposes, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
@@ -114,7 +117,7 @@ flowchart TB
 
     sim["src/simulation<br/>scenario · radio map"]
     prep["src/data<br/>schema verification · typed tables"]
-    kpi["src/kpi<br/>reported KPIs · serving rule · PRB load"]
+    kpi["src/kpi<br/>reported KPIs · serving rule · UE throughput"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
     ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
@@ -154,7 +157,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
 | Simulation | UE population, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
-| KPI | The nine reported KPI definitions, the reductions they share, and the serving-cell / PRB-load model | [`src/kpi/`](src/kpi/) |
+| KPI | The twelve reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
@@ -249,7 +252,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 | Group | File | Holds |
 |---|---|---|
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (band preference, serving threshold, admission ceiling, per-UE throughput, SCS) for the serving rule, the UE service failure rate and PRB load. The objective has no block of its own: it reads `hole_dbm`, `weak_dbm` and `overlap_margin_db` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule, the UE service failure rate and the estimated throughput. The objective has no block of its own: it reads `hole_dbm` and `weak_dbm` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -409,7 +412,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only |
-| The capacity model is a simplification | The serving rule and PRB demand map in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, and full-load co-band SINR against partial PRB load. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. The UE service failure rate and the PRB load tables count the PRBs that rule requires, so every capacity figure inherits these. The objective does not: it reads the radio map alone |
+| The capacity model is a simplification | The serving rule and estimated throughput in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, an equal PRB share with no scheduler, and full-load co-band SINR. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. Every throughput figure inherits these. The objective does not: it reads the radio map alone |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards

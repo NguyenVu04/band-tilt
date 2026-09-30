@@ -20,7 +20,7 @@ def config(tmp_path, enabled: bool = True):
                 "tracking_uri": f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}",
                 "experiment_name": "test",
             },
-            "kpi": {"hole_dbm": -110.0, "capacity": {"band_preference": ["b700", "b2600"]}},
+            "kpi": {"hole_dbm": -110.0, "bands": ["b700", "b2600"]},
         }
     )
 

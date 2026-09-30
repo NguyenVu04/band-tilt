@@ -12,19 +12,24 @@ is read per band. The package imports neither
 ``src.simulation`` nor Sionna-RT, so a ray-traced map and a hand-built fixture
 are scored by the same code.
 
-:func:`~src.kpi.served.ue_service_failure_rate` takes a
-:func:`src.kpi.capacity.serve_intervals` assignment instead, because serving the
-UE table is the expensive half of a measurement.
+:func:`~src.kpi.served.ue_service_failure_rate` and the throughput statistics
+of :mod:`src.kpi.served` take a :func:`src.kpi.capacity.serve_intervals`
+assignment instead, because serving the UE table is the expensive half of a
+measurement.
 
 None of them is the search objective; that is :mod:`src.optim.objective`, built
 on :func:`~src.kpi.overlap.effective_coverage`, exported here because it is the
-same co-band count read on every band at once.
+co-band power share read on every band at once.
 """
 
 from src.kpi.hole import hole_rate
 from src.kpi.overlap import effective_coverage, overlap_neighbor_mean, overlap_rate
 from src.kpi.quality import rsrp_percentile_dbm, sinr_percentile_db
-from src.kpi.served import ue_service_failure_rate
+from src.kpi.served import (
+    throughput_mean_mbps,
+    throughput_percentile_mbps,
+    ue_service_failure_rate,
+)
 from src.kpi.weak import weak_rate
 
 __all__ = [
@@ -34,6 +39,8 @@ __all__ = [
     "overlap_rate",
     "rsrp_percentile_dbm",
     "sinr_percentile_db",
+    "throughput_mean_mbps",
+    "throughput_percentile_mbps",
     "ue_service_failure_rate",
     "weak_rate",
 ]
