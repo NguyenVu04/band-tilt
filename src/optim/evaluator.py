@@ -89,7 +89,7 @@ class Evaluator:
         keep_rsrp: Whether each result carries its radio maps. False by default
             because a run keeps every result and the maps do not fit.
         solver_seed: The ray tracer's Monte-Carlo seed; the ``solver`` stream of
-            ``simulation.seed`` when None. Reassign it to re-measure a
+            ``scenario.seed`` when None. Reassign it to re-measure a
             configuration under other solver noise.
     """
 

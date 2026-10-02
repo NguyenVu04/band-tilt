@@ -39,5 +39,5 @@ def stream(cfg: DictConfig, name: str) -> int:
     """
     if name not in _STREAMS:
         raise KeyError(f"unknown random stream {name!r}; declared streams are {sorted(_STREAMS)}")
-    digest = hashlib.sha256(f"{int(cfg.simulation.seed)}:{name}".encode()).digest()
+    digest = hashlib.sha256(f"{int(cfg.scenario.seed)}:{name}".encode()).digest()
     return int.from_bytes(digest[:8], "big") % _MODULUS

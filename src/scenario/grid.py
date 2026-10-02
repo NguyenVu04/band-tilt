@@ -34,19 +34,17 @@ class GridSpec:
             ValueError: When the tile size or the sub-grid is not positive.
         """
         if self.tile_size_m <= 0:
-            raise ValueError(
-                f"simulation.grid.tile_size_m must be positive, got {self.tile_size_m}"
-            )
+            raise ValueError(f"scenario.grid.tile_size_m must be positive, got {self.tile_size_m}")
         if self.subsamples_per_tile <= 0:
             raise ValueError(
-                "simulation.grid.subsamples_per_tile must be positive, "
+                "scenario.grid.subsamples_per_tile must be positive, "
                 f"got {self.subsamples_per_tile}"
             )
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> GridSpec:
-        """Read ``simulation.grid``."""
-        grid = cfg.simulation.grid
+        """Read ``scenario.grid``."""
+        grid = cfg.scenario.grid
         return cls(
             tile_size_m=float(grid.tile_size_m),
             subsamples_per_tile=int(grid.subsamples_per_tile),

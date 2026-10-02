@@ -7,14 +7,14 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.core.cell import Cell
+from src.scenario.grid import disc_offsets
 from src.simulation import radio, seeds
-from src.simulation.grid import disc_offsets
 from src.simulation.radio import Band, SolverSpec, baseline_tilts, write_radio_map
 
 
 def test_the_seed_streams_do_not_move() -> None:
     """Every simulation output is keyed to these; a changed value redraws the scenario."""
-    cfg = OmegaConf.create({"simulation": {"seed": 42}})
+    cfg = OmegaConf.create({"scenario": {"seed": 42}})
     assert {name: seeds.stream(cfg, name) for name in ("scene", "sample", "solver")} == {
         "scene": 4220626289,
         "sample": 2334169895,

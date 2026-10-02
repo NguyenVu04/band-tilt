@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 
 from src.evaluation import compare
 from src.kpi import capacity
+from tests.conftest import write_cells
 
 # 12 subcarriers of 15 kHz: 180 kHz per PRB.
 _B_PRB = 180_000.0
@@ -26,15 +27,15 @@ def _cells(*max_prb: dict[str, int]) -> list[dict]:
 
 
 @pytest.fixture
-def cfg():
+def cfg(tmp_path):
     """Two bands at 15 kHz SCS, one cell of 10 PRBs per band, the whole pool usable."""
     return OmegaConf.create(
         {
             "kpi": {"hole_dbm": -120.0, "capacity": {"max_admission_utilisation": 1.0}},
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
-                "transmitters": {"cells": _cells({"hi": 10, "lo": 10})},
             },
+            "data": {"output": {"cells_file": write_cells(tmp_path, _cells({"hi": 10, "lo": 10}))}},
         }
     )
 
@@ -123,9 +124,9 @@ def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
     assert throughput[2] / 1e6 == pytest.approx(1.8)
 
 
-def test_intervals_do_not_share_prbs(cfg) -> None:
+def test_intervals_do_not_share_prbs(cfg, tmp_path) -> None:
     """Two UEs split 'hi' in interval 0; the lone UE of interval 1 has it whole."""
-    cfg.simulation.transmitters.cells = _cells({"hi": 10})
+    cfg.data.output.cells_file = write_cells(tmp_path, _cells({"hi": 10}), "hi_only.csv")
     spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 1)
     rsrp = np.full((3, 1, 1), -90.0)
     band, tx, throughput = capacity.serve_rows(

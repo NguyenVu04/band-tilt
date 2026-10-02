@@ -21,6 +21,7 @@ from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
+from tests.conftest import write_cells
 
 _CELLS = [
     {
@@ -40,7 +41,6 @@ _CELLS = [
 _CONFIG = {
     "simulation": {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
-        "transmitters": {"cells": _CELLS},
     },
     "kpi": {
         "hole_dbm": -120.0,
@@ -122,6 +122,7 @@ def cfg(tmp_path) -> DictConfig:
     config = OmegaConf.create(_CONFIG)
     config.optim.output.dir = str(tmp_path / "optim")
     config.optim.output.deliverable_dir = str(tmp_path / "deliverable")
+    config.data = {"output": {"cells_file": write_cells(tmp_path, _CELLS)}}
     return config
 
 

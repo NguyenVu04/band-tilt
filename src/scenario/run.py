@@ -1,4 +1,9 @@
-"""Build a scenario, draw UEs, and write its manifest."""
+"""Generate a scenario's synthetic data: UEs over time, the cell layout, the manifest.
+
+Writes ``scenario.output.ue_file`` and ``scenario.output.cells_file`` (both
+read back and verified by ``task preprocess``) and the manifest. Layouts use
+open ground in the loaded scene and remain fixed per scenario.
+"""
 
 from __future__ import annotations
 
@@ -12,22 +17,25 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from src.simulation import density, grid, sample, seeds, traffic
+from src.scenario import density, grid, sample, traffic
+from src.scenario.density import DensitySpec
+from src.scenario.grid import GridSpec
+from src.scenario.layout import LayoutSpec, default_max_prb, default_tilts, generate_layout
+from src.scenario.sample import UeSpec
+from src.scenario.traffic import TrafficSpec
 from src.simulation import scene as scene_module
-from src.simulation.density import DensitySpec
-from src.simulation.grid import GridSpec
-from src.simulation.sample import UeSpec
+from src.simulation import seeds
 from src.simulation.scene import SceneSpec
-from src.simulation.traffic import TrafficSpec
 from src.tracking import log_stage
 
 # Output paths do not affect scenario identity.
 _IDENTITY_KEYS = (
-    "scene",
+    "scene_file",
     "grid",
     "ue",
     "time",
     "density",
+    "layout",
     "seed",
 )
 
@@ -40,7 +48,7 @@ def scenario_id(cfg: DictConfig) -> str:
     validation and test split between whole scenarios, and this is the key they
     split on.
     """
-    identity = {key: _resolved(cfg.simulation[key]) for key in _IDENTITY_KEYS}
+    identity = {key: _resolved(cfg.scenario[key]) for key in _IDENTITY_KEYS}
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return "scn_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
@@ -50,8 +58,12 @@ def _resolved(node: Any) -> Any:
     return OmegaConf.to_container(node, resolve=True) if OmegaConf.is_config(node) else node
 
 
-def generate(cfg: DictConfig) -> tuple[Path, Path]:
-    """Run the scenario stage. Returns ``(ue_file, manifest_file)``."""
+def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
+    """Run the scenario stage. Returns ``(ue_file, cells_file, manifest_file)``.
+
+    Raises:
+        ValueError: As :func:`src.scenario.layout.generate_layout`.
+    """
     grid_spec = GridSpec.from_config(cfg)
     ue = UeSpec.from_config(cfg)
     density_spec = DensitySpec.from_config(cfg)
@@ -79,8 +91,21 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
     )
 
     ue_file = sample.write_csv(
-        Path(cfg.simulation.output.ue_file), interval, t_s, x, y, component, raster, ue
+        Path(cfg.scenario.output.ue_file), interval, t_s, x, y, component, raster, ue
     )
+    layout = LayoutSpec.from_config(cfg)
+    cells = generate_layout(
+        scene.mi_scene,
+        bounds,
+        raster,
+        layout,
+        grid_spec,
+        default_tilts(cfg),
+        default_max_prb(cfg),
+    )
+    cells_file = Path(cfg.scenario.output.cells_file)
+    cells_file.parent.mkdir(parents=True, exist_ok=True)
+    cells.to_csv(cells_file, index=False, float_format="%.3f")
     manifest_file = _write_manifest(cfg, raster, bounds, field, schedule, x)
 
     eligible = density.eligible_tiles(raster)
@@ -105,9 +130,13 @@ def generate(cfg: DictConfig) -> tuple[Path, Path]:
         "densest decile holds "
         f"{sample.densest_decile_share(tile_col, tile_row, raster, eligible):.1%} of UEs"
     )
-    print(f"csv:      {ue_file}")
+    print(
+        f"cells:    {cells['cell'].nunique()} over {cells['node'].nunique()} nodes, "
+        f"masts {layout.mast_height_m} m on tiles at least {layout.min_free_fraction:.0%} open"
+    )
+    print(f"csv:      {ue_file}, {cells_file}")
     print(f"manifest: {manifest_file}")
-    return ue_file, manifest_file
+    return ue_file, cells_file, manifest_file
 
 
 def _write_manifest(
@@ -119,13 +148,14 @@ def _write_manifest(
     x: np.ndarray,
 ) -> Path:
     """Record what this scenario is, so it can be regenerated and split on."""
-    path = Path(cfg.simulation.output.manifest_file)
+    path = Path(cfg.scenario.output.manifest_file)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     manifest = {
         "scenario_id": scenario_id(cfg),
-        "seed": int(cfg.simulation.seed),
-        "scene": OmegaConf.to_container(cfg.simulation.scene, resolve=True),
+        "seed": int(cfg.scenario.seed),
+        "scene_file": str(cfg.scenario.scene_file),
+        "layout": OmegaConf.to_container(cfg.scenario.layout, resolve=True),
         "grid": {
             "origin_x": raster.origin_x,
             "origin_y": raster.origin_y,
@@ -136,11 +166,11 @@ def _write_manifest(
         },
         # Store inputs to the density, not its deterministic tile weights.
         "density": {
-            "spec": OmegaConf.to_container(cfg.simulation.density, resolve=True),
+            "spec": OmegaConf.to_container(cfg.scenario.density, resolve=True),
             "hotspots": [dataclasses.asdict(hotspot) for hotspot in field.hotspots],
         },
         "time": {
-            "spec": OmegaConf.to_container(cfg.simulation.time, resolve=True),
+            "spec": OmegaConf.to_container(cfg.scenario.time, resolve=True),
             "n_intervals": schedule.n_intervals,
             "t_s": schedule.t_s.tolist(),
             "count": schedule.count.tolist(),
@@ -149,8 +179,8 @@ def _write_manifest(
         },
         "ue": {
             "rows": int(x.size),
-            "count_range": list(cfg.simulation.ue.count_range),
-            "height_m": float(cfg.simulation.ue.height_m),
+            "count_range": list(cfg.scenario.ue.count_range),
+            "height_m": float(cfg.scenario.ue.height_m),
         },
     }
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -162,7 +192,7 @@ def main(cfg: DictConfig) -> None:
     """Build the scenario. Entry point for ``task simulation:scenario``.
 
     Example:
-        $ task simulation:scenario -- simulation.time.horizon_s=3600 seed=7
+        $ task simulation:scenario -- scenario.time.horizon_s=3600 seed=7
     """
     log_stage(cfg, "simulation_scenario", groups=["simulation"], outputs=generate(cfg))
 

@@ -10,16 +10,13 @@ import pandas as pd
 from omegaconf import DictConfig
 from scipy import stats
 
-from src.core.cell import Cell
 from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, covered, finite, serve_intervals
 from src.kpi.overlap import overlap_neighbors
 from src.optim.methods.base import INIT
 from src.optim.objective import (
-    KPI_NAMES,
     MAXIMISED,
-    MEASURE_NAMES,
     KpiVector,
     best_by_objective,
     evaluate_kpis,
@@ -32,6 +29,32 @@ BETTER = "better"
 WORSE = "worse"
 UNCHANGED = "unchanged"
 UNDEFINED = "undefined"
+
+# What is reported over all bands at once. Best-server RSRP and SINR are left
+# out: the strongest layer across bands is not a layer any UE is measured on.
+NETWORK_KPIS = (
+    "hole_rate",
+    "weak_rate",
+    "overlap_rate",
+    "ue_service_failure_rate",
+    "estimated_throughput_p05_mbps",
+    "estimated_throughput_p50_mbps",
+    "estimated_throughput_mean_mbps",
+)
+
+# What is reported per band, each read off that band's layers alone.
+BAND_KPIS = (
+    "hole_rate",
+    "weak_rate",
+    "overlap_rate",
+    "rsrp_p50_dbm",
+    "rsrp_p05_dbm",
+    "sinr_p50_db",
+    "sinr_p05_db",
+)
+
+# The search traces: the network KPIs and the objective every method ranked by.
+SEARCH_MEASURES = (*NETWORK_KPIS, "objective")
 
 
 def direction(name: str) -> str:
@@ -77,10 +100,10 @@ def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
 
     Returns:
         Columns ``kpi``, ``direction``, ``before``, ``after``, ``delta``,
-        ``verdict``, in :data:`MEASURE_NAMES` order.
+        ``verdict``, in :data:`NETWORK_KPIS` order.
     """
     rows = []
-    for name in MEASURE_NAMES:
+    for name in NETWORK_KPIS:
         start, end = getattr(before, name), getattr(after, name)
         rows.append(
             {
@@ -116,7 +139,7 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
     and the spread beside it says how far to trust one.
 
     Returns:
-        One row per method and measure: ``method``, ``kpi``,
+        One row per method and :data:`NETWORK_KPIS` measure: ``method``, ``kpi``,
         ``direction``, ``n_seeds``, ``incumbent``, ``mean``, ``std``,
         ``ci95_low``, ``ci95_high``, ``mean_delta``, ``verdict``.
 
@@ -131,7 +154,7 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
     rows = []
     for method in dict.fromkeys(run.method for run in runs):
         mine = [run for run in runs if run.method == method]
-        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in MEASURE_NAMES}
+        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in NETWORK_KPIS}
         for name, series in values.items():
             mean, std, low, high = _interval(np.asarray(series))
             delta = mean - before[name]
@@ -227,8 +250,9 @@ def method_table(runs: list[Run]) -> pd.DataFrame:
     The methods are matched on evaluations, not on time, so both halves are shown.
 
     Returns:
-        Columns for the run's identity and seed, its budget, its cost, every
-        measure, and how many measures moved each way against the incumbent.
+        Columns for the run's identity and seed, its budget, its cost, the
+        :data:`NETWORK_KPIS`, and how many of them moved each way against the
+        incumbent.
     """
     rows = []
     for run in runs:
@@ -243,7 +267,7 @@ def method_table(runs: list[Run]) -> pd.DataFrame:
                 "best_iteration": run.best_index,
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
                 "wall_clock_min": wall / 60.0 if wall is not None else np.nan,
-                **{name: getattr(run.best_kpi, name) for name in MEASURE_NAMES},
+                **{name: getattr(run.best_kpi, name) for name in NETWORK_KPIS},
                 "kpis_improved": int((deltas["verdict"] == BETTER).sum()),
                 "kpis_worsened": int((deltas["verdict"] == WORSE).sum()),
             }
@@ -271,7 +295,7 @@ def best_run_per_method(runs: list[Run]) -> dict[str, Run]:
 
 
 def convergence(runs: list[Run]) -> pd.DataFrame:
-    """Best value seen so far, per measure, per evaluation and run.
+    """Best value seen so far, per :data:`SEARCH_MEASURES` entry, per evaluation and run.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
     measure accumulates in its own direction.
@@ -279,7 +303,7 @@ def convergence(runs: list[Run]) -> pd.DataFrame:
     frames = []
     for run in runs:
         history = run.history
-        for name in MEASURE_NAMES:
+        for name in SEARCH_MEASURES:
             values = history[name]
             running = values.cummax() if direction(name) == "maximise" else values.cummin()
             frames.append(
@@ -367,14 +391,14 @@ def reproducibility(
     far beyond that means the archive is not the configuration that was scored.
 
     Returns:
-        One row per configuration and KPI: ``configuration``, ``kpi``,
-        ``recorded``, ``recomputed``, ``abs_gap``.
+        One row per configuration and :data:`NETWORK_KPIS` entry:
+        ``configuration``, ``kpi``, ``recorded``, ``recomputed``, ``abs_gap``.
     """
     rows = []
     for name, kpi in recorded.items():
         maps = configurations[name]
         again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, ue, cfg, served=maps.served)
-        for kpi_name in MEASURE_NAMES:
+        for kpi_name in NETWORK_KPIS:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
                 {
@@ -458,21 +482,18 @@ def cell_impact(
 
 
 def cell_table(cfg: DictConfig) -> pd.DataFrame:
-    """The cells of ``simulation.transmitters.cells``, one row each.
+    """The cells of ``data.output.cells_file``, one row each.
 
     Returns:
         Columns ``cell``, ``node``, ``x``, ``y``, ``azimuth_deg``. ``node`` is the
-        mast: generated names are ``n<node>c<cell>``, and co-located cells share it.
+        mast, which co-located cells share.
     """
-    cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
-    return pd.DataFrame(
-        {
-            "cell": [cell.name for cell in cells],
-            "node": [cell.name.rsplit("c", 1)[0] for cell in cells],
-            "x": [cell.x for cell in cells],
-            "y": [cell.y for cell in cells],
-            "azimuth_deg": [cell.azimuth_deg for cell in cells],
-        }
+    frame = pd.read_parquet(cfg.data.output.cells_file)
+    cells = frame.drop_duplicates("cell")[["cell", "node", "node_x", "node_y", "azimuth_deg"]]
+    return (
+        cells.rename(columns={"node_x": "x", "node_y": "y"})
+        .astype({"cell": str, "node": str})
+        .reset_index(drop=True)
     )
 
 
@@ -485,18 +506,13 @@ def service_summary(served: pd.DataFrame, band_labels: Sequence[str]) -> dict[st
 
     Returns:
         ``reports`` (how many rows the shares are taken over),
-        ``not_served_share`` (no layer above ``kpi.hole_dbm``), the 10th
-        percentile and median SINR of served reports, and ``share_<band>`` of
-        all reports served on each band.
+        ``not_served_share`` (no layer above ``kpi.hole_dbm``), and
+        ``share_<band>`` of all reports served on each band.
     """
     band = served["band"].to_numpy()
-    admitted = band >= 0
-    sinr = served.loc[admitted, "sinr_db"]
     summary = {
         "reports": float(len(served)),
-        "not_served_share": float((~admitted).mean()),
-        "sinr_p10_db": float(sinr.quantile(0.1)),
-        "sinr_median_db": float(sinr.median()),
+        "not_served_share": float((band < 0).mean()),
     }
     for index, label in enumerate(band_labels):
         summary[f"share_{label}"] = float((band == index).mean())
@@ -597,10 +613,10 @@ def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
         summary: :func:`seed_summary` output.
 
     Returns:
-        One row per method, one column per KPI in :data:`KPI_NAMES`; the
-        objective is left out. NaN where the incumbent is zero.
+        One row per method, one column per KPI in :data:`NETWORK_KPIS`. NaN
+        where the incumbent is zero.
     """
-    summary = summary[summary["kpi"].isin(KPI_NAMES)]
+    summary = summary[summary["kpi"].isin(NETWORK_KPIS)]
     sign = np.where(summary["direction"] == "maximise", 1.0, -1.0)
     base = summary["incumbent"].abs().replace(0.0, np.nan)
     frame = summary.assign(improvement=sign * (summary["mean"] - summary["incumbent"]) / base * 100)
@@ -680,10 +696,12 @@ def candidates(runs: list[Run]) -> pd.DataFrame:
     """Every configuration each run evaluated.
 
     Returns:
-        Columns ``method``, ``seed``, ``iteration``, ``phase`` and every measure.
+        Columns ``method``, ``seed``, ``iteration``, ``phase`` and :data:`SEARCH_MEASURES`.
     """
     frames = [
-        run.history[["iteration", "phase", *MEASURE_NAMES]].assign(method=run.method, seed=run.seed)
+        run.history[["iteration", "phase", *SEARCH_MEASURES]].assign(
+            method=run.method, seed=run.seed
+        )
         for run in runs
     ]
     frame = pd.concat(frames, ignore_index=True)
@@ -770,15 +788,13 @@ def band_layer_summary(
 ALL_BANDS = "all"
 
 
-def _band_view(config: Configuration, band: int | None) -> tuple[np.ndarray, np.ndarray]:
-    """One band's slice of a configuration's maps, or the whole map when ``band`` is None.
+def _band_view(config: Configuration, band: int) -> tuple[np.ndarray, np.ndarray]:
+    """One band's slice of a configuration's maps.
 
     Slicing the band axis rather than reparameterising the KPIs is what keeps
     one definition of each measure: a per-band rate is the same function given
     one band's layers.
     """
-    if band is None:
-        return config.rsrp, config.sinr
     layer = slice(band, band + 1)
     return config.rsrp[layer], config.sinr[layer]
 
@@ -788,34 +804,36 @@ def band_kpis(
     band_labels: Sequence[str],
     cfg: DictConfig,
 ) -> pd.DataFrame:
-    """Every reported KPI per configuration, over all bands and per band.
+    """The reported KPIs per configuration, over all bands and per band.
 
-    The ``all`` row is the whole radio map and equals the run's own
-    :class:`~src.optim.objective.KpiVector` for that configuration. A band row
-    is the same measure given only that band's layers, so a coverage hole on
-    700 MHz is a hole in the 700 MHz row whatever the other layers do. The rates
-    over tiles do not sum across bands, because a tile can be a hole on two
-    bands at once.
+    The ``all`` row carries :data:`NETWORK_KPIS` and equals the run's own
+    :class:`~src.optim.objective.KpiVector` on them. A band row carries
+    :data:`BAND_KPIS`, each the same measure given only that band's layers, so
+    a coverage hole on 700 MHz is a hole in the 700 MHz row whatever the other
+    layers do. The rates over tiles do not sum across bands, because a tile can
+    be a hole on two bands at once.
 
     The UE KPIs are NaN on band rows: a UE fails when no band reaches it and
     takes its throughput from whichever band it chose, so both belong to the
-    network, not to one band. ``objective`` is not here for the same reason.
+    network, not to one band. RSRP and SINR are NaN on the ``all`` row, as
+    :data:`NETWORK_KPIS` says why.
 
     Returns:
         One row per configuration and band: ``configuration``, ``band``, then
-        :data:`src.optim.objective.KPI_NAMES`.
+        the union of :data:`NETWORK_KPIS` and :data:`BAND_KPIS`.
     """
+    columns = list(dict.fromkeys([*NETWORK_KPIS, *BAND_KPIS]))
     rows = []
     for name, config in configurations.items():
-        network = ue_kpis(config.served)
-        views = [(ALL_BANDS, None), *((band, index) for index, band in enumerate(band_labels))]
-        for band, index in views:
+        network = {**map_kpis(config.rsrp, config.sinr, cfg), **ue_kpis(config.served)}
+        rows.append(
+            {"configuration": name, "band": ALL_BANDS}
+            | {key: network[key] if key in NETWORK_KPIS else np.nan for key in columns}
+        )
+        for index, band in enumerate(band_labels):
+            layer = map_kpis(*_band_view(config, index), cfg)
             rows.append(
-                {
-                    "configuration": name,
-                    "band": band,
-                    **map_kpis(*_band_view(config, index), cfg),
-                    **(network if index is None else dict.fromkeys(network, np.nan)),
-                }
+                {"configuration": name, "band": band}
+                | {key: layer[key] if key in BAND_KPIS else np.nan for key in columns}
             )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["configuration", "band", *columns])

@@ -108,10 +108,10 @@ not calibrated against operator measurements.
 
 ```mermaid
 flowchart TB
-    scene["Sionna-RT scene<br/>data/external/scene/"]
-    cells["Cell layout<br/>configs/simulation.yaml, generated once"]
+    scene["Sionna-RT scene<br/>data/scenes/&lt;scene_name&gt;/"]
+    cells["Scenario settings<br/>configs/scenario.yaml"]
 
-    sim["src/simulation<br/>scenario · radio map"]
+    sim["src/scenario · src/simulation<br/>scenario · radio map"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · UE throughput"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · random search"]
@@ -148,7 +148,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Component | Responsibility | Location |
 |---|---|---|
 | Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
-| Simulation | UE population, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
+| Scenario | UE population, traffic, node/cell layout | [`src/scenario/`](src/scenario/) |
+| Simulation | Scene loading, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
 | KPI | The twelve reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
@@ -164,8 +165,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
-| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.scene.name` points at `data/external/scene/scene.xml` (with its `mesh/` folder). `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
-| Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
+| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `scenario.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `scenario.scene_name` selects the folder, which also holds the scenario manifest. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
+| Cell layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per cell | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `data/external/cells.csv` (one row per cell-band), then verified and typed into `data/processed/cells.parquet` by `task preprocess` — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
@@ -181,7 +182,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
 | CUDA GPU | — | needed for `task simulation:scenario` and `task simulation:radio`; Sionna-RT ray tracing is impractically slow without one |
-| Sionna-RT scene | — | `data/external/scene/scene.xml`, not in Git; see [External dependencies](#external-dependencies) |
+| Sionna-RT scene | — | `data/scenes/<scene_name>/scene.xml`, not in Git; see [External dependencies](#external-dependencies) |
 
 ### Install
 
@@ -221,8 +222,8 @@ uv run pytest
 190 passed
 ```
 
-`tests/` covers `src/simulation/`'s density, region, traffic, node-layout,
-seed-stream, grid and radio-map-archive logic, the KPIs, `src/data/`'s schema contract and UE-table build, and `src/optim/` and
+`tests/` covers `src/scenario/`'s density, region, traffic, node-layout and grid
+logic, `src/simulation/`'s seed-stream and radio-map-archive logic, the KPIs, `src/data/`'s schema contract, UE-table build and cell-table round trip, and `src/optim/` and
 `src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. It does not
 yet cover `src/core/`; see
 [Implementation status](#implementation-status).
@@ -238,15 +239,16 @@ This must succeed silently.
 ## Configuration
 
 Results-affecting settings live in [`configs/`](configs/) as Hydra groups,
-composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
-`cfg.kpi` and `cfg.data`, per [`configs/config.yaml`](configs/config.yaml)'s
+composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
+`cfg.simulation`, `cfg.kpi` and `cfg.data`, per [`configs/config.yaml`](configs/config.yaml)'s
 `defaults` list.
 
 | Group | File | Holds |
 |---|---|---|
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | scene, grid, UE population, the cell layout and tilt bounds, radio-map solver settings, output paths |
+| `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the scene to load, grid, UE population, traffic, the node/cell layout and tilt bounds, scenario output paths |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | Sionna-RT only: Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule, the UE service failure rate and the estimated throughput. The objective has no block of its own: it reads `hole_dbm` and `weak_dbm` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the processed UE and cell tables |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
@@ -394,7 +396,7 @@ band-tilt/
 | Area | State |
 |---|---|
 | `src/core/` — the `Cell` / `Tilt` data model | Implemented |
-| `src/simulation/` — scenario, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
+| `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
@@ -437,9 +439,9 @@ task check
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
-`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py`,
-`transmitter.py` (node positions), `seeds.py`, `grid.py` and the `radio.py` archive, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
-and `src/tracking.py`. `src/core/` and `src/evaluation/run.py` have no tests yet.
+`src/scenario/`'s `density.py`, `sample.py` (region), `traffic.py`,
+`layout.py` (node positions) and `grid.py`, `src/simulation/`'s `seeds.py` and the `radio.py` archive, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
+and `src/tracking.py`. `src/core/`'s cell table is covered by `tests/test_data.py`; `src/evaluation/run.py` has no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in

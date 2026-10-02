@@ -7,46 +7,48 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.optim.space import TiltSpace
+from tests.conftest import write_cells
 
 # Two cells, two bands, with deliberately different boxes per band so a test
 # that silently transposed the dimension order could not still pass.
-_CONFIG = {
-    "simulation": {
-        "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
-        "transmitters": {
-            "cells": [
-                {
-                    "name": "c0",
-                    "x": 0.0,
-                    "y": 0.0,
-                    "z": 30.0,
-                    "azimuth_deg": 0.0,
-                    "tilt": {
-                        "high": {"baseline_deg": 8.0, "bounds_deg": [0.0, 16.0]},
-                        "low": {"baseline_deg": 4.0, "bounds_deg": [2.0, 12.0]},
-                    },
-                },
-                {
-                    "name": "c1",
-                    "x": 10.0,
-                    "y": 0.0,
-                    "z": 30.0,
-                    "azimuth_deg": 120.0,
-                    "tilt": {
-                        "high": {"baseline_deg": 9.0, "bounds_deg": [0.0, 16.0]},
-                        "low": {"baseline_deg": 5.0, "bounds_deg": [2.0, 12.0]},
-                    },
-                },
-            ]
+_BANDS = {"simulation": {"radio_map": {"bands": [{"name": "high"}, {"name": "low"}]}}}
+_CELLS = [
+    {
+        "name": "c0",
+        "x": 0.0,
+        "y": 0.0,
+        "z": 30.0,
+        "azimuth_deg": 0.0,
+        "tilt": {
+            "high": {"baseline_deg": 8.0, "bounds_deg": [0.0, 16.0]},
+            "low": {"baseline_deg": 4.0, "bounds_deg": [2.0, 12.0]},
         },
-    }
-}
+    },
+    {
+        "name": "c1",
+        "x": 10.0,
+        "y": 0.0,
+        "z": 30.0,
+        "azimuth_deg": 120.0,
+        "tilt": {
+            "high": {"baseline_deg": 9.0, "bounds_deg": [0.0, 16.0]},
+            "low": {"baseline_deg": 5.0, "bounds_deg": [2.0, 12.0]},
+        },
+    },
+]
+
+
+def _config(directory, cells=_CELLS):
+    """The bands and the cell table written under ``directory``."""
+    return OmegaConf.merge(
+        _BANDS, {"data": {"output": {"cells_file": write_cells(directory, cells)}}}
+    )
 
 
 @pytest.fixture
-def space() -> TiltSpace:
+def space(tmp_path) -> TiltSpace:
     """A two-cell, two-band space."""
-    return TiltSpace.from_config(OmegaConf.create(_CONFIG))
+    return TiltSpace.from_config(_config(tmp_path))
 
 
 def test_dimension_order_is_cell_major_band_minor(space: TiltSpace) -> None:
@@ -117,9 +119,8 @@ def test_as_frame_is_one_row_per_dimension(space: TiltSpace) -> None:
     assert frame["cell"].tolist() == ["c0", "c0", "c1", "c1"]
 
 
-def test_from_config_names_a_cell_missing_a_band() -> None:
+def test_from_config_names_a_cell_missing_a_band(tmp_path) -> None:
     """A cell-band pair with no tilt is a dimension with no bounds."""
-    config = OmegaConf.create(_CONFIG)
-    del config.simulation.transmitters.cells[1].tilt["low"]
+    cells = [_CELLS[0], {**_CELLS[1], "tilt": {"high": _CELLS[1]["tilt"]["high"]}}]
     with pytest.raises(ValueError, match=r"c1/low"):
-        TiltSpace.from_config(config)
+        TiltSpace.from_config(_config(tmp_path, cells))

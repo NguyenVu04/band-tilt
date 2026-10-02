@@ -22,7 +22,6 @@ from omegaconf import DictConfig
 
 from src.evaluation import compare, maps
 from src.kpi.capacity import max_rsrp
-from src.optim.objective import KPI_NAMES
 from src.utils.plotting import label
 
 # One colour per configuration, identical in every figure so a reader learns
@@ -59,6 +58,7 @@ def coverage_maps(
     *,
     cells: pd.DataFrame | None = None,
     name: str = "optimized",
+    band: str | None = None,
 ) -> Figure:
     """Best-server RSRP before and after, and which tiles crossed the hole threshold.
 
@@ -72,6 +72,7 @@ def coverage_maps(
         cfg: Composed config; reads ``kpi.hole_dbm``.
         cells: Optional cell table with ``x`` and ``y``.
         name: Key of the second configuration, for its title.
+        band: The band both rasters were read on, for the title.
     """
     extent = maps.extent_of(radio)
     figure, axes = plt.subplots(1, 3, figsize=(15.0, 4.6), constrained_layout=True)
@@ -101,7 +102,8 @@ def coverage_maps(
         extent,
         f"Coverage holes: {int((change > 0).sum())} closed, {int((change < 0).sum())} opened",
     )
-    figure.suptitle(f"Coverage before and after — {label(name)}")
+    on = f", {label(band)}" if band else ""
+    figure.suptitle(f"Coverage before and after — {label(name)}{on}")
     return figure
 
 
@@ -292,8 +294,8 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
 def kpi_comparison(summary: pd.DataFrame) -> Figure:
     """Mean relative improvement over the incumbent per KPI, one panel each.
 
-    Relative, in percent of the incumbent's value, so a rate and the cell-edge
-    RSRP read on a comparable scale; see
+    Relative, in percent of the incumbent's value, so a rate and a throughput
+    read on a comparable scale; see
     :func:`src.evaluation.compare.relative_improvement`. Each panel is signed so
     positive is better whichever direction its KPI runs. No error bars: the
     seed interval is in the scoreboard table.
@@ -306,13 +308,13 @@ def kpi_comparison(summary: pd.DataFrame) -> Figure:
     positions = np.arange(len(methods))
 
     columns = 4
-    rows = -(-len(KPI_NAMES) // columns)
+    rows = -(-len(compare.NETWORK_KPIS) // columns)
     figure, axes = plt.subplots(
         rows, columns, figsize=(3.5 * columns, 3.5 * rows), constrained_layout=True
     )
-    for axis in axes.ravel()[len(KPI_NAMES) :]:
+    for axis in axes.ravel()[len(compare.NETWORK_KPIS) :]:
         axis.set_visible(False)
-    for axis, name in zip(axes.ravel(), KPI_NAMES, strict=False):
+    for axis, name in zip(axes.ravel(), compare.NETWORK_KPIS, strict=False):
         values = improvement[name].to_numpy()
         axis.axhline(0, color="0.4", lw=1, zorder=1)
         bars = axis.bar(
@@ -528,8 +530,6 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
         kpis: Which measures to draw, in panel order.
     """
     keys = list(dict.fromkeys(table["configuration"]))
-    bands = list(dict.fromkeys(table["band"]))
-    positions = np.arange(len(bands))
     width = 0.8 / max(len(keys), 1)
 
     columns = min(len(kpis), 3)
@@ -541,6 +541,9 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
     for axis in flat[len(kpis) :]:
         axis.set_visible(False)
     for axis, name in zip(flat, kpis, strict=False):
+        # A band row with no value for this KPI, e.g. RSRP on the all-band row, gets no slot.
+        bands = list(dict.fromkeys(table.loc[table[name].notna(), "band"]))
+        positions = np.arange(len(bands))
         for offset, key in enumerate(keys):
             mine = table[table["configuration"] == key].set_index("band")[name]
             axis.bar(

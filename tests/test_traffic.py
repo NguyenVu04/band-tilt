@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.simulation.traffic import TrafficSpec, build
+from src.scenario.traffic import TrafficSpec, build
 
 # A flat, noiseless schedule: every interval reduces to the nominal mixture, so
 # its masses are exactly `hotspot_mass_fraction` split evenly.

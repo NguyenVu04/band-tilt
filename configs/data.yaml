@@ -4,3 +4,5 @@
 output:
   # Verified, typed UE table: one row per UE per interval.
   ue_file: data/processed/ue.parquet
+  # Verified, typed cell table: one row per cell-band.
+  cells_file: data/processed/cells.parquet

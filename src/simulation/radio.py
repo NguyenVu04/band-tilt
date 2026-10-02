@@ -19,11 +19,11 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
-from src.core.cell import Cell
+from src.core.cell import Cell, read_cells
+from src.scenario import run as scenario_module
+from src.scenario.grid import GridSpec
 from src.simulation import materials, seeds, transmitter
-from src.simulation import scenario as scenario_module
 from src.simulation import scene as scene_module
-from src.simulation.grid import GridSpec
 from src.simulation.scene import SceneSpec
 from src.tracking import log_stage
 
@@ -176,7 +176,7 @@ class RadioSetup:
             grid_meta=manifest["grid"],
             bands=tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands),
             solver=SolverSpec.from_config(cfg),
-            height_m=float(cfg.simulation.ue.height_m),
+            height_m=float(cfg.scenario.ue.height_m),
             power_dbm=float(cfg.simulation.antenna.power_rs),
         )
 
@@ -222,7 +222,7 @@ def solve_bands(
 def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
     setup = RadioSetup.from_config(cfg)
-    cells = transmitter.load(cfg)
+    cells = read_cells(cfg.scenario.output.cells_file)
     _check_tilt_table(cells, setup.bands)
     solver_seed = seeds.stream(cfg, "solver")
 
@@ -406,7 +406,7 @@ def solve_band(
         rr_prob=spec.rr_prob,
         # Passed explicitly: the solver seeds its own Monte-Carlo stream and
         # otherwise runs at a fixed library default, so without this the map
-        # would ignore simulation.seed entirely.
+        # would ignore scenario.seed entirely.
         seed=solver_seed,
     )
     # rss is path gain times transmit power, in watts, so with power_dbm set to
@@ -452,7 +452,7 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
         raise ValueError(
             f"{len(missing)} cell-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
             f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
-            "simulation.radio_map.bands; re-run `task simulation:layout` if the bands changed."
+            "simulation.radio_map.bands; re-run `task simulation:scenario` if the bands changed."
         )
     n_rb = {band.name: _N_RB.get(band.scs_hz, {}).get(band.bandwidth_hz) for band in bands}
     unknown = [
@@ -475,7 +475,7 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
         raise ValueError(
             f"{len(wrong)} cell-band pairs have a max_prb other than N_RB for the band's "
             f"bandwidth and scs_hz: {', '.join(wrong[:8])}{' ...' if len(wrong) > 8 else ''}. "
-            "Set max_prb in every cell and in transmitters.layout.default_max_prb."
+            "Set scenario.layout.default_max_prb and re-run `task simulation:scenario`."
         )
 
 
@@ -510,7 +510,7 @@ def read_manifest(cfg: DictConfig) -> dict[str, Any]:
             means the config changed after the UEs were drawn and the radio map
             would not correspond to them.
     """
-    path = Path(cfg.simulation.output.manifest_file)
+    path = Path(cfg.scenario.output.manifest_file)
     if not path.is_file():
         raise FileNotFoundError(
             f"No scenario manifest at {path}. Run `task simulation:scenario` first."

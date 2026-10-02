@@ -4,29 +4,32 @@
 # `params` list only the settings that change a stage's output.
 
 stages:
-  # Scene raster and UE population (notebook 00).
+  # Scene raster, UE population and cell layout (notebook 00).
   simulation_scenario:
-    cmd: python -m src.simulation.scenario
+    cmd: python -m src.scenario.run
     deps:
-      - src/simulation/scenario.py
-      - src/simulation/density.py
-      - src/simulation/grid.py
-      - src/simulation/sample.py
+      - src/scenario
       - src/simulation/seeds.py
-      - src/simulation/traffic.py
       - src/simulation/scene.py
-      - data/external/scene
+      - src/core/cell.py
+      - data/scenes/hanoi/scene.xml
+      - data/scenes/hanoi/mesh
     params:
-      - configs/simulation.yaml:
-          - scene
+      - configs/scenario.yaml:
+          - scene_name
+          - scene_file
           - grid
           - density
           - time
           - ue
+          - layout
           - seed
+      - configs/simulation.yaml:
+          - scene
     outs:
       - data/external/ue_positions.csv
-      - data/external/scenario.json
+      - data/external/cells.csv
+      - data/scenes/hanoi/scenario.json
 
   # Baseline radio map, one ray-trace per band (notebook 00). Needs a CUDA GPU.
   simulation_radio:
@@ -36,48 +39,49 @@ stages:
       - src/simulation/materials.py
       - src/simulation/seeds.py
       - src/simulation/transmitter.py
-      - src/simulation/scenario.py
+      - src/scenario
       - src/simulation/scene.py
-      - src/simulation/grid.py
       - src/core/cell.py
-      - data/external/scene
-      - data/external/scenario.json
+      - data/scenes/hanoi/scene.xml
+      - data/scenes/hanoi/mesh
+      - data/scenes/hanoi/scenario.json
+      - data/external/cells.csv
     params:
-      - configs/simulation.yaml:
-          - scene
+      - configs/scenario.yaml:
+          - scene_file
           - grid
-          - transmitters
-          - radio_map
-          - antenna
           - ue
           - seed
+      - configs/simulation.yaml:
+          - scene
+          - radio_map
+          - antenna
     outs:
       - data/interim/radio_map.npz
 
-  # Verify the simulation output and write the typed UE table (notebook 02).
+  # Verify the simulation output and write the typed UE and cell tables (notebook 02).
   preprocessing:
     cmd: python -m src.data.build
     deps:
       - src/data/build.py
       - src/data/load.py
       - src/data/schema.py
-      - src/simulation/transmitter.py
       - src/simulation/radio.py
-      - src/simulation/sample.py
+      - src/scenario/sample.py
       - src/core/cell.py
       - data/external/ue_positions.csv
-      - data/external/scenario.json
+      - data/external/cells.csv
+      - data/scenes/hanoi/scenario.json
       - data/interim/radio_map.npz
     params:
+      - configs/scenario.yaml:
+          - ue
       - configs/simulation.yaml:
-          - scene
-          - grid
-          - transmitters
           - radio_map
           - antenna
-          - ue
     outs:
       - data/processed/ue.parquet
+      - data/processed/cells.parquet
 
   # Tilt search (notebooks 03a, 03b). Needs a CUDA GPU. Each run writes its own
   # timestamped directory, so there are no fixed outs; the method is the
@@ -97,12 +101,14 @@ stages:
       - src/simulation/materials.py
       - src/simulation/transmitter.py
       - src/simulation/scene.py
-      - src/simulation/grid.py
       - src/simulation/seeds.py
+      - src/scenario
       - src/core/cell.py
-      - data/external/scene
-      - data/external/scenario.json
+      - data/scenes/hanoi/scene.xml
+      - data/scenes/hanoi/mesh
+      - data/scenes/hanoi/scenario.json
       - data/processed/ue.parquet
+      - data/processed/cells.parquet
     params:
       - configs/optim/base.yaml:
           - seed
@@ -120,10 +126,12 @@ stages:
           - weak_dbm
           - overlap_margin_db
           - capacity
+      - configs/scenario.yaml:
+          - scene_file
+          - grid
+          - ue
+          - seed
       - configs/simulation.yaml:
           - scene
-          - grid
-          - transmitters
           - radio_map
           - antenna
-          - ue

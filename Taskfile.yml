@@ -99,15 +99,10 @@ tasks:
     cmds:
       - uv run jupyter lab
 
-  simulation:layout:
-    desc: 'Print the transmitter node table for configs/simulation.yaml (one-off)'
-    cmds:
-      - uv run python -m {{.PKG}}.simulation.transmitter {{.CLI_ARGS}}
-
   simulation:scenario:
-    desc: 'Stage 1 - raster the scene and draw the UE population (needs a CUDA GPU)'
+    desc: 'Stage 1 - raster the scene, draw the UEs and lay out the cells (needs a CUDA GPU)'
     cmds:
-      - uv run python -m {{.PKG}}.simulation.scenario {{.CLI_ARGS}}
+      - uv run python -m {{.PKG}}.scenario.run {{.CLI_ARGS}}
 
   simulation:radio:
     desc: 'Stage 2 - ray-trace the clean radio map, one solve per band'
@@ -158,11 +153,6 @@ tasks:
     desc: 'Live what-if app: edit tilts, ray-trace, compare KPIs (needs a CUDA GPU)'
     cmds:
       - uv run streamlit run demo/app.py --browser.gatherUsageStats false {{.CLI_ARGS}}
-
-  sweep:
-    desc: 'Hydra multirun over search seeds, e.g. task sweep -- optim.seed=1,2,3'
-    cmds:
-      - uv run python -m {{.PKG}}.optim.run --multirun {{.CLI_ARGS}}
 
   # --- versioning and tracking ---------------------------------------------
 

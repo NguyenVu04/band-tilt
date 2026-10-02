@@ -1,7 +1,8 @@
 """Check the simulation artifacts against the contract before anything reads them.
 
-Every check names the source of the bound it enforces: ``configs/simulation.yaml``,
-the scenario manifest, or the radio map itself. A bound with no nameable source is
+Every check names the source of the bound it enforces: ``configs/scenario.yaml``,
+``configs/simulation.yaml``, the scenario manifest, the cell table, or the radio
+map itself. A bound with no nameable source is
 a statistical threshold and does not belong in this contract.
 
 The KPI thresholds are deliberately absent. ``kpi.hole_dbm`` and ``kpi.weak_dbm``
@@ -14,15 +15,17 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.core.cell import CELL_COLUMNS, cells_from_frame
 from src.data.load import Artifacts
-from src.simulation import transmitter
+from src.scenario.sample import CSV_COLUMNS
 from src.simulation.radio import baseline_tilts
-from src.simulation.sample import CSV_COLUMNS
 
+_SCENARIO = "configs/scenario.yaml"
 _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
 _MAP = "radio_map.npz"
 _UE = "ue_positions.csv"
+_CELLS = "cells.csv"
 
 # The UE table writes t_s with three decimals, so a t_s drawn inside its
 # interval round-trips to the millisecond and no closer.
@@ -38,9 +41,8 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
 
     Args:
         artifacts: The loaded artifacts, as read.
-        cfg: Composed config; reads ``simulation.ue.height_m``,
-            ``simulation.antenna.power_rs``, ``simulation.radio_map.bands`` and
-            the cell table.
+        cfg: Composed config; reads ``scenario.ue.height_m``,
+            ``simulation.antenna.power_rs`` and ``simulation.radio_map.bands``.
 
     Returns:
         A frame of ``check``, ``source``, ``holds`` and ``violations``. Never
@@ -58,11 +60,38 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     max_x = grid["origin_x"] + grid["n_cols"] * grid["tile_size_m"]
     max_y = grid["origin_y"] + grid["n_rows"] * grid["tile_size_m"]
 
-    # Structure: do the three files describe the same run?
-    cells = transmitter.load(cfg)
+    # The cell table: complete, unambiguous, and every tilt inside its bounds.
+    # Cells are only rebuilt from it once those hold, since a bad row raises.
+    cell_rows = artifacts.cells
+    band_names = [str(entry.name) for entry in cfg.simulation.radio_map.bands]
+    columns_hold = list(cell_rows.columns) == list(CELL_COLUMNS)
+    record("cell columns are the declared set", _CELLS, columns_hold)
+    if columns_hold:
+        pairs = cell_rows[["cell", "band"]].astype(str)
+        record("one row per cell-band", _CELLS, *_count(pairs.duplicated().to_numpy()))
+        per_cell = pairs.groupby("cell", sort=False)["band"].apply(set)
+        record(
+            "every cell carries every configured band",
+            _CONFIG,
+            *_count(per_cell.map(lambda bands: bands != set(band_names)).to_numpy()),
+        )
+        record(
+            "tilt_min_deg <= tilt_deg <= tilt_max_deg",
+            _CELLS,
+            *_count(
+                ~(
+                    (cell_rows["tilt_min_deg"] <= cell_rows["tilt_deg"])
+                    & (cell_rows["tilt_deg"] <= cell_rows["tilt_max_deg"])
+                ).to_numpy()
+            ),
+        )
+        record("max_prb is positive", _CELLS, *_count(~(cell_rows["max_prb"] > 0).to_numpy()))
+    cells = cells_from_frame(cell_rows) if checks and all(row[2] for row in checks) else ()
+
+    # Structure: do the files describe the same run?
     record(
-        "npz tx_name matches the configured cells",
-        _CONFIG,
+        "npz tx_name matches the cell table",
+        _CELLS,
         artifacts.tx_names == [cell.name for cell in cells],
     )
     record(
@@ -85,10 +114,10 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     )
     record(
         "npz ue_height_m matches the config",
-        _CONFIG,
-        float(artifacts.radio["ue_height_m"]) == float(cfg.simulation.ue.height_m),
+        _SCENARIO,
+        float(artifacts.radio["ue_height_m"]) == float(cfg.scenario.ue.height_m),
     )
-    record("ue columns are the declared set", _CONFIG, list(ue.columns) == list(CSV_COLUMNS))
+    record("ue columns are the declared set", _UE, list(ue.columns) == list(CSV_COLUMNS))
     record(
         "npz sinr_db has the shape of rsrp_dbm",
         _MAP,
@@ -99,9 +128,9 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     # Rows: bounds whose source is the config or the manifest.
     record(
         "z equals the configured UE height",
-        _CONFIG,
-        # To the CSV's precision: src.simulation.sample.write_csv rounds z to 3 decimals.
-        *_count(~np.isclose(ue["z"].to_numpy(), float(cfg.simulation.ue.height_m), atol=5e-4)),
+        _SCENARIO,
+        # To the CSV's precision: src.scenario.sample.write_csv rounds z to 3 decimals.
+        *_count(~np.isclose(ue["z"].to_numpy(), float(cfg.scenario.ue.height_m), atol=5e-4)),
     )
     record(
         "0 <= tile_row < n_rows",
@@ -147,16 +176,13 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     # Positions are continuous draws, so a repeated row is a writer fault.
     record("no duplicate rows", _UE, *_count(ue.duplicated().to_numpy()))
 
-    # The cell table the map was solved at. The tilt comparison needs a tilt
-    # for every pair, so it only runs when the completeness check holds.
-    complete = all(band in cell.tilt for cell in cells for band in artifacts.band_labels)
+    # The cell table the map was solved at.
     tilts_match = False
-    if complete and "tilt_deg" in artifacts.radio:
+    if cells and "tilt_deg" in artifacts.radio:
         tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)
         configured = baseline_tilts(cells, artifacts.band_labels)
         tilts_match = tilt_deg.shape == configured.shape and bool(np.allclose(tilt_deg, configured))
-    record("npz tilt_deg equals the configured baseline tilts", _CONFIG, tilts_match)
-    record("every cell carries a tilt for every band", _CONFIG, complete)
+    record("npz tilt_deg equals the cell table's baseline tilts", _CELLS, tilts_match)
 
     return pd.DataFrame(checks, columns=["check", "source", "holds", "violations"])
 

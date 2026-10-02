@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.simulation.density import DensitySpec, built_volume, draw_hotspots, neighbourhood_volume
-from src.simulation.grid import Raster
+from src.scenario.density import DensitySpec, built_volume, draw_hotspots, neighbourhood_volume
+from src.scenario.grid import Raster
 
 BLOCK = (slice(0, 2), slice(0, 2))
 LONE = (7, 7)

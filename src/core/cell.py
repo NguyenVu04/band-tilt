@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from omegaconf import DictConfig
+
+# The cell table's columns, one row per cell-band: the mast (node), then the
+# cell on it, then that cell's tilt and PRB limit on one band.
+CELL_COLUMNS = (
+    "node",
+    "node_x",
+    "node_y",
+    "node_z",
+    "cell",
+    "azimuth_deg",
+    "band",
+    "tilt_deg",
+    "tilt_min_deg",
+    "tilt_max_deg",
+    "max_prb",
+)
 
 
 @dataclass(frozen=True)
@@ -113,7 +133,7 @@ class Cell:
 
     @classmethod
     def from_config(cls, entry: DictConfig) -> Cell:
-        """Read one entry of ``simulation.transmitters.cells``."""
+        """Read one cell written as a mapping, the form test fixtures use."""
         return cls(
             name=str(entry.name),
             x=float(entry.x),
@@ -123,3 +143,86 @@ class Cell:
             tilt={str(band): Tilt.from_config(value) for band, value in entry.tilt.items()},
             max_prb={str(band): int(value) for band, value in entry.get("max_prb", {}).items()},
         )
+
+
+def cells_to_frame(cells: Sequence[Cell], nodes: Sequence[str]) -> pd.DataFrame:
+    """The cell table, :data:`CELL_COLUMNS`, one row per cell-band.
+
+    ``nodes`` names each cell's mast, aligned with ``cells``. A band a cell has a
+    tilt or a PRB limit for, but not both, leaves the other columns NaN.
+    """
+    rows = []
+    for cell, node in zip(cells, nodes, strict=True):
+        for band in dict.fromkeys([*cell.tilt, *cell.max_prb]):
+            tilt = cell.tilt.get(band)
+            rows.append(
+                {
+                    "node": node,
+                    "node_x": cell.x,
+                    "node_y": cell.y,
+                    "node_z": cell.z,
+                    "cell": cell.name,
+                    "azimuth_deg": cell.azimuth_deg,
+                    "band": band,
+                    "tilt_deg": tilt.baseline_deg if tilt else np.nan,
+                    "tilt_min_deg": tilt.bounds_deg[0] if tilt else np.nan,
+                    "tilt_max_deg": tilt.bounds_deg[1] if tilt else np.nan,
+                    "max_prb": cell.max_prb.get(band, np.nan),
+                }
+            )
+    return pd.DataFrame(rows, columns=list(CELL_COLUMNS))
+
+
+def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
+    """Rebuild the cells from a :func:`cells_to_frame` table, in first-row order.
+
+    Raises:
+        ValueError: When a column is missing, or as :class:`Tilt` and
+            :class:`Cell` validate.
+    """
+    missing = [column for column in CELL_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(f"cell table has no {', '.join(missing)} column")
+    cells = []
+    for name, rows in frame.groupby("cell", sort=False, observed=True):
+        first = rows.iloc[0]
+        tilt, max_prb = {}, {}
+        for row in rows.itertuples():
+            if pd.notna(row.tilt_deg):
+                tilt[str(row.band)] = Tilt(
+                    float(row.tilt_deg), (float(row.tilt_min_deg), float(row.tilt_max_deg))
+                )
+            if pd.notna(row.max_prb):
+                max_prb[str(row.band)] = int(row.max_prb)
+        cells.append(
+            Cell(
+                name=str(name),
+                x=float(first.node_x),
+                y=float(first.node_y),
+                z=float(first.node_z),
+                azimuth_deg=float(first.azimuth_deg),
+                tilt=tilt,
+                max_prb=max_prb,
+            )
+        )
+    return tuple(cells)
+
+
+def read_cells(path: str | Path) -> tuple[Cell, ...]:
+    """Read a cell table, CSV or Parquet by suffix, into cells in table order.
+
+    Raises:
+        FileNotFoundError: When the file does not exist, which means the stage
+            that writes it has not been run.
+        ValueError: As :func:`src.core.cell.cells_from_frame`, or when the
+            table is empty.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No cell table at {path}. Run `task simulation:scenario`, then `task preprocess`."
+        )
+    frame = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+    if frame.empty:
+        raise ValueError(f"{path} holds no cell.")
+    return cells_from_frame(frame)

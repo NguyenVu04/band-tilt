@@ -1,8 +1,8 @@
-"""Build the processed UE table from the verified artifacts.
+"""Build the processed UE and cell tables from the verified artifacts.
 
 ``ue.parquet`` is the UE population, typed, with every drawn UE kept; the search
-and the evaluation both score on it. The cells are not copied out: everything
-reads them from ``simulation.transmitters.cells``.
+and the evaluation both score on it. ``cells.parquet`` is the cell table, typed;
+the search, the capacity model and the evaluation read the cells from it.
 """
 
 from __future__ import annotations
@@ -13,9 +13,10 @@ import hydra
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.core.cell import CELL_COLUMNS
 from src.data import schema
 from src.data.load import Artifacts, load_artifacts, save
-from src.simulation.sample import CSV_COLUMNS
+from src.scenario.sample import CSV_COLUMNS
 from src.tracking import log_stage
 
 # int16 covers the grid with room to spare; float32 holds the millimetre
@@ -32,6 +33,27 @@ _DTYPES = {
     "tile_row": "int16",
     "component": "int16",
 }
+
+
+# Names stay categorical; the PRB limit is a count.
+_CELL_DTYPES = {
+    "node": "category",
+    "node_x": "float64",
+    "node_y": "float64",
+    "node_z": "float64",
+    "cell": "category",
+    "azimuth_deg": "float64",
+    "band": "category",
+    "tilt_deg": "float64",
+    "tilt_min_deg": "float64",
+    "tilt_max_deg": "float64",
+    "max_prb": "int32",
+}
+
+
+def build_cells(artifacts: Artifacts) -> pd.DataFrame:
+    """The cell table, typed, in the order the scenario wrote it: the radio map's tx order."""
+    return artifacts.cells[list(CELL_COLUMNS)].astype(_CELL_DTYPES)
 
 
 def build_ue(artifacts: Artifacts) -> pd.DataFrame:
@@ -52,8 +74,8 @@ def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def run(cfg: DictConfig) -> Path:
-    """Load, verify and write the UE table. Returns the path written.
+def run(cfg: DictConfig) -> tuple[Path, Path]:
+    """Load, verify and write the UE and cell tables. Returns ``(ue_path, cells_path)``.
 
     Raises:
         FileNotFoundError: When a simulation stage has not been run.
@@ -66,21 +88,24 @@ def run(cfg: DictConfig) -> Path:
 
     ue = build_ue(artifacts)
     ue_path = save(ue, cfg.data.output.ue_file)
+    cells = build_cells(artifacts)
+    cells_path = save(cells, cfg.data.output.cells_file)
 
     print(f"scenario:  {artifacts.scenario_id}")
     print(f"checks:    {len(checks)} passed")
     print(f"ue:        {len(ue):,} rows x {ue.shape[1]} columns  ->  {ue_path}")
-    return ue_path
+    print(f"cells:     {len(cells):,} cell-band rows  ->  {cells_path}")
+    return ue_path, cells_path
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Build the processed UE table. The script form of ``02_preprocessing.ipynb``.
+    """Build the processed tables. The script form of ``02_preprocessing.ipynb``.
 
     Example:
         $ uv run python -m src.data.build data.output.ue_file=/tmp/ue.parquet
     """
-    log_stage(cfg, "preprocessing", groups=["data"], outputs=[run(cfg)])
+    log_stage(cfg, "preprocessing", groups=["data"], outputs=list(run(cfg)))
 
 
 if __name__ == "__main__":

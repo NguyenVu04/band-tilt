@@ -21,6 +21,7 @@ from src.optim.history import History, LocalRunWriter, write_run, write_tilt_cha
 from src.optim.methods import run_search
 from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.space import TiltSpace
+from tests.conftest import write_cells
 
 _CELLS = [
     {
@@ -40,7 +41,6 @@ _CELLS = [
 _CONFIG = {
     "simulation": {
         "radio_map": {"bands": [{"name": "high"}, {"name": "low"}]},
-        "transmitters": {"cells": _CELLS},
     },
     "kpi": {
         "hole_dbm": -120.0,
@@ -113,7 +113,7 @@ class StubEvaluator:
 
 
 @pytest.fixture
-def make_cfg():
+def make_cfg(tmp_path):
     """Compose a config for one method, the way the ``optim/method`` group does.
 
     A method's parameters only exist in its own composition, so a test that
@@ -123,6 +123,7 @@ def make_cfg():
     def build(method: str) -> DictConfig:
         config = OmegaConf.create(_CONFIG)
         config.optim.method = OmegaConf.create(_METHODS[method])
+        config.data = {"output": {"cells_file": write_cells(tmp_path, _CELLS)}}
         return config
 
     return build

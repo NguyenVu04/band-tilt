@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell
+from src.core.cell import read_cells
 
 # TS 38.211 4.4.4.1: one resource block is 12 consecutive subcarriers.
 _SUBCARRIERS_PER_PRB = 12
@@ -64,9 +64,9 @@ class CapacitySpec:
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
         """Read ``kpi.capacity``, ``kpi.hole_dbm``, the cells and each band's ``scs_hz``.
 
-        The cells are taken in config order, which is the radio map's tx axis:
-        :func:`src.simulation.radio.solve` writes them in that order and
-        preprocessing checks ``tx_name`` against the config. ``scs_hz`` is read
+        The cells are read from ``data.output.cells_file`` in table order, which
+        is the radio map's tx axis: :func:`src.simulation.radio.solve` writes
+        them in that order and preprocessing checks ``tx_name`` against it. ``scs_hz`` is read
         from ``simulation.radio_map.bands``, the same value the solver's noise
         bandwidth uses.
 
@@ -85,10 +85,10 @@ class CapacitySpec:
         missing = [label for label in band_labels if label not in bands]
         if missing:
             raise ValueError(f"No simulation.radio_map.bands entry for {', '.join(missing)}.")
-        cells = [Cell.from_config(entry) for entry in cfg.simulation.transmitters.cells]
+        cells = read_cells(cfg.data.output.cells_file)
         if len(cells) != n_tx:
             raise ValueError(
-                f"simulation.transmitters.cells holds {len(cells)} cells for a radio map with "
+                f"{cfg.data.output.cells_file} holds {len(cells)} cells for a radio map with "
                 f"{n_tx} transmitters."
             )
         return cls(

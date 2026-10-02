@@ -302,26 +302,26 @@ def require(checks: pd.DataFrame) -> None:
 
 
 def _kpi_definition(run: Run) -> dict[str, Any]:
-    """Everything a reported measure reads, from the run's own config snapshot.
+    """Everything a reported measure reads, from the run's own ``run.json``.
 
-    The thresholds, the capacity model and each cell's PRB limit: two runs that
-    differ on any one did not measure the same thing. ``capacity`` sets the PRB
+    The thresholds, the capacity model and each cell's PRB limit (recorded by
+    :func:`src.optim.run.run`): two runs that differ on any one did not measure
+    the same thing. ``capacity`` sets the PRB
     share behind the estimated throughput; the objective does not read it.
 
     ``scs_hz`` and ``temperature`` set the per-RE noise floor behind every SINR,
     and SINR and ``scs_hz`` set the throughput of one PRB. ``bandwidth`` fixes
-    ``max_prb``. None is stored in the archive, so the config snapshot is the
+    ``max_prb``. None is stored in the archive, so the run document is the
     only place they can be checked.
     """
     config = run.meta["config"]
     kpi = config["kpi"]
     simulation = config.get("simulation", {})
-    cells = simulation.get("transmitters", {}).get("cells", [])
     radio_map = simulation.get("radio_map", {})
     return {
         **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
         "capacity": kpi.get("capacity"),
-        "max_prb": {cell.get("name"): cell.get("max_prb") for cell in cells},
+        "max_prb": run.meta.get("max_prb"),
         "bandwidth": {
             band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])
         },

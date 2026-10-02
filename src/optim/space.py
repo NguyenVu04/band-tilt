@@ -8,8 +8,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell, Tilt
-from src.simulation import transmitter
+from src.core.cell import Cell, Tilt, read_cells
 
 
 @dataclass(frozen=True)
@@ -17,7 +16,7 @@ class TiltSpace:
     """The box of absolute tilts, one dimension per cell-band pair.
 
     Dimensions are ordered cell-major, band-minor: cells in
-    ``simulation.transmitters.cells`` order, bands in ``simulation.radio_map.bands``
+    ``data.output.cells_file`` order, bands in ``simulation.radio_map.bands``
     order.
 
     Attributes:
@@ -45,7 +44,7 @@ class TiltSpace:
             ValueError: When a cell carries no tilt for a configured band, so
                 the space would hold a dimension with no bounds to move in.
         """
-        cells = transmitter.load(cfg)
+        cells = read_cells(cfg.data.output.cells_file)
         band_names = tuple(str(entry.name) for entry in cfg.simulation.radio_map.bands)
 
         missing = [
@@ -55,8 +54,9 @@ class TiltSpace:
             raise ValueError(
                 f"{len(missing)} cell-band pairs have no tilt: {', '.join(missing[:8])}"
                 f"{' ...' if len(missing) > 8 else ''}. Every cell in "
-                "simulation.transmitters.cells needs one entry per band in "
-                "simulation.radio_map.bands; re-run `task simulation:layout` if the bands changed."
+                f"{cfg.data.output.cells_file} needs one row per band in "
+                "simulation.radio_map.bands; re-run `task simulation:scenario` and "
+                "`task preprocess` if the bands changed."
             )
 
         tilts = [cell.tilt_for(band) for cell in cells for band in band_names]

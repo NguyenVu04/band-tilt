@@ -1,4 +1,5 @@
 defaults:
+  - scenario
   - simulation
   - kpi
   - data
@@ -24,6 +25,3 @@ mlflow:
 hydra:
   run:
     dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
-  sweep:
-    dir: outputs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${hydra.job.num}

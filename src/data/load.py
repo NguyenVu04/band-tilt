@@ -1,4 +1,4 @@
-"""Read the three simulation artifacts, and write processed tables as Parquet."""
+"""Read the four simulation artifacts, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -11,11 +11,13 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-# The stage that writes each artifact, named in the error when one is missing.
+# Each artifact's config section and the stage that writes it, named in the
+# error when one is missing.
 _STAGES = {
-    "ue_file": "scenario",
-    "manifest_file": "scenario",
-    "radio_map_file": "radio",
+    "ue_file": ("scenario", "scenario"),
+    "cells_file": ("scenario", "scenario"),
+    "manifest_file": ("scenario", "scenario"),
+    "radio_map_file": ("simulation", "radio"),
 }
 
 
@@ -24,13 +26,15 @@ class Artifacts:
     """One scenario's simulation output, read but not yet verified.
 
     Attributes:
-        ue: ``simulation.output.ue_file`` as read, before any typing.
+        ue: ``scenario.output.ue_file`` as read, before any typing.
             Every drawn UE, including those no transmitter reaches.
+        cells: ``scenario.output.cells_file`` as read, one row per cell-band.
         radio: Every array in ``simulation.output.radio_map_file``, keyed as written.
-        manifest: The parsed ``simulation.output.manifest_file``.
+        manifest: The parsed ``scenario.output.manifest_file``.
     """
 
     ue: pd.DataFrame
+    cells: pd.DataFrame
     radio: dict[str, np.ndarray]
     manifest: dict[str, Any]
 
@@ -56,7 +60,7 @@ class Artifacts:
 
 
 def load_artifacts(cfg: DictConfig) -> Artifacts:
-    """Read every artifact named in ``simulation.output``.
+    """Read every artifact named in ``scenario.output`` and ``simulation.output``.
 
     Read-only: the artifacts are regenerated with ``task simulation``, never
     edited in place.
@@ -64,17 +68,17 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
     Raises:
         FileNotFoundError: When a stage has not been run, naming which one.
     """
-    output = cfg.simulation.output
-    paths = {key: Path(output[key]) for key in _STAGES}
+    paths = {key: Path(cfg[section].output[key]) for key, (section, _) in _STAGES.items()}
     for key, path in paths.items():
         if not path.is_file():
-            raise FileNotFoundError(f"No {path}. Run `task simulation:{_STAGES[key]}` first.")
+            raise FileNotFoundError(f"No {path}. Run `task simulation:{_STAGES[key][1]}` first.")
 
     with np.load(paths["radio_map_file"], allow_pickle=False) as archive:
         radio = {key: archive[key] for key in archive.files}
 
     return Artifacts(
         ue=pd.read_csv(paths["ue_file"]),
+        cells=pd.read_csv(paths["cells_file"]),
         radio=radio,
         manifest=json.loads(paths["manifest_file"].read_text(encoding="utf-8")),
     )

@@ -10,12 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.simulation import sample
-from src.simulation.density import DensityField
-from src.simulation.grid import GridSpec, Raster
-from src.simulation.sample import UeSpec, sample_positions, write_csv
+from src.scenario import sample
+from src.scenario.density import DensityField
+from src.scenario.grid import GridSpec, Raster
+from src.scenario.sample import UeSpec, sample_positions, write_csv
+from src.scenario.traffic import Schedule
 from src.simulation.scene import SceneBounds
-from src.simulation.traffic import Schedule
 
 BOUNDS = SceneBounds(min_x=0.0, max_x=40.0, min_y=0.0, max_y=40.0, min_z=0.0, max_z=10.0)
 GRID = GridSpec(tile_size_m=10.0, subsamples_per_tile=2, free_height_tol_m=0.5)

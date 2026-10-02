@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
+from src.core.cell import cells_from_frame, cells_to_frame
 from src.data import schema
 from src.data.build import build_ue
 from src.data.load import Artifacts
@@ -19,23 +20,11 @@ def cfg():
     """One cell on one band over a 2 x 2 grid of 10 m tiles."""
     return OmegaConf.create(
         {
+            "scenario": {"ue": {"height_m": 1.5}},
             "simulation": {
-                "ue": {"height_m": 1.5},
                 "antenna": {"power_rs": 5.0},
                 "radio_map": {"bands": [{"name": "b1"}]},
-                "transmitters": {
-                    "cells": [
-                        {
-                            "name": "c0",
-                            "x": 0.0,
-                            "y": 0.0,
-                            "z": 25.0,
-                            "azimuth_deg": 0.0,
-                            "tilt": {"b1": {"baseline_deg": 8.0, "bounds_deg": [0.0, 15.0]}},
-                        }
-                    ]
-                },
-            }
+            },
         }
     )
 
@@ -71,7 +60,22 @@ def artifacts() -> Artifacts:
         "grid": grid,
         "time": {"t_s": [0.0, 900.0], "spec": {"interval_s": 900.0}},
     }
-    return Artifacts(ue=ue, radio=radio, manifest=manifest)
+    cells = pd.DataFrame(
+        {
+            "node": ["n0"],
+            "node_x": [0.0],
+            "node_y": [0.0],
+            "node_z": [25.0],
+            "cell": ["c0"],
+            "azimuth_deg": [0.0],
+            "band": ["b1"],
+            "tilt_deg": [8.0],
+            "tilt_min_deg": [0.0],
+            "tilt_max_deg": [20.0],
+            "max_prb": [52],
+        }
+    )
+    return Artifacts(ue=ue, cells=cells, radio=radio, manifest=manifest)
 
 
 def test_consistent_artifacts_pass_every_check(artifacts, cfg) -> None:
@@ -101,3 +105,20 @@ def test_build_ue_types_and_sorts_without_dropping_a_row(artifacts) -> None:
     assert ue["tile_row"].dtype == np.int16
     assert ue["t_s"].dtype == np.float64
     assert ue["scenario_id"].astype(str).unique().tolist() == ["scn_x"]
+
+
+def test_a_cell_table_round_trips_through_its_frame(artifacts) -> None:
+    """Writing cells and reading them back keeps every tilt, bound and PRB limit."""
+    cells = cells_from_frame(artifacts.cells)
+    again = cells_from_frame(cells_to_frame(cells, ["n0"]))
+    assert again == cells
+    assert again[0].tilt["b1"].bounds_deg == (0.0, 20.0)
+    assert again[0].max_prb_for("b1") == 52
+
+
+def test_a_tilt_outside_its_bounds_fails_the_contract(artifacts, cfg) -> None:
+    """The run would start infeasible, so preprocessing refuses the table."""
+    cells = artifacts.cells.assign(tilt_deg=25.0)
+    checks = schema.verify(dataclasses.replace(artifacts, cells=cells), cfg)
+    failed = checks.loc[~checks["holds"], "check"].tolist()
+    assert "tilt_min_deg <= tilt_deg <= tilt_max_deg" in failed

@@ -3,7 +3,7 @@
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
 map and the processed UE table only, so like the rest of :mod:`src.evaluation`
 it needs no GPU. UEs are served from ``data.output.ue_file``, every UE; the
-cells are read from ``simulation.transmitters.cells``.
+cells are read from ``data.output.cells_file``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import max_rsrp
 from src.kpi.overlap import overlap_neighbors
-from src.optim.objective import MEASURE_NAMES
 from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
 from src.utils.seed import set_seed
@@ -136,31 +135,37 @@ def _evaluate(
         ),
     )
 
-    best_rsrp = {name: max_rsrp(config.rsrp) for name, config in configurations.items()}
-    # No path in either map makes the change undefined; it stays blank on the map.
-    with np.errstate(invalid="ignore"):
-        rsrp_change = {label(m): best_rsrp[m] - best_rsrp["incumbent"] for m in best}
-    add(
-        "rsrp_change_maps",
-        plots.map_row(
-            rsrp_change,
-            baseline,
-            colorbar_label="Change in best-server RSRP [dB]",
-            symmetric=True,
-            cells=cells,
-        ),
-    )
-    add(
-        "coverage_before_after",
-        plots.coverage_maps(
-            best_rsrp["incumbent"],
-            best_rsrp[winner.method],
-            baseline,
-            cfg,
-            cells=cells,
-            name=winner.method,
-        ),
-    )
+    # Per band only: the strongest layer across bands is not one a UE measures.
+    for index, band in enumerate(band_labels):
+        band_rsrp = {
+            name: max_rsrp(config.rsrp[index : index + 1])
+            for name, config in configurations.items()
+        }
+        # No path in either map makes the change undefined; it stays blank on the map.
+        with np.errstate(invalid="ignore"):
+            rsrp_change = {label(m): band_rsrp[m] - band_rsrp["incumbent"] for m in best}
+        add(
+            f"rsrp_change_maps_{band}",
+            plots.map_row(
+                rsrp_change,
+                baseline,
+                colorbar_label=f"Change in {label(band)} best-server RSRP [dB]",
+                symmetric=True,
+                cells=cells,
+            ),
+        )
+        add(
+            f"coverage_before_after_{band}",
+            plots.coverage_maps(
+                band_rsrp["incumbent"],
+                band_rsrp[winner.method],
+                baseline,
+                cfg,
+                cells=cells,
+                name=winner.method,
+                band=band,
+            ),
+        )
     add("coverage_by_area_and_demand", compare.coverage_by_area_and_demand(configurations, cfg))
     add(
         "coverage_class_maps",
@@ -259,11 +264,7 @@ def main(cfg: DictConfig) -> None:
         cfg,
         "evaluation",
         groups=["kpi"],
-        metrics={
-            f"{row.method}_{row.kpi}_mean": row.mean
-            for row in summary.itertuples()
-            if row.kpi in MEASURE_NAMES
-        },
+        metrics={f"{row.method}_{row.kpi}_mean": row.mean for row in summary.itertuples()},
         artifacts=list(output_dirs(cfg)),
     )
 

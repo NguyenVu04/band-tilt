@@ -30,10 +30,10 @@ class SceneSpec:
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> SceneSpec:
-        """Read ``simulation.scene``."""
+        """Read ``scenario.scene_file`` and ``simulation.scene``."""
         scene = cfg.simulation.scene
         return cls(
-            name=str(scene.name),
+            name=str(cfg.scenario.scene_file),
             mitsuba_variant=str(scene.mitsuba_variant),
             merge_shapes=bool(scene.merge_shapes),
         )

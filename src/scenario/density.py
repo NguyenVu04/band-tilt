@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 from omegaconf import DictConfig
 
-from src.simulation.grid import Raster, disc_offsets
+from src.scenario.grid import Raster, disc_offsets
 
 
 @dataclass(frozen=True)
@@ -49,39 +49,39 @@ class DensitySpec:
         """
         if not 0.0 <= self.hotspot_mass_fraction <= 1.0:
             raise ValueError(
-                "simulation.density.hotspot_mass_fraction must be in [0, 1], "
+                "scenario.density.hotspot_mass_fraction must be in [0, 1], "
                 f"got {self.hotspot_mass_fraction}"
             )
         if self.n_hotspots < 0:
             raise ValueError(
-                f"simulation.density.n_hotspots must not be negative, got {self.n_hotspots}"
+                f"scenario.density.n_hotspots must not be negative, got {self.n_hotspots}"
             )
         if self.n_hotspots == 0 and self.hotspot_mass_fraction > 0.0:
             raise ValueError(
-                "simulation.density.hotspot_mass_fraction is "
+                "scenario.density.hotspot_mass_fraction is "
                 f"{self.hotspot_mass_fraction} but n_hotspots is 0, so that mass "
                 "has nowhere to go. Set the fraction to 0 for a uniform density."
             )
         if self.built_volume_radius_m <= 0:
             raise ValueError(
-                "simulation.density.built_volume_radius_m must be positive, "
+                "scenario.density.built_volume_radius_m must be positive, "
                 f"got {self.built_volume_radius_m}"
             )
         if not 0.0 <= self.min_built_volume_fraction < 1.0:
             raise ValueError(
-                "simulation.density.min_built_volume_fraction must be in [0, 1), "
+                "scenario.density.min_built_volume_fraction must be in [0, 1), "
                 f"got {self.min_built_volume_fraction}"
             )
         if self.min_hotspot_distance_m < 0:
             raise ValueError(
-                "simulation.density.min_hotspot_distance_m must not be negative, "
+                "scenario.density.min_hotspot_distance_m must not be negative, "
                 f"got {self.min_hotspot_distance_m}"
             )
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> DensitySpec:
-        """Read ``simulation.density``."""
-        density = cfg.simulation.density
+        """Read ``scenario.density``."""
+        density = cfg.scenario.density
         major = tuple(float(value) for value in density.sigma_major_m)
         minor = tuple(float(value) for value in density.sigma_minor_m)
         return cls(
@@ -120,7 +120,7 @@ class DensityField:
 
     The field carries no component masses. How much of the population a
     component holds varies per interval and belongs to
-    :class:`src.simulation.traffic.Schedule`; where a component puts what it
+    :class:`src.scenario.traffic.Schedule`; where a component puts what it
     holds is a property of the scene and is drawn once. Splitting them is what
     lets a many-interval scenario reuse a single set of per-tile weights.
 
@@ -222,7 +222,7 @@ def draw_hotspots(
         n_eligible = int(np.count_nonzero(candidate_weights))
         if n_eligible < spec.n_hotspots:
             raise ValueError(
-                f"simulation.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
+                f"scenario.density.n_hotspots is {spec.n_hotspots} but only {n_eligible} "
                 "grid tiles hold open ground. Lower n_hotspots or the tile size."
             )
     else:
@@ -237,7 +237,7 @@ def draw_hotspots(
     for placed in range(spec.n_hotspots):
         if not candidate_weights.any():
             raise ValueError(
-                "simulation.density.min_hotspot_distance_m of "
+                "scenario.density.min_hotspot_distance_m of "
                 f"{spec.min_hotspot_distance_m} m leaves room for only {placed} of "
                 f"{spec.n_hotspots} hotspots. Lower it, or n_hotspots."
             )
@@ -274,7 +274,7 @@ def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
     here would hand those tiles that error as UE weight.
 
     Instead the open area enters through rejection in
-    :func:`src.simulation.sample.sample_positions`, which draws uniformly
+    :func:`src.scenario.sample.sample_positions`, which draws uniformly
     inside a chosen tile and keeps only what lands on open ground. That makes
     the sampled density proportional to the density function times the tile's
     *true* open area, with the estimate used for nothing but eligibility.
@@ -314,10 +314,10 @@ def _above_threshold(candidate_weights: np.ndarray, spec: DensitySpec) -> np.nda
     n_kept = int(np.count_nonzero(kept))
     if n_kept < spec.n_hotspots:
         raise ValueError(
-            "simulation.density.min_built_volume_fraction of "
+            "scenario.density.min_built_volume_fraction of "
             f"{spec.min_built_volume_fraction} leaves only {n_kept} candidate tiles for "
             f"{spec.n_hotspots} hotspots. Lower it, or raise "
-            "simulation.density.built_volume_radius_m."
+            "scenario.density.built_volume_radius_m."
         )
     return kept
 

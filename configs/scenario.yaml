@@ -1,0 +1,89 @@
+# @package scenario
+# What the scene holds: the scene file, its grid, the UE population over time
+# and the node/cell layout. Swap scenarios by changing scene_name or any block
+# here and re-running `task simulation:scenario`.
+
+# Folder under data/scenes/ holding scene.xml, its mesh/ and the manifest.
+scene_name: hanoi
+# Scene XML path, or a bundled Sionna-RT scene name.
+scene_file: data/scenes/${scenario.scene_name}/scene.xml
+
+# Grid shared by UE density and radio maps.
+grid:
+  # Tile side [m].
+  tile_size_m: 20.0
+  # Ray casts per tile side (n x n per tile).
+  subsamples_per_tile: 4
+  # Highest surface still counted as open ground [m].
+  free_height_tol_m: 0.5
+
+# UE population; each interval is an independent draw.
+ue:
+  # UEs per interval, inclusive range.
+  count_range: [10, 20]
+  # UE height, also the radio-map plane [m].
+  height_m: 1.5
+
+# Traffic over time.
+time:
+  # Interval length [s].
+  interval_s: 900.0 # 15 minutes
+  # Simulated duration [s].
+  horizon_s: 604800.0 # 7 days
+  # Day/night swing, below 1.
+  diurnal_amplitude: 0.6
+  # AR(1) correlation, below 1.
+  ar1_rho: 0.85
+  # AR(1) shock scale; 0 gives the plain diurnal profile.
+  ar1_sigma: 0.25
+
+# UE density: uniform background plus Gaussian hotspots.
+density:
+  # Share of UEs in hotspots.
+  hotspot_mass_fraction: 0.7
+  # Number of hotspots.
+  n_hotspots: 4
+  # Major-axis sigma range [m].
+  sigma_major_m: [80.0, 200.0]
+  # Minor-axis sigma range [m], capped at the major axis.
+  sigma_minor_m: [40.0, 120.0]
+  # Radius for the building volume that weights hotspot centres [m].
+  built_volume_radius_m: 150.0
+  # Least building volume, as a share of the densest area, for a hotspot centre.
+  min_built_volume_fraction: 0.5
+  # Least distance between hotspot centres [m].
+  min_hotspot_distance_m: 500.0
+
+# Multi-band cells on four nodes: a centre node and three around it at 120 deg.
+layout:
+  # Inter-site distance, centre node to each corner node [m]; the corners are
+  # sqrt(3) times this apart. 3GPP TR 38.901 Table 7.2-1 ISD: 500 m UMa, 1732 m RMa.
+  node_spacing_m: 1000.0
+  # Cells per node, evenly spaced in azimuth.
+  cells_per_node: 3
+  # Azimuth of the first cell [deg].
+  azimuth_offset_deg: 45.0
+  # Mast height above ground [m]; TR 38.901 Table 7.2-1 h_BS is 25 m UMa, 35 m RMa.
+  mast_height_m: 25.0
+  # Least open-ground share at a mast site.
+  min_free_fraction: 0.95
+  # Open-ground clearance around a mast [m].
+  clearance_radius_m: 20.0
+  # Search radius for open ground near a node [m].
+  snap_radius_m: 250.0
+  # Incumbent tilt of every cell, per band [deg].
+  default_tilt:
+    b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 20.0]}
+    b1800: {baseline_deg: 10.0, bounds_deg: [0.0, 20.0]}
+    b700: {baseline_deg: 8.0, bounds_deg: [0.0, 20.0]}
+  # PRB limit of every cell, per band: N_RB at 15 kHz SCS (TS 38.101-1
+  # Table 5.3.2-1). Keep in step with simulation.radio_map.bands.
+  default_max_prb: {b2600: 216, b1800: 106, b700: 52}
+
+seed: ${seed}
+
+# Scenario outputs.
+output:
+  ue_file: data/external/ue_positions.csv
+  cells_file: data/external/cells.csv
+  manifest_file: data/scenes/${scenario.scene_name}/scenario.json

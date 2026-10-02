@@ -50,6 +50,9 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
 
     with Evaluator(cfg) as evaluator:
         scenario_id = evaluator.scenario_id
+        # The cell table lives outside the config snapshot, so the PRB limits the
+        # throughput was measured under are recorded with the run.
+        max_prb = {cell.name: cell.max_prb for cell in evaluator.space.cells}
         history = run_search(evaluator, cfg)
         radio_map = None
         if bool(cfg.optim.output.save_radio_map):
@@ -67,6 +70,7 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
         method,
         extra={
             "scenario_id": scenario_id,
+            "max_prb": max_prb,
             "wall_clock_seconds": time.time() - started,
             "best_radio_map": radio_map,
         },

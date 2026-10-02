@@ -46,7 +46,7 @@ def test_service_summary_counts_unserved_reports_as_not_served() -> None:
     assert summary["not_served_share"] == pytest.approx(0.25)
     assert summary["share_hi"] == pytest.approx(0.5)
     assert summary["share_lo"] == pytest.approx(0.25)
-    assert summary["sinr_median_db"] == pytest.approx(10.0)
+    assert "sinr_median_db" not in summary
 
 
 def test_tile_median_is_per_tile_and_blank_where_nobody_was_served() -> None:
@@ -63,27 +63,28 @@ def test_tile_median_is_per_tile_and_blank_where_nobody_was_served() -> None:
     assert np.isnan(median[0, 1:]).all()
 
 
-def test_cell_table_reads_the_configured_cells() -> None:
-    """The node is the mast part of an ``n<node>c<cell>`` name."""
-    cfg = OmegaConf.create(
+def test_cell_table_is_one_row_per_cell_with_its_node(tmp_path) -> None:
+    """Two band rows of one cell collapse to one row, its mast named by ``node``."""
+    frame = pd.DataFrame(
         {
-            "simulation": {
-                "transmitters": {
-                    "cells": [
-                        {
-                            "name": "n3c1",
-                            "x": 1.0,
-                            "y": 2.0,
-                            "z": 25.0,
-                            "azimuth_deg": 165.0,
-                            "tilt": {},
-                        }
-                    ]
-                }
-            }
+            "node": ["n3", "n3"],
+            "node_x": [1.0, 1.0],
+            "node_y": [2.0, 2.0],
+            "node_z": [25.0, 25.0],
+            "cell": ["n3c1", "n3c1"],
+            "azimuth_deg": [165.0, 165.0],
+            "band": ["hi", "lo"],
+            "tilt_deg": [8.0, 6.0],
+            "tilt_min_deg": [0.0, 0.0],
+            "tilt_max_deg": [20.0, 20.0],
+            "max_prb": [10, 10],
         }
     )
-    row = compare.cell_table(cfg).iloc[0]
+    frame.to_parquet(tmp_path / "cells.parquet")
+    cfg = OmegaConf.create({"data": {"output": {"cells_file": str(tmp_path / "cells.parquet")}}})
+    table = compare.cell_table(cfg)
+    assert len(table) == 1
+    row = table.iloc[0]
     assert (row["cell"], row["node"], row["x"], row["azimuth_deg"]) == ("n3c1", "n3", 1.0, 165.0)
 
 
@@ -113,10 +114,10 @@ def incumbent() -> KpiVector:
     )
 
 
-def test_delta_table_is_in_priority_order(incumbent: KpiVector) -> None:
-    """Reading top to bottom is reading the order the winner was decided in."""
+def test_delta_table_reports_the_network_kpis_in_order(incumbent: KpiVector) -> None:
+    """All-band best-server RSRP and SINR are not reported, nor is the objective."""
     table = compare.delta_table(incumbent, incumbent)
-    assert table["kpi"].tolist() == list(MEASURE_NAMES)
+    assert table["kpi"].tolist() == list(compare.NETWORK_KPIS)
 
 
 def test_identical_configurations_are_unchanged_everywhere(incumbent: KpiVector) -> None:
@@ -144,19 +145,19 @@ def test_a_change_reads_by_direction(incumbent: KpiVector) -> None:
     assert table.loc["weak_rate", "verdict"] == compare.WORSE
 
 
-def test_a_change_between_two_empty_percentiles_is_undefined(incumbent: KpiVector) -> None:
+def test_a_change_between_two_undefined_values_is_undefined(incumbent: KpiVector) -> None:
     """``-inf - -inf`` is NaN, which is neither better nor worse."""
-    before = dataclasses.replace(incumbent, sinr_p05_db=-np.inf)
+    before = dataclasses.replace(incumbent, estimated_throughput_p05_mbps=-np.inf)
     table = compare.delta_table(before, before).set_index("kpi")
-    assert table.loc["sinr_p05_db", "verdict"] == compare.UNDEFINED
+    assert table.loc["estimated_throughput_p05_mbps", "verdict"] == compare.UNDEFINED
 
 
 def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
     """The KPI where up is better, and the usual place a sign error hides."""
-    after = dataclasses.replace(incumbent, sinr_p05_db=incumbent.sinr_p05_db + 0.5)
+    after = dataclasses.replace(incumbent, estimated_throughput_p05_mbps=1.5)
     table = compare.delta_table(incumbent, after).set_index("kpi")
-    assert table.loc["sinr_p05_db", "verdict"] == compare.BETTER
-    assert table.loc["sinr_p05_db", "direction"] == "maximise"
+    assert table.loc["estimated_throughput_p05_mbps", "verdict"] == compare.BETTER
+    assert table.loc["estimated_throughput_p05_mbps", "direction"] == "maximise"
 
 
 def test_direction_names_every_kpi() -> None:
@@ -201,7 +202,13 @@ def test_coverage_comparison_of_nothing_is_empty() -> None:
     assert compare.coverage_comparison({}).empty
 
 
-def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None = None) -> Run:
+def _run(
+    method: str,
+    seed: int,
+    coverage: list[float],
+    phases: list[str] | None = None,
+    throughput: list[float] | None = None,
+) -> Run:
     """A run whose ``objective`` per evaluation is ``coverage``, row 0 the incumbent."""
     n = len(coverage)
     history = pd.DataFrame(
@@ -218,7 +225,7 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
             "sinr_p05_db": [-3.0] * n,
             "ue_service_failure_rate": [0.0] * n,
             "estimated_throughput_p05_mbps": [1.0] * n,
-            "estimated_throughput_p50_mbps": [5.0] * n,
+            "estimated_throughput_p50_mbps": throughput or [5.0] * n,
             "estimated_throughput_mean_mbps": [6.0] * n,
             "objective": coverage,
         }
@@ -237,13 +244,18 @@ def _run(method: str, seed: int, coverage: list[float], phases: list[str] | None
 
 def test_seed_summary_interval_brackets_the_mean() -> None:
     """Two seeds give a finite interval centred on the mean winner."""
-    runs = [_run("turbo", 0, [0.5, 0.8]), _run("turbo", 1, [0.5, 0.6])]
+    runs = [
+        _run("turbo", 0, [0.5, 0.8], throughput=[5.0, 8.0]),
+        _run("turbo", 1, [0.5, 0.6], throughput=[5.0, 6.0]),
+    ]
     table = compare.seed_summary(runs).set_index("kpi")
-    assert table.loc["objective", "mean"] == pytest.approx(0.7)
-    low, high = table.loc["objective", ["ci95_low", "ci95_high"]]
-    assert low < 0.7 < high
-    assert table.loc["objective", "direction"] == "maximise"
-    assert table.loc["objective", "verdict"] == compare.BETTER
+    assert table.index.tolist() == list(compare.NETWORK_KPIS)
+    name = "estimated_throughput_p50_mbps"
+    assert table.loc[name, "mean"] == pytest.approx(7.0)
+    low, high = table.loc[name, ["ci95_low", "ci95_high"]]
+    assert low < 7.0 < high
+    assert table.loc[name, "direction"] == "maximise"
+    assert table.loc[name, "verdict"] == compare.BETTER
 
 
 def test_winner_vs_candidates_separates_winner_from_typical() -> None:
@@ -277,11 +289,11 @@ def test_pareto_front_reads_each_column_in_its_direction() -> None:
 
 
 def test_relative_improvement_is_positive_when_better() -> None:
-    """A falling hole rate and a rising median SINR both read as gains; J is not a KPI."""
+    """A falling hole rate and a rising median throughput read as gains; J is not a KPI."""
     summary = pd.DataFrame(
         {
             "method": ["turbo", "turbo", "turbo"],
-            "kpi": ["hole_rate", "sinr_p50_db", "objective"],
+            "kpi": ["hole_rate", "estimated_throughput_p50_mbps", "objective"],
             "direction": ["minimise", "maximise", "maximise"],
             "incumbent": [0.2, 0.5, 0.6],
             "mean": [0.1, 0.6, 0.7],
@@ -289,7 +301,7 @@ def test_relative_improvement_is_positive_when_better() -> None:
     )
     row = compare.relative_improvement(summary).iloc[0]
     assert row["hole_rate"] == pytest.approx(50.0)
-    assert row["sinr_p50_db"] == pytest.approx(20.0)
+    assert row["estimated_throughput_p50_mbps"] == pytest.approx(20.0)
     assert "objective" not in row
 
 
@@ -321,32 +333,9 @@ def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
 
 
 def _capacity_cfg() -> DictConfig:
-    """The thresholds plus the capacity model ``band_kpis`` needs for its spec."""
+    """The thresholds the KPIs ``band_kpis`` reports read."""
     return OmegaConf.create(
-        {
-            "kpi": {
-                "hole_dbm": -120.0,
-                "weak_dbm": -90.0,
-                "overlap_margin_db": 6.0,
-                "capacity": {"max_admission_utilisation": 0.8},
-            },
-            "simulation": {
-                "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
-                "transmitters": {
-                    "cells": [
-                        {
-                            "name": "c0",
-                            "x": 0.0,
-                            "y": 0.0,
-                            "z": 30.0,
-                            "azimuth_deg": 0.0,
-                            "tilt": {},
-                            "max_prb": {"hi": 10, "lo": 10},
-                        }
-                    ]
-                },
-            },
-        }
+        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
     )
 
 
@@ -385,18 +374,22 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     assert table.loc[compare.ALL_BANDS, "estimated_throughput_p50_mbps"] == pytest.approx(4.0)
     assert table.loc[compare.ALL_BANDS, "estimated_throughput_mean_mbps"] == pytest.approx(4.0)
     assert table.loc[["hi", "lo"], "estimated_throughput_mean_mbps"].isna().all()
-    # SINR 10 dB everywhere, so every covered tile reads 10 dB.
-    assert table.loc[compare.ALL_BANDS, "sinr_p50_db"] == pytest.approx(10.0)
+    # SINR 10 dB everywhere, so every covered tile of a band reads 10 dB. The
+    # strongest layer across bands is not reported.
+    assert table.loc["lo", "sinr_p50_db"] == pytest.approx(10.0)
+    assert np.isnan(table.loc[compare.ALL_BANDS, "sinr_p50_db"])
+    assert np.isnan(table.loc[compare.ALL_BANDS, "rsrp_p05_dbm"])
+    assert "overlap_neighbor_mean" not in table.columns
 
 
 def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:
-    """A halved hole rate is +50 %; a median SINR up by a tenth of itself is +10 %."""
+    """A halved hole rate is +50 %; a median throughput up by a tenth of itself is +10 %."""
     after = dataclasses.replace(
-        incumbent, hole_rate=incumbent.hole_rate / 2, sinr_p50_db=incumbent.sinr_p50_db * 1.1
+        incumbent, hole_rate=incumbent.hole_rate / 2, estimated_throughput_p50_mbps=5.5
     )
     table = compare.improvement_table(incumbent, after).set_index("kpi")
     assert table.loc["hole_rate", "improvement_pct"] == pytest.approx(50.0)
-    assert table.loc["sinr_p50_db", "improvement_pct"] == pytest.approx(10.0)
+    assert table.loc["estimated_throughput_p50_mbps", "improvement_pct"] == pytest.approx(10.0)
     assert table.loc["weak_rate", "improvement_pct"] == 0.0
 
 

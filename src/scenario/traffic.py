@@ -43,26 +43,24 @@ class TrafficSpec:
                 positive and the process stationary.
         """
         if self.interval_s <= 0:
-            raise ValueError(f"simulation.time.interval_s must be positive, got {self.interval_s}")
+            raise ValueError(f"scenario.time.interval_s must be positive, got {self.interval_s}")
         if self.horizon_s < self.interval_s:
             raise ValueError(
-                f"simulation.time.horizon_s {self.horizon_s} is shorter than one "
+                f"scenario.time.horizon_s {self.horizon_s} is shorter than one "
                 f"interval of {self.interval_s} s, so no snapshot would be taken"
             )
         if not 0.0 <= self.diurnal_amplitude < 1.0:
             raise ValueError(
-                "simulation.time.diurnal_amplitude must be in [0, 1) to keep every "
+                "scenario.time.diurnal_amplitude must be in [0, 1) to keep every "
                 f"intensity positive, got {self.diurnal_amplitude}"
             )
         if not 0.0 <= self.ar1_rho < 1.0:
             raise ValueError(
-                "simulation.time.ar1_rho must be in [0, 1) for the process to be "
+                "scenario.time.ar1_rho must be in [0, 1) for the process to be "
                 f"stationary, got {self.ar1_rho}"
             )
         if self.ar1_sigma < 0:
-            raise ValueError(
-                f"simulation.time.ar1_sigma must not be negative, got {self.ar1_sigma}"
-            )
+            raise ValueError(f"scenario.time.ar1_sigma must not be negative, got {self.ar1_sigma}")
 
     @property
     def n_intervals(self) -> int:
@@ -71,8 +69,8 @@ class TrafficSpec:
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> TrafficSpec:
-        """Read ``simulation.time``."""
-        time = cfg.simulation.time
+        """Read ``scenario.time``."""
+        time = cfg.scenario.time
         return cls(
             interval_s=float(time.interval_s),
             horizon_s=float(time.horizon_s),
@@ -93,7 +91,7 @@ class Schedule:
         component_mass: Share of the interval's UEs per mixture component,
             shaped ``[n_intervals, n_components]``, each row summing to 1.
             Index 0 is the uniform background; the rest are the hotspots, in
-            the order :class:`src.simulation.density.DensityField` holds them.
+            the order :class:`src.scenario.density.DensityField` holds them.
         phase_rad: Each hotspot's diurnal phase offset, shaped ``[n_hotspots]``;
             the hotspot peaks a quarter-day after it, at angle ``phase_rad + pi/2``.
             Recorded so the manifest can describe the schedule rather than only
@@ -145,7 +143,7 @@ def build(
     low, high = count_range
     if low <= 0 or high < low:
         raise ValueError(
-            f"simulation.ue.count_range must be a positive non-decreasing pair, got {count_range}"
+            f"scenario.ue.count_range must be a positive non-decreasing pair, got {count_range}"
         )
 
     rng = np.random.default_rng(seed)

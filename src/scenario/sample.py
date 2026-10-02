@@ -10,11 +10,11 @@ from typing import Any
 import numpy as np
 from omegaconf import DictConfig
 
+from src.scenario.density import DensityField
+from src.scenario.grid import GridSpec, Raster
+from src.scenario.traffic import Schedule
 from src.simulation import scene
-from src.simulation.density import DensityField
-from src.simulation.grid import GridSpec, Raster
 from src.simulation.scene import SceneBounds
-from src.simulation.traffic import Schedule
 
 # Rejection can only fail forever if the chosen component sits entirely on
 # buildings, so the cap exists to raise rather than hang, not to bound bias.
@@ -46,15 +46,15 @@ class UeSpec:
         """
         low, high = self.count_range
         if low <= 0:
-            raise ValueError(f"simulation.ue.count_range must be positive, got {self.count_range}")
+            raise ValueError(f"scenario.ue.count_range must be positive, got {self.count_range}")
         if high < low:
-            raise ValueError(f"simulation.ue.count_range is inverted: {self.count_range}")
+            raise ValueError(f"scenario.ue.count_range is inverted: {self.count_range}")
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> UeSpec:
-        """Read ``simulation.ue``."""
-        low, high = (int(value) for value in cfg.simulation.ue.count_range)
-        return cls(count_range=(low, high), height_m=float(cfg.simulation.ue.height_m))
+        """Read ``scenario.ue``."""
+        low, high = (int(value) for value in cfg.scenario.ue.count_range)
+        return cls(count_range=(low, high), height_m=float(cfg.scenario.ue.height_m))
 
 
 def sample_positions(
@@ -149,7 +149,7 @@ def densest_decile_share(
     One scalar describing how concentrated the population is, for the run log.
     A uniform density gives roughly a tenth; anything well above that is the
     hotspots doing work. ``eligible`` is the mask the field was built over
-    (:func:`src.simulation.density.eligible_tiles`), so the denominator counts
+    (:func:`src.scenario.density.eligible_tiles`), so the denominator counts
     the tiles a UE could actually have landed in.
     """
     counts = np.zeros(raster.n_rows * raster.n_cols, dtype=np.int64)

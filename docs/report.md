@@ -569,7 +569,7 @@ Running several search seeds, re-tracing the shortlisted configurations under ot
 **Recommendations.**
 
 1. **Do not deploy any recommended tilt set yet.** No result has been validated beyond the scenario it was tuned on.
-2. **Repeat the comparison over several search seeds** (`BAND_TILT_SEEDS` in notebooks 03a/03b, or `task sweep -- optim.seed=1,2,3`), and re-trace the shortlists under other solver seeds. The TuRBO–random margin of +0.0176 needs an interval before it can be called decisive, and the 2026-10-02 rerun already shows TuRBO's winner moves between runs.
+2. **Repeat the comparison over several search seeds** (`BAND_TILT_SEEDS` in notebooks 03a/03b), and re-trace the shortlists under other solver seeds. The TuRBO–random margin of +0.0176 needs an interval before it can be called decisive, and the 2026-10-02 rerun already shows TuRBO's winner moves between runs.
 3. **Decide whether the objective's non-monotonicity is acceptable.** This is the most consequential open question left, and the power share makes it reach most of the grid. Measure it as part of the pipeline rather than ad hoc, and re-trace the shortlisted configurations with the weakest layer at each tile removed, to measure whether any reachable tilt actually collects it.
 4. **Give TuRBO a larger budget.** It found its best at evaluation 141 of 145 and never restarted, so the trust region was still productive when the budget ended.
 5. **Add a movement constraint or penalty**, and widen or confirm the tilt box against the real RET range. The winner sits within 0.12° of both bounds and moves all 36 antennas.

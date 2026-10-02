@@ -1,7 +1,7 @@
 """Seed the interpreter's global random streams.
 
 Distinct from :mod:`src.simulation.seeds`, which derives one independent stream
-per stage from ``simulation.seed``. No simulation stage reads a global
+per stage from ``scenario.seed``. No simulation stage reads a global
 generator, so this covers only the ad-hoc draws a notebook or a model makes.
 """
 

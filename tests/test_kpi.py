@@ -19,10 +19,11 @@ from src.kpi import (
 )
 from src.kpi.capacity import _tile_index, finite, max_rsrp, serve_intervals
 from src.kpi.overlap import effective_coverage, overlap_neighbors
+from tests.conftest import write_cells
 
 
 @pytest.fixture
-def cfg():
+def cfg(tmp_path):
     """The thresholds the KPIs read, without composing the whole config."""
     return OmegaConf.create(
         {
@@ -34,20 +35,24 @@ def cfg():
             },
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
-                "seed": 0,
-                "transmitters": {
-                    "cells": [
-                        {
-                            "name": "c0",
-                            "x": 0.0,
-                            "y": 0.0,
-                            "z": 30.0,
-                            "azimuth_deg": 0.0,
-                            "tilt": {},
-                            "max_prb": {"hi": 100, "lo": 100},
-                        }
-                    ]
-                },
+            },
+            "data": {
+                "output": {
+                    "cells_file": write_cells(
+                        tmp_path,
+                        [
+                            {
+                                "name": "c0",
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 30.0,
+                                "azimuth_deg": 0.0,
+                                "tilt": {},
+                                "max_prb": {"hi": 100, "lo": 100},
+                            }
+                        ],
+                    )
+                }
             },
         }
     )
