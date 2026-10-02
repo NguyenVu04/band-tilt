@@ -18,13 +18,12 @@ from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
-from src.optim.methods import random, rule, turbo
+from src.optim.methods import random, turbo
 from src.optim.methods.base import SearchMethod
 
 SEARCHES: Mapping[str, SearchMethod] = {
     "turbo": turbo.search,
     "random": random.search,
-    "rule": rule.search,
 }
 
 

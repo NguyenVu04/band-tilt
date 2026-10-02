@@ -154,8 +154,8 @@ class History:
 
         Args:
             result: What the evaluator returned.
-            phase: Which part of the run produced it — ``incumbent``, ``init``,
-                ``search`` or ``sweep``. What separates the exploration budget
+            phase: Which part of the run produced it — ``incumbent``, ``init``
+                or ``search``. What separates the exploration budget
                 from the model-driven one in a plot.
             generation_node: The generator's name, e.g. ``Sobol`` or
                 ``TuRBO``: the record of whether a point came from the

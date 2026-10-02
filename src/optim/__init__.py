@@ -1,6 +1,6 @@
 """Optimization over the absolute-tilt space.
 
-One decision vector, one objective, three ways of searching it. Every method
+One decision vector, one objective, two ways of searching it. Every method
 here proposes a tilt for each cell-band pair, has it measured by
 :mod:`src.kpi` and scored by :mod:`src.optim.objective`, and writes the same
 artifacts, so a comparison between methods is a comparison of search
@@ -21,8 +21,8 @@ Modules, each with one reason to change:
     The evaluation log, the artifacts a run leaves behind, and the deliverable
     the tilt change is republished as.
 ``methods``
-    One folder per method — TuRBO-1 on BoTorch, Sobol random search, and a
-    rule-based per-band sweep — behind the ``SearchMethod`` interface in
+    One folder per method — TuRBO-1 on BoTorch and Sobol random search —
+    behind the ``SearchMethod`` interface in
     ``methods/base.py``, with the registry that dispatches on the selected
     ``optim/method`` config group.
 ``run``

@@ -24,11 +24,9 @@ from src.optim.history import History
 INCUMBENT = "incumbent"
 INIT = "init"
 SEARCH = "search"
-SWEEP = "sweep"
 
 ATTACHED = "attached"
 SOBOL = "Sobol"
-COORDINATE = "coordinate"
 
 
 def sobol(dim: int, n: int, seed: int) -> np.ndarray:

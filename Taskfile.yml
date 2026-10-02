@@ -19,7 +19,7 @@ vars:
   # The search methods `optim` loops over. Adding one is a folder under
   # src/optim/methods/, its SEARCHES entry, a configs/optim/method/<name>.yaml,
   # and its name here.
-  METHODS: turbo random rule
+  METHODS: turbo random
 
 tasks:
   default:
@@ -131,7 +131,7 @@ tasks:
       - uv run python -m {{.PKG}}.optim.run optim/method=turbo {{.CLI_ARGS}}
 
   baseline:
-    desc: 'Optimize with a baseline method, e.g. task baseline -- optim/method=rule - needs a GPU'
+    desc: 'Optimize with random search, e.g. task baseline -- optim.method.budget.n_iter=50 - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.optim.run optim/method=random {{.CLI_ARGS}}
 
@@ -154,8 +154,13 @@ tasks:
       - task: optim
       - task: evaluate
 
+  demo:
+    desc: 'Live what-if app: edit tilts, ray-trace, compare KPIs (needs a CUDA GPU)'
+    cmds:
+      - uv run streamlit run demo/app.py --browser.gatherUsageStats false {{.CLI_ARGS}}
+
   sweep:
-    desc: 'Hydra multirun, e.g. task sweep -- seed=1,2,3'
+    desc: 'Hydra multirun over search seeds, e.g. task sweep -- optim.seed=1,2,3'
     cmds:
       - uv run python -m {{.PKG}}.optim.run --multirun {{.CLI_ARGS}}
 

@@ -35,7 +35,7 @@ from src.optim.objective import MEASURE_NAMES, KpiVector
 
 
 def choose(kpis: list[KpiVector], n_solutions: int, keep: Sequence[int] = (0,)) -> list[int]:
-    """Which rows to publish, best first, as indices into ``kpis``.
+    """Which rows to publish, ``keep`` rows first, as indices into ``kpis``.
 
     ``keep`` rows come first, then the rest by ``objective``, highest first, up
     to the budget. A tie keeps the earlier row, as

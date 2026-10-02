@@ -45,7 +45,6 @@ LABELS = {
     "incumbent": "Current configuration",
     "turbo": "TuRBO",
     "random": "Random search",
-    "rule": "Rule-based sweep",
     "kpi": "KPI",
     "method": "Method",
     "seed": "Seed",

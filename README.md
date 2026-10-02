@@ -1,23 +1,23 @@
 # MULTI-BAND TILT COORDINATION FOR COVERAGE EFFICIENT 5G/6G RAN
 
-Research code comparing trust-region Bayesian Optimization (TuRBO) and
-Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
-5G/6G radio access networks.
+Research code applying trust-region Bayesian Optimization (TuRBO) to
+multi-band antenna tilt coordination in 5G/6G radio access networks.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](pyproject.toml)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status-and-ownership)
+[![Status: Stable](https://img.shields.io/badge/status-stable-brightgreen.svg)](#status-and-ownership)
 
 ## Status and ownership
 
 | | |
 |---|---|
-| **Maturity** | **Alpha** — simulation, preprocessing, the Bayesian-optimization arm and the method comparison run end to end for one scenario, as one `task pipeline`, with every stage logged to MLflow; MARL and held-out validation have no code yet. |
+| **Maturity** | **Stable** — simulation, preprocessing, the Bayesian-optimization arm, its random-search baseline and the method comparison run end to end for one scenario, as one `task pipeline`, with every stage able to log to MLflow; held-out validation has no code yet. |
 | **Owner** | Nguyễn Duy Vũ |
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
 | **Issue tracker** | <https://github.com/NguyenVu04/band-tilt/issues> |
 | **Description of record** | this README, plus [CLAUDE.md](CLAUDE.md) |
+| **Results** | [docs/report.md](docs/report.md) |
 | **Decisions** | [docs/adr/](docs/adr/) |
 
 ## Contents
@@ -29,10 +29,7 @@ Multi-Agent Reinforcement Learning for multi-band antenna tilt coordination in
 - [Usage](#usage)
 - [Development](#development)
 - [Testing](#testing)
-- [Compliance and data handling](#compliance-and-data-handling)
-- [Versioning and reproducibility](#versioning-and-reproducibility)
-- [Governance](#governance)
-- [Roadmap](#roadmap)
+- [License](#license)
 
 ## Overview
 
@@ -98,9 +95,8 @@ its cell-band's equal share at the end of the interval.
 
 Sionna-RT scores every candidate the search proposes, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
-TuRBO-1 Bayesian Optimization on that objective and two baselines are
-implemented; Multi-Agent Reinforcement Learning and held-out scenario
-validation remain planned.
+TuRBO-1 Bayesian Optimization on that objective and a Sobol random-search
+baseline are implemented; held-out scenario validation remains planned.
 
 The practical goal is to replace repeated manual tilt tuning with network-wide
 coordination that removes avoidable coverage holes, reduces redundant overlap,
@@ -118,13 +114,12 @@ flowchart TB
     sim["src/simulation<br/>scenario · radio map"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · UE throughput"]
-    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · baselines"]
+    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · random search"]
     ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
     mlf["src/tracking<br/>MLflow · one run per stage"]
 
     subgraph future["Not implemented yet — no code in src/"]
-        marl["src/optim/marl (planned)<br/>Multi-Agent RL · TorchRL"]
         val["Held-out validation (planned)<br/>Sionna-RT on unseen scenarios"]
     end
 
@@ -137,9 +132,7 @@ flowchart TB
     opt -->|measured candidates| ver
     ver -->|published run| rep
     sim & prep & opt & ver & rep --> mlf
-    kpi -.-> marl
     opt -.-> val
-    marl -.-> val
     val -.->|ray-traced map| kpi
 ```
 
@@ -161,7 +154,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and the coverage objective, the Sionna-RT evaluator, three searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and the coverage objective, the Sionna-RT evaluator, two searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -175,7 +168,6 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Cell layout and tilt bounds | Band, carrier, power and per-band tilt bounds per cell | Resolved | Generated once by `task simulation:layout` and committed in [`configs/simulation.yaml`](configs/simulation.yaml) — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
-| [TorchRL](https://pytorch.org/rl/) | The MARL environment, policy and trainer | Not yet used | `--extra marl`; no MARL code exists yet |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
 
@@ -200,8 +192,8 @@ task setup
 ```
 
 `task setup` installs every extra and the pre-commit hooks. For data work alone,
-`task sync` installs the base and dev environment without Sionna-RT, BoTorch
-or TorchRL — a much smaller download.
+`task sync` installs the base and dev environment without Sionna-RT or
+BoTorch — a much smaller download.
 
 ### Configure
 
@@ -226,11 +218,11 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-196 passed
+190 passed
 ```
 
-`tests/` covers `src/simulation/`'s density, region, traffic and node-layout
-logic, the KPIs, `src/data/`'s schema contract and UE-table build, and `src/optim/` and
+`tests/` covers `src/simulation/`'s density, region, traffic, node-layout,
+seed-stream, grid and radio-map-archive logic, the KPIs, `src/data/`'s schema contract and UE-table build, and `src/optim/` and
 `src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. It does not
 yet cover `src/core/`; see
 [Implementation status](#implementation-status).
@@ -259,8 +251,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.simulation`,
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the
 `optim/method` group ([`configs/optim/method/`](configs/optim/method)) holds one
-file per method with that method's own budget or sweep settings. Select one with
-`optim/method=rule`; note the slash, it is a config group and not a key.
+file per method with that method's own budget settings. Select one with
+`optim/method=random`; note the slash, it is a config group and not a key.
 
 [`configs/config.yaml`](configs/config.yaml)'s `reports` block sets where the notebooks and
 `task evaluate` write tables and figures (`figures_dir`, `tables_dir`; one subdirectory per
@@ -298,18 +290,19 @@ same functions in `src/`, so they cannot diverge on what they compute. Notebook
 | 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio`) |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the UE table | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
-| 4 — Baselines: random search and the rule-based sweep | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` (add `-- optim/method=rule` for the rule-based sweep) |
+| 4 — Baseline: random search | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` |
 | 5 — TuRBO | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
 | 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, writes `reports/`) |
 
 ```bash
 task pipeline           # every stage below, in order
-task simulation         # the three simulation stages, in order
+task simulation         # the two simulation stages, in order
 task preprocess         # verify and type the UE table
 task optim              # optimize with every method (GPU)
 task evaluate           # compare the newest run of each method
 task mlflow             # browse the tracked runs
 task lab                # start JupyterLab
+task demo               # live what-if app: edit tilts, ray-trace, compare KPIs (GPU)
 task dvc:repro          # simulation through optimization via DVC, skipping what's unchanged
 ```
 
@@ -331,8 +324,11 @@ to track — see the header of
 
 ### Experiment tracking
 
-Every stage entry point opens one MLflow run named after the stage, in the
-`band-tilt` experiment. Each run carries the scalar params of the stage's
+Tracking is off by default (`mlflow.enabled: false` in
+[`configs/config.yaml`](configs/config.yaml)); pass `mlflow.enabled=true`, e.g.
+`task pipeline -- mlflow.enabled=true`, to record it. With it on, every stage
+entry point opens one MLflow run named after the stage, in the `band-tilt`
+experiment. Notebooks are never tracked. Each run carries the scalar params of the stage's
 config groups, the whole resolved config as `config.yaml`, the Git commit
 (MLflow's own `mlflow.source.git.*` tags), and:
 
@@ -342,7 +338,7 @@ config groups, the whole resolved config as `config.yaml`, the Git commit
 | `optimization` | the search winner's measures, candidates measured | the run's parquet tables and `run.json` |
 | `evaluation` | the KPIs of each method's best | `reports/{figures,tables}/04_evaluation/` |
 
-Radio maps and the UE tables stay out of the store — data belongs to DVC. Set `mlflow.enabled=false` to run a stage untracked.
+Radio maps and the UE tables stay out of the store — data belongs to DVC.
 
 ### The optimization run
 
@@ -369,9 +365,8 @@ always including the incumbent and the winner.
 per offered solution, every KPI and the objective, and each one's delta against
 the incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
 becomes. The highest objective marks one row `recommended` and
-`tilt_change_<method>.csv` carries it. The MARL arm is not
-built, so a comparison currently has TuRBO and the two baselines in it and
-nothing else.
+`tilt_change_<method>.csv` carries it. A comparison has TuRBO and random
+search in it and nothing else.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
 cell clones the repository and installs what Colab does not ship.
@@ -384,11 +379,11 @@ cell clones the repository and installs what Colab does not ship.
 band-tilt/
 ├── configs/       Hydra config groups — every tunable
 ├── data/          gitignored; scenario, radio map and UE artifacts (DVC not yet initialised — see External dependencies)
-├── docs/adr/      architecture decision records
+├── docs/          report.md (the study's results) and adr/, the architecture decision records
 ├── notebooks/     one per pipeline phase, 00 through 04
 ├── outputs/       gitignored; one directory per optimization run
 ├── mlruns/        gitignored; MLflow artifacts (runs are in mlflow.db)
-├── reports/       report.md, plus gitignored tables, figures and the republished tilt deliverable
+├── reports/       gitignored tables, figures and the republished tilt deliverable
 ├── src/           importable project logic
 ├── tests/         unit tests for simulation, data, the KPIs, optim, evaluation and tracking
 └── Taskfile.yml   every command
@@ -404,18 +399,17 @@ band-tilt/
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
-| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, random-search and rule-based baselines, and the run that searches, selects and publishes |
+| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
 | `task pipeline` | Chains every stage. Its stages have been run in order end to end against one scenario, including `task evaluate` on real runs |
-| `src/optim/marl/` | Does not exist |
 | CI | None. `task lint` and `task test` run locally only. |
 
 #### Known gaps in the active pipeline
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world; the solver-noise re-trace in `03b_turbo.ipynb` measures ray-tracing variance only |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world, under one solver seed |
 | The capacity model is a simplification | The serving rule and estimated throughput in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, an equal PRB share with no scheduler, and full-load co-band SINR. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. Every throughput figure inherits these. The objective does not: it reads the radio map alone |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
@@ -426,7 +420,7 @@ band-tilt/
 | **Style and lint** | `ruff` with `E`, `F`, `I`, `UP`, `B`, `D` (Google docstrings), enforced by pre-commit and `task lint` |
 | **Commits** | [Conventional Commits](https://www.conventionalcommits.org/) |
 | **Branching** | short-lived branches off `main` |
-| **Review** | self-review before merge — see [Governance](#governance) |
+| **Review** | self-review before merge |
 
 ### Local loop
 
@@ -439,12 +433,12 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region, traffic and node-layout logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/simulation/`'s density, region, traffic, node-layout, seed-stream, grid and radio-map-archive logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
-`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py` and
-`transmitter.py` (node positions), `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
+`src/simulation/`'s `density.py`, `sample.py` (region), `traffic.py`,
+`transmitter.py` (node positions), `seeds.py`, `grid.py` and the `radio.py` archive, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
 and `src/tracking.py`. `src/core/` and `src/evaluation/run.py` have no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real

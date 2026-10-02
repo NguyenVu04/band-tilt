@@ -271,6 +271,6 @@ def test_require_names_the_offender(tmp_path) -> None:
 
 def test_a_single_evaluation_run_still_loads(tmp_path) -> None:
     """Degenerate budgets must not break the reader."""
-    run = run_store.load(make_run(tmp_path, "rule", "2026-01-01_00-00-00", n=1))
+    run = run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", n=1))
     assert run.n_evaluations == 1
     assert run.ray_tracing_seconds == pytest.approx(30.0)

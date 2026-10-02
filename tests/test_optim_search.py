@@ -72,7 +72,6 @@ _METHODS = {
         },
     },
     "random": {"name": "random", "budget": {"n_init": 4, "n_iter": 2}},
-    "rule": {"name": "rule", "n_steps": 3, "n_rounds": 1},
 }
 
 
@@ -141,7 +140,7 @@ def evaluator(cfg) -> StubEvaluator:
     return StubEvaluator(TiltSpace.from_config(cfg))
 
 
-@pytest.mark.parametrize("method", ["turbo", "random", "rule"])
+@pytest.mark.parametrize("method", ["turbo", "random"])
 def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, method) -> None:
     """Row zero is always the deployed configuration.
 
@@ -158,7 +157,7 @@ def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, m
     )
 
 
-@pytest.mark.parametrize("method", ["turbo", "random", "rule"])
+@pytest.mark.parametrize("method", ["turbo", "random"])
 def test_no_method_ever_proposes_a_tilt_outside_the_box(make_cfg, evaluator, method) -> None:
     """Bounds are a hard constraint, never a relaxation the search may soften."""
     run_search(evaluator, make_cfg(method))
@@ -263,25 +262,6 @@ def test_turbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
     assert 0 <= _derived_seed(2**40, _PROPOSAL, 3) < 2**32
 
 
-def test_the_rule_sweep_moves_a_whole_band_together(make_cfg, evaluator) -> None:
-    """The operator heuristic: every cell on a band points alike."""
-    run_search(evaluator, make_cfg("rule"))
-    space = evaluator.space
-    for proposal in evaluator.seen:
-        for band in space.band_names:
-            axis = [i for i, (_cell, name) in enumerate(space.pairs) if name == band]
-            assert len(set(np.round(proposal[axis], 9))) == 1
-
-
-def test_the_rule_sweep_stays_within_its_declared_budget(make_cfg, evaluator) -> None:
-    """``n_band * n_steps * n_rounds`` is the ceiling; repeats are skipped."""
-    cfg = make_cfg("rule")
-    history = run_search(evaluator, cfg)
-    rule = cfg.optim.method
-    ceiling = len(evaluator.space.band_names) * rule.n_steps * rule.n_rounds
-    assert len(history) <= 1 + ceiling
-
-
 def test_an_unknown_method_names_the_registered_ones(cfg, evaluator) -> None:
     """Adding a method is a registry entry, not an edit to a dispatch chain."""
     cfg.optim.method.name = "annealing"
@@ -359,54 +339,3 @@ def test_an_empty_history_has_nothing_to_tabulate(evaluator) -> None:
     """Better than a zero-row frame that reads as a run which found nothing."""
     with pytest.raises(ValueError, match="no evaluations"):
         History(evaluator.space).frame()
-
-
-def test_the_rule_sweep_keeps_the_incumbent_when_nothing_improves(make_cfg) -> None:
-    """A band whose sweep beats nothing stays where it was."""
-
-    @dataclass
-    class Flat(StubEvaluator):
-        def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
-            result = super().evaluate(tilt_deg)
-            is_baseline = np.allclose(tilt_deg, self.space.baseline)
-            kpi = KpiVector.from_mapping({**result.kpi.as_dict(), "objective": float(is_baseline)})
-            return EvaluationResult(tilt_deg=result.tilt_deg, kpi=kpi, seconds=0.0)
-
-    cfg = make_cfg("rule")
-    evaluator = Flat(TiltSpace.from_config(cfg))
-    history = run_search(evaluator, cfg)
-    assert history.best_index() == 0
-    # Every proposal differs from the baseline on exactly one band.
-    space = evaluator.space
-    for proposal in evaluator.seen[1:]:
-        moved = {
-            name
-            for (_c, name), a, b in zip(space.pairs, proposal, space.baseline, strict=True)
-            if a != b
-        }
-        assert len(moved) == 1
-
-
-def test_the_rule_sweep_spans_the_intersection_of_its_cells_bounds(make_cfg) -> None:
-    """A shared tilt must be feasible for every cell on the band."""
-    cfg = make_cfg("rule")
-    cfg.simulation.transmitters.cells[0].tilt.high.bounds_deg = [2.0, 16.0]
-    cfg.simulation.transmitters.cells[1].tilt.high.bounds_deg = [0.0, 10.0]
-    evaluator = StubEvaluator(TiltSpace.from_config(cfg))
-    run_search(evaluator, cfg)
-    axis = [i for i, (_cell, name) in enumerate(evaluator.space.pairs) if name == "high"]
-    swept = {round(float(p[axis][0]), 9) for p in evaluator.seen[1:]}
-    assert min(swept) >= 2.0 and max(swept) <= 10.0
-    assert {2.0, 10.0} <= swept
-
-
-def test_the_rule_sweep_refuses_disjoint_band_bounds(make_cfg) -> None:
-    """No shared tilt is feasible, so the sweep says so before evaluating anything."""
-    cfg = make_cfg("rule")
-    cfg.simulation.transmitters.cells[0].tilt.high.bounds_deg = [0.0, 4.0]
-    cfg.simulation.transmitters.cells[0].tilt.high.baseline_deg = 2.0
-    cfg.simulation.transmitters.cells[1].tilt.high.bounds_deg = [6.0, 16.0]
-    evaluator = StubEvaluator(TiltSpace.from_config(cfg))
-    with pytest.raises(ValueError, match="do not overlap"):
-        run_search(evaluator, cfg)
-    assert evaluator.seen == []

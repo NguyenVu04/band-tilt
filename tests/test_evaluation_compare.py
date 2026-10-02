@@ -144,6 +144,13 @@ def test_a_change_reads_by_direction(incumbent: KpiVector) -> None:
     assert table.loc["weak_rate", "verdict"] == compare.WORSE
 
 
+def test_a_change_between_two_empty_percentiles_is_undefined(incumbent: KpiVector) -> None:
+    """``-inf - -inf`` is NaN, which is neither better nor worse."""
+    before = dataclasses.replace(incumbent, sinr_p05_db=-np.inf)
+    table = compare.delta_table(before, before).set_index("kpi")
+    assert table.loc["sinr_p05_db", "verdict"] == compare.UNDEFINED
+
+
 def test_the_maximised_kpi_reads_the_other_way(incumbent: KpiVector) -> None:
     """The KPI where up is better, and the usual place a sign error hides."""
     after = dataclasses.replace(incumbent, sinr_p05_db=incumbent.sinr_p05_db + 0.5)
@@ -288,13 +295,13 @@ def test_relative_improvement_is_positive_when_better() -> None:
 
 def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
     """A three-evaluation run has no value at a budget of four."""
-    runs = [_run("turbo", 0, [0.1, 0.5, 0.3, 0.9]), _run("rule", 0, [0.1, 0.4, 0.2])]
+    runs = [_run("turbo", 0, [0.1, 0.5, 0.3, 0.9]), _run("random", 0, [0.1, 0.4, 0.2])]
     table = compare.sample_efficiency(
         compare.convergence(runs), kpis=["objective"], budgets=[2]
     ).set_index("budget")
     assert table.loc[2, "turbo"] == pytest.approx(0.5)
     assert table.loc[4, "turbo"] == pytest.approx(0.9)
-    assert np.isnan(table.loc[4, "rule"])
+    assert np.isnan(table.loc[4, "random"])
 
 
 def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:

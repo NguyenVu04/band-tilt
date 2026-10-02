@@ -94,9 +94,10 @@ class Schedule:
             shaped ``[n_intervals, n_components]``, each row summing to 1.
             Index 0 is the uniform background; the rest are the hotspots, in
             the order :class:`src.simulation.density.DensityField` holds them.
-        phase_rad: The hour each hotspot peaks at, as an angle, shaped
-            ``[n_hotspots]``. Recorded so the manifest can describe the
-            schedule rather than only its outcome.
+        phase_rad: Each hotspot's diurnal phase offset, shaped ``[n_hotspots]``;
+            the hotspot peaks a quarter-day after it, at angle ``phase_rad + pi/2``.
+            Recorded so the manifest can describe the schedule rather than only
+            its outcome.
     """
 
     interval_s: float

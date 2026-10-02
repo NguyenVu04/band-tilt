@@ -39,7 +39,8 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     Args:
         artifacts: The loaded artifacts, as read.
         cfg: Composed config; reads ``simulation.ue.height_m``,
-            ``simulation.antenna.power_rs`` and the cell table.
+            ``simulation.antenna.power_rs``, ``simulation.radio_map.bands`` and
+            the cell table.
 
     Returns:
         A frame of ``check``, ``source``, ``holds`` and ``violations``. Never

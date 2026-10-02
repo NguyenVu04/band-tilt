@@ -11,5 +11,5 @@ output:
 
 seed: ${seed}
 
-# Number of published solutions, best first, incumbent included.
+# Number of published solutions: the incumbent, the winner, then by objective.
 n_solutions: 4

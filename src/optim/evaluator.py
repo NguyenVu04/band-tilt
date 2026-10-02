@@ -38,9 +38,9 @@ class EvaluationResult:
         tilt_deg: The vector evaluated, in :class:`~src.optim.space.TiltSpace`
             dimension order.
         kpi: Its measures.
-        seconds: Wall clock for the ray tracing, summed over bands, measured
-            around the point the maps are actually materialised. Excludes
-            scoring and anything the caller does, so a run can report
+        seconds: Wall clock of :func:`src.simulation.radio.solve_bands` over
+            every band, per-band scene setup included. Excludes scoring and
+            anything the caller does, so a run can report
             simulator time apart from model time.
         rsrp: The radio map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or None
             when the evaluator was asked not to retain it. Every map of a long

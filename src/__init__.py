@@ -5,7 +5,7 @@ Layout:
 - ``src.simulation``  scene, UE population, ray-traced radio maps
 - ``src.data``        verify the simulation output and write the typed tables
 - ``src.kpi``         the reported KPIs and the serving rule
-- ``src.optim``       the objective, TuRBO and the baselines, and the run it publishes
+- ``src.optim``       the objective, TuRBO and random search, and the run it publishes
 - ``src.evaluation``  compare finished runs, write tables and figures
 - ``src.utils``       seeding and plotting
 - ``src.config``      compose the Hydra config outside an entry point
@@ -16,7 +16,7 @@ Dependency direction:
 
     core        ->  nothing
     kpi         ->  core
-    simulation  ->  core, kpi
+    simulation  ->  core
     data        ->  simulation
     optim       ->  core, kpi, simulation
     evaluation  ->  core, kpi, optim, utils

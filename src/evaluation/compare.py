@@ -15,6 +15,7 @@ from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, covered, finite, serve_intervals
 from src.kpi.overlap import overlap_neighbors
+from src.optim.methods.base import INIT
 from src.optim.objective import (
     KPI_NAMES,
     MAXIMISED,
@@ -30,6 +31,7 @@ from src.utils.plotting import label as display_name
 BETTER = "better"
 WORSE = "worse"
 UNCHANGED = "unchanged"
+UNDEFINED = "undefined"
 
 
 def direction(name: str) -> str:
@@ -42,8 +44,12 @@ def _verdict(name: str, delta: float) -> str:
 
     An exactly zero delta is ``unchanged``: it means the same measurement, not a
     small one. Anything else is reported at face value, so a reader judges the
-    size of a move from the delta itself.
+    size of a move from the delta itself. A NaN delta is ``undefined``: a
+    percentile over no covered tile is infinite on both sides, and
+    ``inf - inf`` carries no direction.
     """
+    if np.isnan(delta):
+        return UNDEFINED
     if delta == 0.0:
         return UNCHANGED
     improved = delta > 0 if direction(name) == "maximise" else delta < 0
@@ -156,15 +162,16 @@ def winner_vs_candidates(runs: list[Run]) -> pd.DataFrame:
 
     Returns:
         One row per run, all objectives: ``method``, ``seed``,
-        ``incumbent``, ``init_median`` (the Sobol design random search and TuRBO
-        share; NaN for the rule sweep), ``candidate_median``, ``candidate_p90``
+        ``incumbent``, ``init_median`` (every Sobol design point, so for TuRBO
+        it includes the designs its restarts draw; NaN when the run has none),
+        ``candidate_median``, ``candidate_p90``
         and ``winner``, row 0 excluded from the candidates.
     """
     rows = []
     for run in runs:
         scores = run.history["objective"].to_numpy()
         candidates = scores[1:] if scores.size > 1 else scores
-        init = scores[(run.history["phase"] == "init").to_numpy()]
+        init = scores[(run.history["phase"] == INIT).to_numpy()]
         rows.append(
             {
                 "method": run.method,

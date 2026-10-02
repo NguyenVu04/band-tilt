@@ -48,9 +48,9 @@ _CONFIG = {
         "capacity": {"max_admission_utilisation": 0.8},
     },
     "optim": {
-        # `rule` rather than `turbo`: deterministic, no model, and it still
-        # exercises the whole publish path.
-        "method": {"name": "rule", "n_steps": 5, "n_rounds": 2},
+        # `random` rather than `turbo`: deterministic in the seed, no model, and
+        # it still exercises the whole publish path.
+        "method": {"name": "random", "budget": {"n_init": 4, "n_iter": 6}},
         "output": {"dir": "", "deliverable_dir": "", "save_radio_map": False},
         "n_solutions": 4,
         "seed": 0,
@@ -250,8 +250,8 @@ def test_the_recommended_row_is_the_run_json_winner(cfg, stub) -> None:
 def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
     """The deliverable offers the runners-up, and always names one solution."""
     run(cfg)
-    shortlist = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/solutions_rule.csv")
-    options = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/tilt_options_rule.csv")
+    shortlist = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/solutions_random.csv")
+    options = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/tilt_options_random.csv")
 
     assert shortlist["recommended"].sum() == 1
     for name in MEASURE_NAMES:

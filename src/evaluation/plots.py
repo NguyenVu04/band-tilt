@@ -31,7 +31,6 @@ COLOURS = {
     "incumbent": "tab:red",
     "turbo": "tab:blue",
     "random": "tab:green",
-    "rule": "tab:purple",
 }
 
 
@@ -191,7 +190,9 @@ def map_row(
     """
     extent = maps.extent_of(radio)
     values = [np.where(np.isfinite(panel), panel, np.nan) for panel in panels.values()]
-    present = np.concatenate([value[np.isfinite(value)] for value in values] + [np.zeros(1)])
+    present = np.concatenate([value[np.isfinite(value)] for value in values])
+    if present.size == 0:
+        present = np.zeros(1)
     if symmetric:
         # 99th percentile, not the maximum: tiles nearest a mast swing hardest
         # under tilt, and letting them set the scale flattens everything else.
@@ -404,10 +405,11 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
         y: Measure on the vertical axis.
     """
     figure, axis = plt.subplots(figsize=(8.0, 5.5), constrained_layout=True)
-    searched = frame[frame["iteration"] > 0]
-    for method, group in searched.groupby("method", sort=False):
+    for method, group in frame.groupby("method", sort=False):
         colour = COLOURS.get(str(method))
-        axis.scatter(group[x], group[y], s=14, alpha=0.4, color=colour, label=label(method))
+        searched = group[group["iteration"] > 0]
+        axis.scatter(searched[x], searched[y], s=14, alpha=0.4, color=colour, label=label(method))
+        # From every row: when the incumbent wins, it is the pick.
         pick = group.loc[group["objective"].idxmax()]
         axis.scatter(pick[x], pick[y], marker="*", s=260, color=colour, edgecolor="black", zorder=4)
     axis.scatter(
