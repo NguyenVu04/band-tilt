@@ -16,7 +16,7 @@ class TiltSpace:
     """The box of absolute tilts, one dimension per cell-band pair.
 
     Dimensions are ordered cell-major, band-minor: cells in
-    ``data.output.cells_file`` order, bands in ``simulation.radio_map.bands``
+    ``simulation.input.cells_file`` order, bands in ``simulation.radio_map.bands``
     order.
 
     Attributes:
@@ -44,7 +44,7 @@ class TiltSpace:
             ValueError: When a cell carries no tilt for a configured band, so
                 the space would hold a dimension with no bounds to move in.
         """
-        cells = read_cells(cfg.data.output.cells_file)
+        cells = read_cells(cfg.simulation.input.cells_file)
         band_names = tuple(str(entry.name) for entry in cfg.simulation.radio_map.bands)
 
         missing = [
@@ -54,9 +54,8 @@ class TiltSpace:
             raise ValueError(
                 f"{len(missing)} cell-band pairs have no tilt: {', '.join(missing[:8])}"
                 f"{' ...' if len(missing) > 8 else ''}. Every cell in "
-                f"{cfg.data.output.cells_file} needs one row per band in "
-                "simulation.radio_map.bands; re-run `task simulation:scenario` and "
-                "`task preprocess` if the bands changed."
+                f"{cfg.simulation.input.cells_file} needs one row per band in "
+                "simulation.radio_map.bands; regenerate or fix the cell table if the bands changed."
             )
 
         tilts = [cell.tilt_for(band) for cell in cells for band in band_names]

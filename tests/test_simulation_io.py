@@ -7,25 +7,17 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.core.cell import Cell
-from src.scenario.grid import disc_offsets
 from src.simulation import radio, seeds
 from src.simulation.radio import Band, SolverSpec, baseline_tilts, write_radio_map
 
 
 def test_the_seed_streams_do_not_move() -> None:
     """Every simulation output is keyed to these; a changed value redraws the scenario."""
-    cfg = OmegaConf.create({"scenario": {"seed": 42}})
-    assert {name: seeds.stream(cfg, name) for name in ("scene", "sample", "solver")} == {
+    assert {name: seeds.stream(42, name) for name in ("scene", "sample", "solver")} == {
         "scene": 4220626289,
         "sample": 2334169895,
         "solver": 3733018943,
     }
-
-
-def test_disc_offsets_are_the_lattice_points_of_the_disc() -> None:
-    """Radius 1 is the centre and its four edge neighbours, in row-major order."""
-    assert disc_offsets(1) == [(-1, 0), (0, -1), (0, 0), (0, 1), (1, 0)]
-    assert disc_offsets(0) == [(0, 0)]
 
 
 def _cell(name: str, tilts: dict[str, float], max_prb: int = 50) -> Cell:

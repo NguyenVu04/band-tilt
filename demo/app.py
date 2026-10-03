@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from src.config import load_config
+from src.core.cell import read_cells, site_frame
 from src.evaluation import compare, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable
@@ -127,7 +128,7 @@ st.pyplot(
         after_rsrp,
         baseline_map(),
         cfg,
-        cells=compare.cell_table(cfg),
+        cells=site_frame(read_cells(cfg.simulation.input.cells_file)),
         name="what-if",
     ),
     clear_figure=True,

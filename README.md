@@ -60,9 +60,10 @@ the cell edge, high bands concentrate service near the node, and mid bands bridg
 the two. The intended network state includes each layer's signal-strength map,
 demand, and band-specific propagation behaviour.
 
-The repository evaluates this idea entirely in simulation. `src/simulation/`
-loads a local Sionna-RT scene file, generates a time-varying UE population and
-ray-traces per-band radio maps. The search and evaluation both count every UE
+The repository evaluates this idea entirely in simulation. `src/scenario/`
+generates a time-varying UE population and a cell layout over a local Sionna-RT
+scene file, and `src/simulation/` ray-traces per-band radio maps from those
+files, which real data could replace. The search and evaluation both count every UE
 position. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
 from the incumbent configuration. Twelve reported KPIs - the hole, weak and
@@ -70,7 +71,10 @@ overlap rates, overlapping neighbours per covered tile, the median and
 5th-percentile best-server RSRP and SINR, the UE service failure rate, and the
 5th-percentile, median and mean estimated UE throughput - are
 measured for every
-candidate through [`src/kpi/`](src/kpi/), over all bands and per band
+candidate through [`src/kpi/`](src/kpi/). The evaluation reports eight of them
+over all bands and the coverage, overlap, RSRP and SINR measures per band; best-server
+RSRP and SINR are per band only, since the strongest layer across bands is not
+one a UE is measured on
 ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The search maximises
 one objective,
 `J = mean_g sum_b u_bg^2 / sum_b u_bg` with
@@ -109,9 +113,10 @@ not calibrated against operator measurements.
 ```mermaid
 flowchart TB
     scene["Sionna-RT scene<br/>data/scenes/&lt;scene_name&gt;/"]
-    cells["Scenario settings<br/>configs/scenario.yaml"]
+    gen["src/scenario<br/>synthetic generator (or real data)"]
+    inputs["simulation.input<br/>UE table · cell table · manifest"]
 
-    sim["src/scenario · src/simulation<br/>scenario · radio map"]
+    sim["src/simulation<br/>radio map"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · UE throughput"]
     opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · random search"]
@@ -123,8 +128,11 @@ flowchart TB
         val["Held-out validation (planned)<br/>Sionna-RT on unseen scenarios"]
     end
 
+    scene --> gen
+    gen --> inputs
     scene --> sim
-    cells --> sim
+    inputs --> sim
+    inputs --> prep
     sim --> prep
     sim -->|ray-traced map| kpi
     prep -->|UE table| kpi
@@ -165,8 +173,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
-| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `scenario.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `scenario.scene_name` selects the folder, which also holds the scenario manifest. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
-| Cell layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per cell | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `data/external/cells.csv` (one row per cell-band), then verified and typed into `data/processed/cells.parquet` by `task preprocess` — no external data needed |
+| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the cell table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
+| Cell layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per cell | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.cells_file`, `data/scenes/<scene_name>/cells.csv` (one row per cell-band, [`src/core/cell.py`](src/core/cell.py)). Every stage reads that file directly; `task preprocess` checks the radio map against it but copies nothing — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
@@ -219,13 +227,14 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-190 passed
+261 passed
 ```
 
 `tests/` covers `src/scenario/`'s density, region, traffic, node-layout and grid
 logic, `src/simulation/`'s seed-stream and radio-map-archive logic, the KPIs, `src/data/`'s schema contract, UE-table build and cell-table round trip, and `src/optim/` and
-`src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. It does not
-yet cover `src/core/`; see
+`src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. `src/core/`'s cell and UE-table contracts
+are covered through `tests/test_data.py`, and `tests/test_architecture.py` keeps every
+module outside `src/scenario/` from importing it; see
 [Implementation status](#implementation-status).
 
 To confirm the active package tree is intact:
@@ -245,10 +254,10 @@ composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
 
 | Group | File | Holds |
 |---|---|---|
-| `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the scene to load, grid, UE population, traffic, the node/cell layout and tilt bounds, scenario output paths |
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | Sionna-RT only: Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
+| `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/cell layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, cell table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule, the UE service failure rate and the estimated throughput. The objective has no block of its own: it reads `hole_dbm` and `weak_dbm` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
-| `data` | [`configs/data.yaml`](configs/data.yaml) | output paths only: the processed UE and cell tables |
+| `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
 optimization run shares — the output directories and the seed — and the

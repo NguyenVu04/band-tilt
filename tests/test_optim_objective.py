@@ -243,3 +243,35 @@ def test_a_weak_threshold_at_the_hole_threshold_is_refused(cfg) -> None:
     cfg.kpi.weak_dbm = cfg.kpi.hole_dbm
     with pytest.raises(ValueError, match="weak_dbm"):
         _score(_map([[-90.0]]), cfg)
+
+
+def test_map_kpis_shares_reductions_without_changing_any_kpi() -> None:
+    """The shared-reduction path equals each KPI measured on its own, NaN tiles included."""
+    from src.kpi import (
+        hole_rate,
+        overlap_neighbor_mean,
+        overlap_rate,
+        rsrp_percentile_dbm,
+        sinr_percentile_db,
+        weak_rate,
+    )
+    from src.kpi.quality import LOW_PERCENTILE, MEDIAN_PERCENTILE
+    from src.optim.objective import map_kpis
+
+    rng = np.random.default_rng(0)
+    rsrp = rng.uniform(-150.0, -60.0, (3, 4, 9, 11))
+    rsrp[rng.random(rsrp.shape) < 0.2] = np.nan
+    sinr = np.where(np.isfinite(rsrp), rng.normal(5.0, 10.0, rsrp.shape), np.nan)
+    cfg = OmegaConf.create(
+        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
+    )
+    assert map_kpis(rsrp, sinr, cfg) == {
+        "hole_rate": hole_rate(rsrp, cfg),
+        "weak_rate": weak_rate(rsrp, cfg),
+        "overlap_rate": overlap_rate(rsrp, cfg),
+        "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
+        "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
+        "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
+        "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
+        "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+    }

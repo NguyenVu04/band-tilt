@@ -1,8 +1,9 @@
 """Generate a scenario's synthetic data: UEs over time, the cell layout, the manifest.
 
-Writes ``scenario.output.ue_file`` and ``scenario.output.cells_file`` (both
-read back and verified by ``task preprocess``) and the manifest. Layouts use
-open ground in the loaded scene and remain fixed per scenario.
+Writes the files ``simulation.input`` names (the UE table, the cell table and
+the manifest), which every later stage reads and real data can replace, plus
+``scenario.output.record_file``, the generator's own record of what it drew.
+Layouts use open ground in the loaded scene and remain fixed per scenario.
 """
 
 from __future__ import annotations
@@ -58,8 +59,8 @@ def _resolved(node: Any) -> Any:
     return OmegaConf.to_container(node, resolve=True) if OmegaConf.is_config(node) else node
 
 
-def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
-    """Run the scenario stage. Returns ``(ue_file, cells_file, manifest_file)``.
+def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
+    """Run the scenario stage. Returns ``(ue_file, cells_file, manifest_file, record_file)``.
 
     Raises:
         ValueError: As :func:`src.scenario.layout.generate_layout`.
@@ -71,14 +72,14 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
 
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
 
-    raster = grid.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg, "scene"))
-    field = density.field(raster, density_spec, seeds.stream(cfg, "density"))
+    raster = grid.build(scene.mi_scene, bounds, grid_spec, seeds.stream(cfg.scenario.seed, "scene"))
+    field = density.field(raster, density_spec, seeds.stream(cfg.scenario.seed, "density"))
     schedule = traffic.build(
         traffic_spec,
         ue.count_range,
         len(field.hotspots),
         density_spec.hotspot_mass_fraction,
-        seeds.stream(cfg, "traffic"),
+        seeds.stream(cfg.scenario.seed, "traffic"),
     )
     interval, t_s, x, y, component = sample.sample_positions(
         scene.mi_scene,
@@ -87,11 +88,11 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
         field,
         schedule,
         grid_spec,
-        seeds.stream(cfg, "sample"),
+        seeds.stream(cfg.scenario.seed, "sample"),
     )
 
     ue_file = sample.write_csv(
-        Path(cfg.scenario.output.ue_file), interval, t_s, x, y, component, raster, ue
+        Path(cfg.simulation.input.ue_file), interval, t_s, x, y, component, raster, ue
     )
     layout = LayoutSpec.from_config(cfg)
     cells = generate_layout(
@@ -103,10 +104,15 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
         default_tilts(cfg),
         default_max_prb(cfg),
     )
-    cells_file = Path(cfg.scenario.output.cells_file)
+    cells_file = Path(cfg.simulation.input.cells_file)
     cells_file.parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(cells_file, index=False, float_format="%.3f")
-    manifest_file = _write_manifest(cfg, raster, bounds, field, schedule, x)
+    manifest_file = _write_json(
+        Path(cfg.simulation.input.manifest_file), _manifest(cfg, raster, schedule)
+    )
+    record_file = _write_json(
+        Path(cfg.scenario.output.record_file), _record(cfg, bounds, field, schedule, x)
+    )
 
     eligible = density.eligible_tiles(raster)
     tile_col, tile_row = raster.tile_indices(x, y)
@@ -136,34 +142,46 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path]:
     )
     print(f"csv:      {ue_file}, {cells_file}")
     print(f"manifest: {manifest_file}")
-    return ue_file, cells_file, manifest_file
+    print(f"record:   {record_file}")
+    return ue_file, cells_file, manifest_file, record_file
 
 
-def _write_manifest(
-    cfg: DictConfig,
-    raster: grid.Raster,
-    bounds: scene_module.SceneBounds,
-    field: density.DensityField,
-    schedule: traffic.Schedule,
-    x: np.ndarray,
-) -> Path:
-    """Record what this scenario is, so it can be regenerated and split on."""
-    path = Path(cfg.scenario.output.manifest_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _manifest(cfg: DictConfig, raster: grid.Raster, schedule: traffic.Schedule) -> dict[str, Any]:
+    """The consumer contract: the scenario id, the grid and the time schedule.
 
-    manifest = {
+    Every key here is read downstream (:mod:`src.simulation.radio`,
+    :mod:`src.data`); a real dataset supplies the same keys.
+    """
+    return {
         "scenario_id": scenario_id(cfg),
-        "seed": int(cfg.scenario.seed),
-        "scene_file": str(cfg.scenario.scene_file),
-        "layout": OmegaConf.to_container(cfg.scenario.layout, resolve=True),
         "grid": {
             "origin_x": raster.origin_x,
             "origin_y": raster.origin_y,
             "tile_size_m": raster.tile_size_m,
             "n_cols": raster.n_cols,
             "n_rows": raster.n_rows,
-            "launch_z": bounds.launch_z,
         },
+        "time": {
+            "interval_s": schedule.interval_s,
+            "t_s": schedule.t_s.tolist(),
+        },
+    }
+
+
+def _record(
+    cfg: DictConfig,
+    bounds: scene_module.SceneBounds,
+    field: density.DensityField,
+    schedule: traffic.Schedule,
+    x: np.ndarray,
+) -> dict[str, Any]:
+    """What the generator drew and from which settings; no stage outside it reads this."""
+    return {
+        "scenario_id": scenario_id(cfg),
+        "seed": int(cfg.scenario.seed),
+        "scene_file": str(cfg.scenario.scene_file),
+        "layout": OmegaConf.to_container(cfg.scenario.layout, resolve=True),
+        "grid": {"launch_z": bounds.launch_z},
         # Store inputs to the density, not its deterministic tile weights.
         "density": {
             "spec": OmegaConf.to_container(cfg.scenario.density, resolve=True),
@@ -172,7 +190,6 @@ def _write_manifest(
         "time": {
             "spec": OmegaConf.to_container(cfg.scenario.time, resolve=True),
             "n_intervals": schedule.n_intervals,
-            "t_s": schedule.t_s.tolist(),
             "count": schedule.count.tolist(),
             "component_mass": schedule.component_mass.tolist(),
             "phase_rad": schedule.phase_rad.tolist(),
@@ -183,7 +200,12 @@ def _write_manifest(
             "height_m": float(cfg.scenario.ue.height_m),
         },
     }
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _write_json(path: Path, content: dict[str, Any]) -> Path:
+    """Write ``content`` as sorted, indented JSON, creating the directory. Returns ``path``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(content, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
 

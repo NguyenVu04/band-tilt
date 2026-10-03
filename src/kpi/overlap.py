@@ -114,11 +114,14 @@ def overlap_neighbor_mean(rsrp: np.ndarray, cfg: DictConfig) -> float:
         is covered, which keeps a total outage out of the average rather than
         scoring it a perfect zero.
     """
-    counts = overlap_neighbors(rsrp, cfg)
-    mask = covered(rsrp, cfg)
-    if not mask.any():
+    return overlap_neighbor_mean_of(overlap_neighbors(rsrp, cfg), covered(rsrp, cfg))
+
+
+def overlap_neighbor_mean_of(n_ov: np.ndarray, covered_mask: np.ndarray) -> float:
+    """:func:`overlap_neighbor_mean` from :func:`overlap_neighbors` and the covered mask."""
+    if not covered_mask.any():
         return float("nan")
-    return float(counts[mask].mean())
+    return float(n_ov[covered_mask].mean())
 
 
 def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
@@ -132,4 +135,9 @@ def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
     Returns:
         ``|{g : N_ov(g) > 0}| / |G|``, in ``[0, 1]``. Minimised.
     """
-    return float((overlap_neighbors(rsrp, cfg) > 0).mean())
+    return overlap_rate_of(overlap_neighbors(rsrp, cfg))
+
+
+def overlap_rate_of(n_ov: np.ndarray) -> float:
+    """:func:`overlap_rate` from :func:`overlap_neighbors` already counted."""
+    return float((n_ov > 0).mean())

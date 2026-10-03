@@ -1,4 +1,4 @@
-"""Read the four simulation artifacts, and write processed tables as Parquet."""
+"""Read the simulation inputs and the radio map, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -11,30 +11,27 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-# Each artifact's config section and the stage that writes it, named in the
-# error when one is missing.
-_STAGES = {
-    "ue_file": ("scenario", "scenario"),
-    "cells_file": ("scenario", "scenario"),
-    "manifest_file": ("scenario", "scenario"),
-    "radio_map_file": ("simulation", "radio"),
+# Each artifact's ``simulation`` config block, and what to run when it is
+# missing. The inputs come from the generator or from real data.
+_SOURCES = {
+    "ue_file": ("input", "Run `task simulation:scenario`, or supply it"),
+    "manifest_file": ("input", "Run `task simulation:scenario`, or supply it"),
+    "radio_map_file": ("output", "Run `task simulation:radio`"),
 }
 
 
 @dataclass(frozen=True)
 class Artifacts:
-    """One scenario's simulation output, read but not yet verified.
+    """One scenario's UE table, manifest and radio map, read but not yet verified.
 
     Attributes:
-        ue: ``scenario.output.ue_file`` as read, before any typing.
-            Every drawn UE, including those no transmitter reaches.
-        cells: ``scenario.output.cells_file`` as read, one row per cell-band.
+        ue: ``simulation.input.ue_file`` as read, before any typing.
+            Every UE, including those no transmitter reaches.
         radio: Every array in ``simulation.output.radio_map_file``, keyed as written.
-        manifest: The parsed ``scenario.output.manifest_file``.
+        manifest: The parsed ``simulation.input.manifest_file``.
     """
 
     ue: pd.DataFrame
-    cells: pd.DataFrame
     radio: dict[str, np.ndarray]
     manifest: dict[str, Any]
 
@@ -60,25 +57,23 @@ class Artifacts:
 
 
 def load_artifacts(cfg: DictConfig) -> Artifacts:
-    """Read every artifact named in ``scenario.output`` and ``simulation.output``.
+    """Read the UE table and manifest of ``simulation.input`` and the radio map.
 
-    Read-only: the artifacts are regenerated with ``task simulation``, never
-    edited in place.
+    Read-only: the artifacts are regenerated or re-supplied, never edited in place.
 
     Raises:
-        FileNotFoundError: When a stage has not been run, naming which one.
+        FileNotFoundError: When a file is missing, naming what produces it.
     """
-    paths = {key: Path(cfg[section].output[key]) for key, (section, _) in _STAGES.items()}
+    paths = {key: Path(cfg.simulation[block][key]) for key, (block, _) in _SOURCES.items()}
     for key, path in paths.items():
         if not path.is_file():
-            raise FileNotFoundError(f"No {path}. Run `task simulation:{_STAGES[key][1]}` first.")
+            raise FileNotFoundError(f"No {path}. {_SOURCES[key][1]}.")
 
     with np.load(paths["radio_map_file"], allow_pickle=False) as archive:
         radio = {key: archive[key] for key in archive.files}
 
     return Artifacts(
         ue=pd.read_csv(paths["ue_file"]),
-        cells=pd.read_csv(paths["cells_file"]),
         radio=radio,
         manifest=json.loads(paths["manifest_file"].read_text(encoding="utf-8")),
     )

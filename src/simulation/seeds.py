@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 
-from omegaconf import DictConfig
-
 # Adding a name is safe: each stream hashes its own name, so a new one cannot
 # shift an existing one.
 _STREAMS = frozenset(
@@ -22,8 +20,11 @@ _STREAMS = frozenset(
 _MODULUS = 2**32
 
 
-def stream(cfg: DictConfig, name: str) -> int:
-    """Derive the seed for one named stream.
+def stream(seed: int, name: str) -> int:
+    """Derive the seed for one named stream from ``seed``.
+
+    The generator passes ``scenario.seed`` and the radio stage the top-level
+    ``seed``, so neither reads the other's config.
 
     Hashed from ``(seed, name)`` rather than offset from the seed: additive
     offsets alias across a seed sweep, so ``seed=1``'s density stream and
@@ -39,5 +40,5 @@ def stream(cfg: DictConfig, name: str) -> int:
     """
     if name not in _STREAMS:
         raise KeyError(f"unknown random stream {name!r}; declared streams are {sorted(_STREAMS)}")
-    digest = hashlib.sha256(f"{int(cfg.scenario.seed)}:{name}".encode()).digest()
+    digest = hashlib.sha256(f"{int(seed)}:{name}".encode()).digest()
     return int.from_bytes(digest[:8], "big") % _MODULUS

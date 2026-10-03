@@ -1,9 +1,10 @@
 """Ray-trace one clean radio map per band.
 
-Reads the stored scenario manifest and writes RSRP and SINR on its UE grid,
-both per resource element, as the solver's :class:`sionna.rt.RadioMap` reports
-them. Nothing here
-redraws the scenario: a map must describe the population already on disk.
+Reads the manifest and the cell table named in ``simulation.input`` and writes
+RSRP and SINR on the manifest's grid, both per resource element, as the
+solver's :class:`sionna.rt.RadioMap` reports them. Nothing here draws or
+redraws the UEs: a map must describe the population already on disk, whoever
+produced it.
 """
 
 from __future__ import annotations
@@ -20,8 +21,6 @@ import numpy as np
 from omegaconf import DictConfig
 
 from src.core.cell import Cell, read_cells
-from src.scenario import run as scenario_module
-from src.scenario.grid import GridSpec
 from src.simulation import materials, seeds, transmitter
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneSpec
@@ -176,18 +175,14 @@ class RadioSetup:
             grid_meta=manifest["grid"],
             bands=tuple(Band.from_config(entry) for entry in cfg.simulation.radio_map.bands),
             solver=SolverSpec.from_config(cfg),
-            height_m=float(cfg.scenario.ue.height_m),
+            height_m=float(cfg.simulation.ue.height_m),
             power_dbm=float(cfg.simulation.antenna.power_rs),
         )
 
 
-def load_scene(cfg: DictConfig, cells: tuple[Cell, ...]) -> Any:
-    """Load the scene, warn about masts off open ground, and attach the antenna arrays."""
-    scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
-    for problem in transmitter.validate(
-        scene.mi_scene, bounds, cells, GridSpec.from_config(cfg).free_height_tol_m
-    ):
-        print(f"WARNING transmitter {problem}")
+def load_scene(cfg: DictConfig) -> Any:
+    """Load the scene and attach the antenna arrays."""
+    scene, _ = scene_module.load(SceneSpec.from_config(cfg))
     configure_arrays(scene, cfg)
     return scene
 
@@ -222,11 +217,11 @@ def solve_bands(
 def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
     setup = RadioSetup.from_config(cfg)
-    cells = read_cells(cfg.scenario.output.cells_file)
+    cells = read_cells(cfg.simulation.input.cells_file)
     _check_tilt_table(cells, setup.bands)
-    solver_seed = seeds.stream(cfg, "solver")
+    solver_seed = seeds.stream(cfg.seed, "solver")
 
-    scene = load_scene(cfg, cells)
+    scene = load_scene(cfg)
     rsrp, sinr, centres, elapsed = solve_bands(scene, cells, setup, solver_seed)
     for band, band_rsrp, seconds in zip(setup.bands, rsrp, elapsed, strict=True):
         tilts = [cell.tilt_for(band.name).baseline_deg for cell in cells]
@@ -406,7 +401,7 @@ def solve_band(
         rr_prob=spec.rr_prob,
         # Passed explicitly: the solver seeds its own Monte-Carlo stream and
         # otherwise runs at a fixed library default, so without this the map
-        # would ignore scenario.seed entirely.
+        # would ignore the configured seed entirely.
         seed=solver_seed,
     )
     # rss is path gain times transmit power, in watts, so with power_dbm set to
@@ -452,7 +447,7 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
         raise ValueError(
             f"{len(missing)} cell-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
             f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
-            "simulation.radio_map.bands; re-run `task simulation:scenario` if the bands changed."
+            "simulation.radio_map.bands; regenerate or fix the cell table if the bands changed."
         )
     n_rb = {band.name: _N_RB.get(band.scs_hz, {}).get(band.bandwidth_hz) for band in bands}
     unknown = [
@@ -475,7 +470,7 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
         raise ValueError(
             f"{len(wrong)} cell-band pairs have a max_prb other than N_RB for the band's "
             f"bandwidth and scs_hz: {', '.join(wrong[:8])}{' ...' if len(wrong) > 8 else ''}. "
-            "Set scenario.layout.default_max_prb and re-run `task simulation:scenario`."
+            "Fix the cell table's max_prb (generated: scenario.layout.default_max_prb)."
         )
 
 
@@ -502,29 +497,21 @@ def configure_arrays(scene: Any, cfg: DictConfig) -> None:
 
 
 def read_manifest(cfg: DictConfig) -> dict[str, Any]:
-    """Read the scenario manifest and check it matches this config.
+    """Read ``simulation.input.manifest_file``.
+
+    Its ``scenario_id`` is taken as given: the producer of the inputs owns it,
+    and preprocessing checks every map against it.
 
     Raises:
-        FileNotFoundError: When the scenario stage has not been run.
-        ValueError: When the manifest describes a different scenario, which
-            means the config changed after the UEs were drawn and the radio map
-            would not correspond to them.
+        FileNotFoundError: When the file is missing, which means no scenario
+            has been generated or supplied.
     """
-    path = Path(cfg.scenario.output.manifest_file)
+    path = Path(cfg.simulation.input.manifest_file)
     if not path.is_file():
         raise FileNotFoundError(
-            f"No scenario manifest at {path}. Run `task simulation:scenario` first."
+            f"No scenario manifest at {path}. Run `task simulation:scenario`, or supply one."
         )
-
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    expected = scenario_module.scenario_id(cfg)
-    if manifest["scenario_id"] != expected:
-        raise ValueError(
-            f"{path} describes scenario {manifest['scenario_id']}, but this config is "
-            f"{expected}. The scenario changed after the UEs were drawn; re-run "
-            "`task simulation:scenario`."
-        )
-    return manifest
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")

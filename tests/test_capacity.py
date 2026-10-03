@@ -34,8 +34,8 @@ def cfg(tmp_path):
             "kpi": {"hole_dbm": -120.0, "capacity": {"max_admission_utilisation": 1.0}},
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
+                "input": {"cells_file": write_cells(tmp_path, _cells({"hi": 10, "lo": 10}))},
             },
-            "data": {"output": {"cells_file": write_cells(tmp_path, _cells({"hi": 10, "lo": 10}))}},
         }
     )
 
@@ -126,7 +126,7 @@ def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
 
 def test_intervals_do_not_share_prbs(cfg, tmp_path) -> None:
     """Two UEs split 'hi' in interval 0; the lone UE of interval 1 has it whole."""
-    cfg.data.output.cells_file = write_cells(tmp_path, _cells({"hi": 10}), "hi_only.csv")
+    cfg.simulation.input.cells_file = write_cells(tmp_path, _cells({"hi": 10}), "hi_only.csv")
     spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 1)
     rsrp = np.full((3, 1, 1), -90.0)
     band, tx, throughput = capacity.serve_rows(
@@ -135,6 +135,23 @@ def test_intervals_do_not_share_prbs(cfg, tmp_path) -> None:
     assert band.tolist() == [0, 0, 0]
     assert tx.tolist() == [0, 0, 0]
     assert (throughput / 1e6).tolist() == pytest.approx([0.9, 0.9, 1.8])
+
+
+def test_row_order_across_intervals_does_not_change_the_assignment(cfg) -> None:
+    """Interleaved intervals serve exactly as grouped ones, each row keeping its own result."""
+    spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
+    rng = np.random.default_rng(1)
+    rsrp = rng.uniform(-125.0, -80.0, (40, 2, 1))
+    sinr = rng.normal(5.0, 5.0, rsrp.shape)
+    t_index = rng.integers(0, 6, 40)
+    t_s = t_index * 900.0 + rng.uniform(0.0, 900.0, 40)
+    grouped = capacity.serve_rows(rsrp, sinr, t_index, t_s, spec)
+    shuffle = rng.permutation(40)
+    shuffled = capacity.serve_rows(
+        rsrp[shuffle], sinr[shuffle], t_index[shuffle], t_s[shuffle], spec
+    )
+    for expected, got in zip(grouped, shuffled, strict=True):
+        np.testing.assert_array_equal(expected[shuffle], got)
 
 
 def test_serve_intervals_reports_the_stored_sinr_and_throughput_at_the_serving_layer(

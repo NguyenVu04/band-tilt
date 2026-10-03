@@ -63,31 +63,6 @@ def test_tile_median_is_per_tile_and_blank_where_nobody_was_served() -> None:
     assert np.isnan(median[0, 1:]).all()
 
 
-def test_cell_table_is_one_row_per_cell_with_its_node(tmp_path) -> None:
-    """Two band rows of one cell collapse to one row, its mast named by ``node``."""
-    frame = pd.DataFrame(
-        {
-            "node": ["n3", "n3"],
-            "node_x": [1.0, 1.0],
-            "node_y": [2.0, 2.0],
-            "node_z": [25.0, 25.0],
-            "cell": ["n3c1", "n3c1"],
-            "azimuth_deg": [165.0, 165.0],
-            "band": ["hi", "lo"],
-            "tilt_deg": [8.0, 6.0],
-            "tilt_min_deg": [0.0, 0.0],
-            "tilt_max_deg": [20.0, 20.0],
-            "max_prb": [10, 10],
-        }
-    )
-    frame.to_parquet(tmp_path / "cells.parquet")
-    cfg = OmegaConf.create({"data": {"output": {"cells_file": str(tmp_path / "cells.parquet")}}})
-    table = compare.cell_table(cfg)
-    assert len(table) == 1
-    row = table.iloc[0]
-    assert (row["cell"], row["node"], row["x"], row["azimuth_deg"]) == ("n3c1", "n3", 1.0, 165.0)
-
-
 @pytest.fixture
 def cfg() -> DictConfig:
     """The thresholds, without composing the whole config."""
@@ -249,7 +224,7 @@ def test_seed_summary_interval_brackets_the_mean() -> None:
         _run("turbo", 1, [0.5, 0.6], throughput=[5.0, 6.0]),
     ]
     table = compare.seed_summary(runs).set_index("kpi")
-    assert table.index.tolist() == list(compare.NETWORK_KPIS)
+    assert table.index.tolist() == list(compare.SEARCH_MEASURES)
     name = "estimated_throughput_p50_mbps"
     assert table.loc[name, "mean"] == pytest.approx(7.0)
     low, high = table.loc[name, ["ci95_low", "ci95_high"]]
@@ -379,7 +354,9 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     assert table.loc["lo", "sinr_p50_db"] == pytest.approx(10.0)
     assert np.isnan(table.loc[compare.ALL_BANDS, "sinr_p50_db"])
     assert np.isnan(table.loc[compare.ALL_BANDS, "rsrp_p05_dbm"])
-    assert "overlap_neighbor_mean" not in table.columns
+    # One cell per band has no co-band neighbour; the count is network-wide only.
+    assert table.loc[compare.ALL_BANDS, "overlap_neighbor_mean"] == pytest.approx(0.0)
+    assert table.loc[["hi", "lo"], "overlap_neighbor_mean"].isna().all()
 
 
 def test_improvement_table_is_positive_when_better(incumbent: KpiVector) -> None:

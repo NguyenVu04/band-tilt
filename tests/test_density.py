@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from src.scenario.density import DensitySpec, built_volume, draw_hotspots, neighbourhood_volume
-from src.scenario.grid import Raster
+from src.scenario.grid import Raster, disc_offsets
 
 BLOCK = (slice(0, 2), slice(0, 2))
 LONE = (7, 7)
@@ -134,3 +134,9 @@ def test_a_distance_no_grid_can_fit_is_an_error() -> None:
     """An 80 m grid cannot hold two centres 200 m apart."""
     with pytest.raises(ValueError, match="min_hotspot_distance_m"):
         draw_hotspots(_bare(), _spec(0.0, 2, 200.0), np.random.default_rng(0))
+
+
+def test_disc_offsets_are_the_lattice_points_of_the_disc() -> None:
+    """Radius 1 is the centre and its four edge neighbours, in row-major order."""
+    assert disc_offsets(1) == [(-1, 0), (0, -1), (0, 0), (0, 1), (1, 0)]
+    assert disc_offsets(0) == [(0, 0)]

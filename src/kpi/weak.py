@@ -20,5 +20,9 @@ def weak_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
         Minimised. The interval is open at ``hole_dbm``, which is where the hole
         rate is closed, so hole and weak cannot both hold at one location.
     """
-    r_max = max_rsrp(rsrp)
+    return weak_rate_of(max_rsrp(rsrp), cfg)
+
+
+def weak_rate_of(r_max: np.ndarray, cfg: DictConfig) -> float:
+    """:func:`weak_rate` from a :func:`~src.kpi.capacity.max_rsrp` already taken."""
     return float(((r_max > float(cfg.kpi.hole_dbm)) & (r_max <= float(cfg.kpi.weak_dbm))).mean())

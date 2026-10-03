@@ -122,7 +122,7 @@ def cfg(tmp_path) -> DictConfig:
     config = OmegaConf.create(_CONFIG)
     config.optim.output.dir = str(tmp_path / "optim")
     config.optim.output.deliverable_dir = str(tmp_path / "deliverable")
-    config.data = {"output": {"cells_file": write_cells(tmp_path, _CELLS)}}
+    config.simulation.input = {"cells_file": write_cells(tmp_path, _CELLS)}
     return config
 
 

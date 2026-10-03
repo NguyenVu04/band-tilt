@@ -20,4 +20,9 @@ def hole_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
         tile where every layer is NaN (no path) has ``R_max = -inf`` and is
         always a hole.
     """
-    return float((max_rsrp(rsrp) <= float(cfg.kpi.hole_dbm)).mean())
+    return hole_rate_of(max_rsrp(rsrp), cfg)
+
+
+def hole_rate_of(r_max: np.ndarray, cfg: DictConfig) -> float:
+    """:func:`hole_rate` from a :func:`~src.kpi.capacity.max_rsrp` already taken."""
+    return float((r_max <= float(cfg.kpi.hole_dbm)).mean())

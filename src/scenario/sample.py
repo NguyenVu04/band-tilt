@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 from omegaconf import DictConfig
 
+from src.core.ue import OPTIONAL_UE_COLUMNS, UE_COLUMNS
 from src.scenario.density import DensityField
 from src.scenario.grid import GridSpec, Raster
 from src.scenario.traffic import Schedule
@@ -19,8 +20,6 @@ from src.simulation.scene import SceneBounds
 # Rejection can only fail forever if the chosen component sits entirely on
 # buildings, so the cap exists to raise rather than hang, not to bound bias.
 _MAX_REDRAW_ROUNDS = 500
-
-CSV_COLUMNS = ("t_index", "t_s", "x", "y", "z", "tile_col", "tile_row", "component")
 
 
 @dataclass(frozen=True)
@@ -186,7 +185,7 @@ def write_csv(
 
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(CSV_COLUMNS)
+        writer.writerow((*UE_COLUMNS, *OPTIONAL_UE_COLUMNS))
         for index in range(x.size):
             writer.writerow(
                 (

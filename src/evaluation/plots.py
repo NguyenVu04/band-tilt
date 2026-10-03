@@ -41,6 +41,32 @@ def _overlay(axis: plt.Axes, cells: pd.DataFrame | None, hotspots: pd.DataFrame 
         axis.scatter(hotspots["x"], hotspots["y"], marker="x", s=70, color="black", zorder=4)
 
 
+def class_map(
+    axis: plt.Axes,
+    values: np.ndarray,
+    names: Sequence[str],
+    colours: Sequence[str],
+    title: str,
+    extent: list[float],
+    cells: pd.DataFrame | None = None,
+) -> None:
+    """Draw a categorical raster with a legend; ``values`` index ``names``, ``-1`` for none."""
+    axis.imshow(
+        np.where(values >= 0, values, np.nan),
+        origin="lower",
+        extent=extent,
+        cmap=ListedColormap(list(colours)),
+        vmin=-0.5,
+        vmax=len(names) - 0.5,
+        interpolation="nearest",
+    )
+    _overlay(axis, cells, None)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=colour) for colour in colours]
+    axis.legend(handles, names, loc="lower left", fontsize=8, frameon=True)
+    axis.set(title=title, xlabel="x [m]", ylabel="y [m]")
+    axis.grid(False)
+
+
 def _map_axes(axis: plt.Axes, extent: list[float], title: str) -> None:
     """Label one map panel."""
     axis.set_xlabel("x [m]")

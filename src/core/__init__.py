@@ -2,9 +2,10 @@
 
 The vocabulary every other package agrees on. A *node* is a mast; a *cell* is
 one antenna on it, carrying one tilt per band; a *tile* is one square of the
-measurement grid, and lives in :mod:`src.scenario.grid`.
+manifest's measurement grid. ``cell`` and ``ue`` also fix the columns of the
+two tables every producer writes and every stage reads.
 
-``core`` imports nothing from ``src.simulation``, ``src.kpi`` or ``src.data``.
+``core`` imports nothing from the rest of ``src``.
 They all import it, which is what stops the same dataclass being restated in
 three places and drifting.
 """

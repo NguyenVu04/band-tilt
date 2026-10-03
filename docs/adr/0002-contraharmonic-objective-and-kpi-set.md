@@ -17,6 +17,9 @@
   `kpi.overlap_margin_db` is replaced by the strongest cell's share of the
   band's received power, over every co-band cell above `kpi.hole_dbm`.
   *Measured outcome* predates this and is kept as recorded.
+- **Revised:** 2026-10-03 — *Measured outcome* gains a subsection measured on
+  the 2026-10-02 runs: the current form, the twelve KPIs of section 3 and tilt
+  bounds of [0°, 20°]. The earlier subsections are kept as recorded.
 - **Renumbered:** 2026-09-28 (formerly 0003).
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** every earlier objective and KPI record. Their surviving
@@ -99,34 +102,41 @@ whole pool, so PRB load carries no information and is not reported.
 
 ### 3. The reported KPIs
 
-Twelve measures, stored beside `objective`, in this order. The best server is
-the strongest layer over every band and cell, `R_max`; covered tiles are those
-with `R_max > kpi.hole_dbm`.
+Twelve measures, stored beside `objective`, in this order, for every evaluated
+candidate. The best server is the strongest layer over every band and cell,
+`R_max`; covered tiles are those with `R_max > kpi.hole_dbm`. The last column
+says where the evaluation (`src.evaluation.compare`) reports each one.
 
-| KPI | Definition | Direction |
-|---|---|---|
-| `hole_rate` | share of tiles with `R_max <= kpi.hole_dbm` | minimise |
-| `weak_rate` | share of tiles with `hole_dbm < R_max <= weak_dbm` | minimise |
-| `overlap_rate` | share of tiles with any co-band neighbour within `Delta_R` | minimise |
-| `overlap_neighbor_mean` | mean `m_g` over covered tiles | minimise |
-| `rsrp_p50_dbm` | median of `R_max` over covered tiles | **maximise** |
-| `rsrp_p05_dbm` | 5th percentile of the same | **maximise** |
-| `sinr_p50_db` | median of the best server's SINR over covered tiles | **maximise** |
-| `sinr_p05_db` | 5th percentile of the same | **maximise** |
-| `ue_service_failure_rate` | share of UE reports with no cell-band above `kpi.hole_dbm`, `1 - served share` | minimise |
-| `estimated_throughput_p05_mbps` | 5th percentile of the served UE reports' estimated throughput | **maximise** |
-| `estimated_throughput_p50_mbps` | median of the same | **maximise** |
-| `estimated_throughput_mean_mbps` | mean of the same | **maximise** |
+| KPI | Definition | Direction | Reported |
+|---|---|---|---|
+| `hole_rate` | share of tiles with `R_max <= kpi.hole_dbm` | minimise | network and per band |
+| `weak_rate` | share of tiles with `hole_dbm < R_max <= weak_dbm` | minimise | network and per band |
+| `overlap_rate` | share of tiles with any co-band neighbour within `Delta_R` | minimise | network and per band |
+| `overlap_neighbor_mean` | mean `m_g` over covered tiles | minimise | network |
+| `rsrp_p50_dbm` | median of `R_max` over covered tiles | **maximise** | per band |
+| `rsrp_p05_dbm` | 5th percentile of the same | **maximise** | per band |
+| `sinr_p50_db` | median of the best server's SINR over covered tiles | **maximise** | per band |
+| `sinr_p05_db` | 5th percentile of the same | **maximise** | per band |
+| `ue_service_failure_rate` | share of UE reports with no cell-band above `kpi.hole_dbm`, `1 - served share` | minimise | network |
+| `estimated_throughput_p05_mbps` | 5th percentile of the served UE reports' estimated throughput | **maximise** | network |
+| `estimated_throughput_p50_mbps` | median of the same | **maximise** | network |
+| `estimated_throughput_mean_mbps` | mean of the same | **maximise** | network |
 
 - **They stay tile-uniform and band-collapsed, on purpose**, except the four UE
   KPIs, which count every UE position. A rate that says how much of the *map*
   is bad answers a different question from an objective, and both are worth
   printing.
-- **Per band.** Every KPI is also reported per frequency layer
-  (`src.evaluation.compare.band_kpis`), by giving the same function one band's
-  slice of the radio map. There is no second definition. The UE KPIs are
-  blank on band rows: a UE fails only when no band reaches it, and takes its
-  throughput from whichever band it chose.
+- **Network and per band.** The evaluation's scoreboard carries the eight
+  network KPIs (`NETWORK_KPIS`) and `objective`. Every per-band KPI
+  (`BAND_KPIS`) is reported per frequency layer by
+  `src.evaluation.compare.band_kpis`, by giving the same function one band's
+  slice of the radio map; there is no second definition. The UE KPIs and
+  `overlap_neighbor_mean` are blank on band rows: a UE fails only when no band
+  reaches it and takes its throughput from whichever band it chose, and the
+  neighbour count is summed over bands.
+- **Best-server RSRP and SINR are per band only.** The strongest layer across
+  bands is not a layer any UE is measured on, so their network values are
+  recorded with every candidate but not reported.
 - **The failure rate and the throughput split the UEs along one mask.** A report
   with no candidate counts in the failure rate and never as a zero in the
   throughput statistics, so the 5th percentile describes served UEs rather than
@@ -216,10 +226,55 @@ radio map alone.
 
 ## Measured outcome
 
-Both subsections were measured under the serving rule this record replaced on
-2026-09-30: band preference with an admission gate at 10 Mbps per UE. `J` and the
-eight radio-map KPIs do not read the serving rule, so their figures hold; the
+The first subsection is the current form on the current KPI set. The two after
+it were measured under the serving rule this record replaced on 2026-09-30:
+band preference with an admission gate at 10 Mbps per UE. `J` and the eight
+radio-map KPIs do not read the serving rule, so their figures hold; the
 failure-rate, served-rate, load and serving-mix figures describe the old rule.
+
+### The current form on the twelve-KPI set
+
+Measured on the 2026-10-02 runs (`outputs/optim/random/2026-10-02_09-59-04`,
+`outputs/optim/turbo/2026-10-02_09-47-55`): seed 42, scenario
+`scn_d7899e238887de67`, tilt bounds [0°, 20°], the per-band power share of
+section 1, the max-throughput serving rule of section 2 and the twelve KPIs of
+section 3. The correlations are over random search's 144 Sobol candidates,
+signed so that a positive value means `J` and the KPI improve together. The
+pipeline does not produce the figures in this subsection; they were computed
+once from the archived histories and radio maps.
+
+| | contraharmonic mean |
+|---|---:|
+| Spearman(`J`, equal-weight rank score over the 12 KPIs)¹ | 0.886 |
+| rho vs band-collapsed overlap rate / overlap neighbours per covered tile | 0.502 / 0.441 |
+| rho vs hole rate / weak rate | 0.858 / 0.865 |
+| rho vs RSRP p50 / RSRP p05 | 0.862 / 0.901 |
+| rho vs SINR p50 / SINR p05 | 0.294 / −0.023 |
+| rho vs UE service failure rate | 0.571 |
+| rho vs estimated throughput p05 / p50 / mean | 0.106 / 0.250 / 0.146 |
+| Tiles where dropping one covered band raises the score, TuRBO winner² | 0.7716 |
+| Ceiling on that gain, `mean_g (max_b u_bg - J(g))`, TuRBO winner² | 0.0628 |
+| TuRBO band-collapsed overlap rate (incumbent 0.3165) | 0.3366 |
+| TuRBO − random search on `J` | +0.0289 |
+| KPIs better / worse than the incumbent, all 12 (the 8 network KPIs), TuRBO | 11 / 1 (7 / 1) |
+| The same, random search | 5 / 7 (2 / 6) |
+
+**`J` tracks coverage strength, not SINR or throughput.** It follows both RSRP
+percentiles and the hole and weak rates closely (0.86 to 0.90), the overlap
+measures and the failure rate moderately, and median SINR and the three
+throughput statistics weakly. Its correlation with cell-edge SINR is nil. The
+ceiling on the non-monotonicity gain, 0.063, exceeds TuRBO's whole improvement
+of 0.049.
+
+**Overlap.** TuRBO lowers overlap on every band, 2600 MHz 0.2010 → 0.1692,
+1800 MHz 0.2069 → 0.1980 and 700 MHz 0.2394 → 0.2167, yet the band-collapsed
+rate rises 6.4 %, the only KPI it worsens. Random search raises the collapsed
+rate by 13.1 %.
+
+**The wider box changes random search's picture.** With bounds of [0°, 20°],
+the median Sobol candidate (0.6127) scores below the incumbent (0.6236), where
+it scored above it under [0°, 15°]. Random search's winner worsens seven KPIs,
+including the hole rate and the UE service failure rate.
 
 ### Against the best-band maximum, as recorded
 
@@ -227,7 +282,7 @@ This comparison was measured under the former ten-KPI set (`served_rate`,
 `load_imbalance`, no spectral efficiency) and 20 Mbps per UE. It is the record
 of the objective decision and is not re-measured: the maximum column would need
 every random-search candidate re-traced and a TuRBO run under the old objective.
-The contraharmonic mean on the current KPI set is in the next subsection.
+The contraharmonic mean on later KPI sets is in the neighbouring subsections.
 
 Measured at seed 42 against the best-band maximum this record replaces, on the
 same scenario, the same solver settings and the same budgets. Random search
@@ -253,9 +308,9 @@ The best-band maximum column was not rerun.
 | TuRBO − rule sweep on `J` | +0.0136 | +0.0091 |
 | Rule sweep vs TuRBO, head to head on the 10 KPIs | 8–2 | 6–4 |
 
-¹ The rank score is the mean over the KPIs of the set measured (ten here, nine
-in the next subsection) of each candidate's percentile rank, oriented so that
-higher is better.
+¹ The rank score is the mean over the KPIs of the set measured (twelve in the
+first subsection, ten here, nine in the next) of each candidate's percentile
+rank, oriented so that higher is better.
 
 ² Per tile, with no tilt re-traced. No configuration can collect the ceiling,
 because darkening a band on one tile changes it on many, including tiles where
@@ -287,7 +342,7 @@ traffic from 2600 MHz to 1800 MHz: 16.4 % of UE reports were served on
 1800 MHz, against 10.5 % at the incumbent, both under the earlier noise and
 20 Mbps per UE.
 
-### The contraharmonic mean on the current KPI set
+### The contraharmonic mean on the nine-KPI set, as recorded
 
 Re-measured on the 2026-09-29 runs: seed 42, the nine KPIs of section 3,
 10 Mbps per UE and per-RE noise. That TuRBO run uses

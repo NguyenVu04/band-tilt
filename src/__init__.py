@@ -1,9 +1,10 @@
 """Importable, testable project logic.
 
 Layout:
-- ``src.core``        the shared domain types: cell and per-band tilt
-- ``src.simulation``  scene, UE population, ray-traced radio maps
-- ``src.data``        verify the simulation output and write the typed tables
+- ``src.core``        the shared domain types and file contracts: cell, UE table
+- ``src.scenario``    the synthetic-data generator: UEs, cell layout, manifest
+- ``src.simulation``  Sionna-RT scenes and ray-traced radio maps
+- ``src.data``        verify the inputs and radio map, write the typed UE table
 - ``src.kpi``         the reported KPIs and the serving rule
 - ``src.optim``       the objective, TuRBO and random search, and the run it publishes
 - ``src.evaluation``  compare finished runs, write tables and figures
@@ -17,11 +18,16 @@ Dependency direction:
     core        ->  nothing
     kpi         ->  core
     simulation  ->  core
-    data        ->  simulation
+    scenario    ->  core, simulation
+    data        ->  core, simulation
     optim       ->  core, kpi, simulation
     evaluation  ->  core, kpi, optim, utils
 
 There is no cycle. Add none.
+
+Nothing imports ``src.scenario`` or reads ``cfg.scenario``: the generator only
+writes the files ``simulation.input`` names, so real data can replace it
+(``tests/test_architecture.py``).
 
 ``src.kpi`` deliberately does not import ``src.simulation``: it consumes an RSRP
 array, not a simulator. That is what lets the same KPI code score a Sionna-RT

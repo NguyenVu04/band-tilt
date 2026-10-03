@@ -64,7 +64,7 @@ class CapacitySpec:
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
         """Read ``kpi.capacity``, ``kpi.hole_dbm``, the cells and each band's ``scs_hz``.
 
-        The cells are read from ``data.output.cells_file`` in table order, which
+        The cells are read from ``simulation.input.cells_file`` in table order, which
         is the radio map's tx axis: :func:`src.simulation.radio.solve` writes
         them in that order and preprocessing checks ``tx_name`` against it. ``scs_hz`` is read
         from ``simulation.radio_map.bands``, the same value the solver's noise
@@ -85,10 +85,10 @@ class CapacitySpec:
         missing = [label for label in band_labels if label not in bands]
         if missing:
             raise ValueError(f"No simulation.radio_map.bands entry for {', '.join(missing)}.")
-        cells = read_cells(cfg.data.output.cells_file)
+        cells = read_cells(cfg.simulation.input.cells_file)
         if len(cells) != n_tx:
             raise ValueError(
-                f"{cfg.data.output.cells_file} holds {len(cells)} cells for a radio map with "
+                f"{cfg.simulation.input.cells_file} holds {len(cells)} cells for a radio map with "
                 f"{n_tx} transmitters."
             )
         return cls(
@@ -131,7 +131,12 @@ def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
 
 def covered(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     """Mask of locations receiving something above ``cfg.kpi.hole_dbm``: not a hole."""
-    return max_rsrp(rsrp) > float(cfg.kpi.hole_dbm)
+    return covered_best(max_rsrp(rsrp), cfg)
+
+
+def covered_best(r_max: np.ndarray, cfg: DictConfig) -> np.ndarray:
+    """:func:`covered` from a :func:`max_rsrp` already taken."""
+    return r_max > float(cfg.kpi.hole_dbm)
 
 
 def serving_sinr(rsrp: np.ndarray, sinr: np.ndarray) -> np.ndarray:
@@ -290,8 +295,11 @@ def serve_rows(
     n_tx = rsrp.shape[2]
     layer = np.full(len(t_index), -1)
     throughput = np.full(len(t_index), np.nan)
-    for value in np.unique(t_index):
-        at = np.flatnonzero(t_index == value)
+    # One stable sort groups the intervals, keeping row order inside each,
+    # rather than a full scan of t_index per interval.
+    order = np.argsort(t_index, kind="stable")
+    starts = np.flatnonzero(np.r_[True, np.diff(t_index[order]) != 0])
+    for at in np.split(order, starts[1:]) if order.size else ():
         layer[at], throughput[at] = _select_serving(rsrp[at], sinr[at], t_s[at], spec)
     band, tx = np.divmod(layer, n_tx)
     unserved = layer < 0

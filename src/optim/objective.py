@@ -33,21 +33,21 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec, serve_intervals
-from src.kpi.hole import hole_rate
-from src.kpi.overlap import effective_coverage, overlap_neighbor_mean, overlap_rate
-from src.kpi.quality import (
-    LOW_PERCENTILE,
-    MEDIAN_PERCENTILE,
-    rsrp_percentile_dbm,
-    sinr_percentile_db,
+from src.kpi.capacity import CapacitySpec, covered_best, max_rsrp, serve_intervals, serving_sinr
+from src.kpi.hole import hole_rate_of
+from src.kpi.overlap import (
+    effective_coverage,
+    overlap_neighbor_mean_of,
+    overlap_neighbors,
+    overlap_rate_of,
 )
+from src.kpi.quality import LOW_PERCENTILE, MEDIAN_PERCENTILE, percentiles_over
 from src.kpi.served import (
     throughput_mean_mbps,
     throughput_percentile_mbps,
     ue_service_failure_rate,
 )
-from src.kpi.weak import weak_rate
+from src.kpi.weak import weak_rate_of
 
 # The reporting order: where coverage fails, how crowded it is, how strong and
 # clean the signal is, whether the traffic got served, and at what throughput.
@@ -179,16 +179,26 @@ def map_kpis(rsrp: np.ndarray, sinr: np.ndarray, cfg: DictConfig) -> dict[str, f
             gives that band's reading.
         sinr: The solver's SINR in dB, same shape as ``rsrp``.
         cfg: Composed config; the measures read ``cfg.kpi``.
+
+    Each reduction of the full map (best server, covered mask, overlap counts,
+    serving SINR) is taken once and shared, through the same definitions the
+    single-KPI functions of :mod:`src.kpi` wrap.
     """
+    r_max = max_rsrp(rsrp)
+    is_covered = covered_best(r_max, cfg)
+    n_ov = overlap_neighbors(rsrp, cfg)
+    points = (MEDIAN_PERCENTILE, LOW_PERCENTILE)
+    rsrp_p50, rsrp_p05 = percentiles_over(r_max[is_covered], points)
+    sinr_p50, sinr_p05 = percentiles_over(serving_sinr(rsrp, sinr)[is_covered], points)
     return {
-        "hole_rate": hole_rate(rsrp, cfg),
-        "weak_rate": weak_rate(rsrp, cfg),
-        "overlap_rate": overlap_rate(rsrp, cfg),
-        "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
-        "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-        "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
-        "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-        "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
+        "hole_rate": hole_rate_of(r_max, cfg),
+        "weak_rate": weak_rate_of(r_max, cfg),
+        "overlap_rate": overlap_rate_of(n_ov),
+        "overlap_neighbor_mean": overlap_neighbor_mean_of(n_ov, is_covered),
+        "rsrp_p50_dbm": rsrp_p50,
+        "rsrp_p05_dbm": rsrp_p05,
+        "sinr_p50_db": sinr_p50,
+        "sinr_p05_db": sinr_p05,
     }
 
 

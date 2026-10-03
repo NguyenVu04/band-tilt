@@ -75,6 +75,7 @@ class Cell:
     Attributes:
         name: Unique across the layout, and ``n<node>c<cell>`` for a generated
             one; becomes the transmitter name.
+        node: The mast the cell is mounted on, shared by co-located cells.
         x: Position east, in scene metres.
         y: Position north, in scene metres.
         z: Height in scene metres, absolute and not above local ground: the
@@ -85,6 +86,7 @@ class Cell:
     """
 
     name: str
+    node: str
     x: float
     y: float
     z: float
@@ -133,9 +135,13 @@ class Cell:
 
     @classmethod
     def from_config(cls, entry: DictConfig) -> Cell:
-        """Read one cell written as a mapping, the form test fixtures use."""
+        """Read one cell written as a mapping, the form test fixtures use.
+
+        A mapping without ``node`` stands on a mast of its own, named after it.
+        """
         return cls(
             name=str(entry.name),
+            node=str(entry.get("node", entry.name)),
             x=float(entry.x),
             y=float(entry.y),
             z=float(entry.z),
@@ -145,19 +151,19 @@ class Cell:
         )
 
 
-def cells_to_frame(cells: Sequence[Cell], nodes: Sequence[str]) -> pd.DataFrame:
+def cells_to_frame(cells: Sequence[Cell]) -> pd.DataFrame:
     """The cell table, :data:`CELL_COLUMNS`, one row per cell-band.
 
-    ``nodes`` names each cell's mast, aligned with ``cells``. A band a cell has a
-    tilt or a PRB limit for, but not both, leaves the other columns NaN.
+    A band a cell has a tilt or a PRB limit for, but not both, leaves the other
+    columns NaN.
     """
     rows = []
-    for cell, node in zip(cells, nodes, strict=True):
+    for cell in cells:
         for band in dict.fromkeys([*cell.tilt, *cell.max_prb]):
             tilt = cell.tilt.get(band)
             rows.append(
                 {
-                    "node": node,
+                    "node": cell.node,
                     "node_x": cell.x,
                     "node_y": cell.y,
                     "node_z": cell.z,
@@ -177,12 +183,16 @@ def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
     """Rebuild the cells from a :func:`cells_to_frame` table, in first-row order.
 
     Raises:
-        ValueError: When a column is missing, or as :class:`Tilt` and
-            :class:`Cell` validate.
+        ValueError: When a column is missing, a ``(cell, band)`` pair has more
+            than one row, or as :class:`Tilt` and :class:`Cell` validate.
     """
     missing = [column for column in CELL_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"cell table has no {', '.join(missing)} column")
+    repeated = frame[frame.duplicated(["cell", "band"], keep=False)]
+    if not repeated.empty:
+        pairs = sorted({f"{row.cell}/{row.band}" for row in repeated.itertuples()})
+        raise ValueError(f"cell table has more than one row for {', '.join(pairs)}")
     cells = []
     for name, rows in frame.groupby("cell", sort=False, observed=True):
         first = rows.iloc[0]
@@ -197,6 +207,7 @@ def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
         cells.append(
             Cell(
                 name=str(name),
+                node=str(first.node),
                 x=float(first.node_x),
                 y=float(first.node_y),
                 z=float(first.node_z),
@@ -220,9 +231,32 @@ def read_cells(path: str | Path) -> tuple[Cell, ...]:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(
-            f"No cell table at {path}. Run `task simulation:scenario`, then `task preprocess`."
+            f"No cell table at {path}. Run `task simulation:scenario`, or supply one."
         )
     frame = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"{path} holds no cell.")
     return cells_from_frame(frame)
+
+
+def site_frame(cells: Sequence[Cell]) -> pd.DataFrame:
+    """Where each cell stands and points, one row per cell, in ``cells`` order.
+
+    Returns:
+        Columns ``cell``, ``node``, ``x``, ``y``, ``z`` and ``azimuth_deg``: what
+        maps mark and per-cell tables label, without the per-band tilts.
+    """
+    return pd.DataFrame(
+        [
+            {
+                "cell": cell.name,
+                "node": cell.node,
+                "x": cell.x,
+                "y": cell.y,
+                "z": cell.z,
+                "azimuth_deg": cell.azimuth_deg,
+            }
+            for cell in cells
+        ],
+        columns=["cell", "node", "x", "y", "z", "azimuth_deg"],
+    )

@@ -35,9 +35,7 @@ def cfg(tmp_path):
             },
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
-            },
-            "data": {
-                "output": {
+                "input": {
                     "cells_file": write_cells(
                         tmp_path,
                         [
@@ -52,7 +50,7 @@ def cfg(tmp_path):
                             }
                         ],
                     )
-                }
+                },
             },
         }
     )

@@ -36,6 +36,7 @@ NETWORK_KPIS = (
     "hole_rate",
     "weak_rate",
     "overlap_rate",
+    "overlap_neighbor_mean",
     "ue_service_failure_rate",
     "estimated_throughput_p05_mbps",
     "estimated_throughput_p50_mbps",
@@ -139,7 +140,8 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
     and the spread beside it says how far to trust one.
 
     Returns:
-        One row per method and :data:`NETWORK_KPIS` measure: ``method``, ``kpi``,
+        One row per method and :data:`SEARCH_MEASURES` entry (the network KPIs,
+        then the objective): ``method``, ``kpi``,
         ``direction``, ``n_seeds``, ``incumbent``, ``mean``, ``std``,
         ``ci95_low``, ``ci95_high``, ``mean_delta``, ``verdict``.
 
@@ -154,7 +156,7 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
     rows = []
     for method in dict.fromkeys(run.method for run in runs):
         mine = [run for run in runs if run.method == method]
-        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in NETWORK_KPIS}
+        values = {name: [getattr(run.best_kpi, name) for run in mine] for name in SEARCH_MEASURES}
         for name, series in values.items():
             mean, std, low, high = _interval(np.asarray(series))
             delta = mean - before[name]
@@ -478,22 +480,6 @@ def cell_impact(
     impact = impact[leading + [c for c in impact.columns if c not in leading]]
     return impact.sort_values(
         "served_reports_change", key=np.abs, ascending=False, ignore_index=True
-    )
-
-
-def cell_table(cfg: DictConfig) -> pd.DataFrame:
-    """The cells of ``data.output.cells_file``, one row each.
-
-    Returns:
-        Columns ``cell``, ``node``, ``x``, ``y``, ``azimuth_deg``. ``node`` is the
-        mast, which co-located cells share.
-    """
-    frame = pd.read_parquet(cfg.data.output.cells_file)
-    cells = frame.drop_duplicates("cell")[["cell", "node", "node_x", "node_y", "azimuth_deg"]]
-    return (
-        cells.rename(columns={"node_x": "x", "node_y": "y"})
-        .astype({"cell": str, "node": str})
-        .reset_index(drop=True)
     )
 
 

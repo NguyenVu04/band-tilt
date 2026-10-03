@@ -119,7 +119,7 @@ is the thing these records exist to preserve.
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
 | [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0002 | 2026-09-13 | 2026-09-14 |
-| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput cell selection, and the reported KPI set | Proposed | 2026-09-22 | 2026-09-30 |
+| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput cell selection, and the reported KPI set | Proposed | 2026-09-22 | 2026-10-03 |
 
 Every other record is deleted and lives in Git history. Numbers were reused
 on 2026-09-22 and 2026-09-28; see above.

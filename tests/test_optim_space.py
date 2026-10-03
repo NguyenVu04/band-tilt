@@ -41,7 +41,7 @@ _CELLS = [
 def _config(directory, cells=_CELLS):
     """The bands and the cell table written under ``directory``."""
     return OmegaConf.merge(
-        _BANDS, {"data": {"output": {"cells_file": write_cells(directory, cells)}}}
+        _BANDS, {"simulation": {"input": {"cells_file": write_cells(directory, cells)}}}
     )
 
 

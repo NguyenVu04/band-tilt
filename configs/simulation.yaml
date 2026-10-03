@@ -1,6 +1,25 @@
 # @package simulation
-# Sionna-RT only: scene loading, radio-map solver and antenna arrays. What the
-# scene holds (scene file, grid, UEs, cells) is configs/scenario.yaml.
+# Sionna-RT: the inputs it reads, scene loading, radio-map solver and antenna
+# arrays. The synthetic-data generator (configs/scenario.yaml) writes the inputs
+# below; real data can replace them without that generator.
+
+# Folder under data/scenes/ holding scene.xml, its mesh/, the cell table and the manifest.
+scene_name: hanoi
+
+# The files the radio stage, preprocessing and the search read.
+input:
+  # Scene XML path, or a bundled Sionna-RT scene name.
+  scene_file: data/scenes/${simulation.scene_name}/scene.xml
+  # One row per UE per interval (src/core/ue.py).
+  ue_file: data/external/ue_positions.csv
+  # One row per cell-band (src/core/cell.py).
+  cells_file: data/scenes/${simulation.scene_name}/cells.csv
+  # Scenario id, grid and time schedule.
+  manifest_file: data/scenes/${simulation.scene_name}/scenario.json
+
+ue:
+  # UE height, also the radio-map plane [m].
+  height_m: 1.5
 
 scene:
   # Mitsuba variant; Sionna-RT needs a mono-polarized CUDA one.

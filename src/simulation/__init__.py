@@ -1,10 +1,10 @@
 """Sionna-RT side of the pipeline: loading scenes, and the radio maps.
 
-One stage, a ``python -m`` entry point, follows the scenario stage
-(:mod:`src.scenario`):
+One stage, a ``python -m`` entry point, reads the files ``simulation.input``
+names, whether the synthetic generator wrote them or real data supplies them:
 
 ``radio``
-    Reads the scenario's manifest and cell table, places the transmitters, and
+    Reads the manifest and the cell table, places the transmitters, and
     ray-traces one clean radio map per band.
 
 The population moves over time; the map does not, and does not need to. Tilt
@@ -30,12 +30,11 @@ Supporting modules, each with one reason to change:
 ``seeds``
     The named random streams, each hashed from the one configured seed and its name.
 ``transmitter``
-    The transmitters built from the cell table, and the check that their masts
-    still stand on open ground.
+    The transmitters built from the cell table.
 
 Settings cross the config boundary as frozen dataclasses with ``from_config``
 constructors — the only places the key names of ``configs/simulation.yaml``
-(Sionna-RT) and ``configs/scenario.yaml`` are spelled.
+are spelled.
 
 The scene's extent is deliberately absent from the config: it is read from the
 loaded scene, because a restated bound does not raise when it drifts from the

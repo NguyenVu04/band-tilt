@@ -7,10 +7,12 @@ beside ``hole_rate``, never alone.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import covered, max_rsrp, serving_sinr
+from src.kpi.capacity import covered, covered_best, max_rsrp, serving_sinr
 
 # The two points every reported percentile is read at. Constants and not
 # config values: the measures are named after them (rsrp_p05_dbm, sinr_p50_db).
@@ -34,10 +36,8 @@ def rsrp_percentile_dbm(rsrp: np.ndarray, cfg: DictConfig, percentile: float) ->
         The percentile in dBm, or ``-inf`` when nothing is covered, which keeps
         a total outage ordered below every configuration that covers something.
     """
-    values = max_rsrp(rsrp)[covered(rsrp, cfg)]
-    if values.size == 0:
-        return float("-inf")
-    return float(np.percentile(values, float(percentile)))
+    r_max = max_rsrp(rsrp)
+    return percentiles_over(r_max[covered_best(r_max, cfg)], (percentile,))[0]
 
 
 def sinr_percentile_db(
@@ -57,8 +57,18 @@ def sinr_percentile_db(
     Returns:
         The percentile in dB, or ``-inf`` when no covered tile has a defined SINR.
     """
-    values = serving_sinr(rsrp, sinr)[covered(rsrp, cfg)]
+    return percentiles_over(serving_sinr(rsrp, sinr)[covered(rsrp, cfg)], (percentile,))[0]
+
+
+def percentiles_over(values: np.ndarray, percentiles: Sequence[float]) -> tuple[float, ...]:
+    """The finite ``values`` at each of ``percentiles``, in one sort.
+
+    Returns:
+        One value per percentile; all ``-inf`` when no value is finite, which
+        keeps a total outage ordered below every configuration that covers
+        something.
+    """
     values = values[np.isfinite(values)]
     if values.size == 0:
-        return float("-inf")
-    return float(np.percentile(values, float(percentile)))
+        return tuple(float("-inf") for _ in percentiles)
+    return tuple(float(v) for v in np.percentile(values, [float(p) for p in percentiles]))

@@ -14,5 +14,5 @@ def write_cells(directory: Path, cells: Sequence[dict], name: str = "cells.csv")
     """Write cells given as mappings to a cell table under ``directory``; returns its path."""
     built = [Cell.from_config(OmegaConf.create(cell)) for cell in cells]
     path = Path(directory) / name
-    cells_to_frame(built, [cell.name for cell in built]).to_csv(path, index=False)
+    cells_to_frame(built).to_csv(path, index=False)
     return str(path)

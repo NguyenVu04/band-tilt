@@ -3,7 +3,7 @@
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
 map and the processed UE table only, so like the rest of :mod:`src.evaluation`
 it needs no GPU. UEs are served from ``data.output.ue_file``, every UE; the
-cells are read from ``data.output.cells_file``.
+cells are read from ``simulation.input.cells_file``.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
+from src.core.cell import read_cells, site_frame
 from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
@@ -97,7 +98,7 @@ def _evaluate(
     add("comparability_checks", checks)
 
     ue = pd.read_parquet(cfg.data.output.ue_file)
-    cells = compare.cell_table(cfg)
+    cells = site_frame(read_cells(cfg.simulation.input.cells_file))
     band_labels = [str(band) for band in baseline["band_label"]]
     tx_names = [str(name) for name in baseline["tx_name"]]
     add("experiment_setup", compare.experiment_setup(baseline, ue, runs, cfg))

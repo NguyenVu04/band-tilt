@@ -89,7 +89,7 @@ class Evaluator:
         keep_rsrp: Whether each result carries its radio maps. False by default
             because a run keeps every result and the maps do not fit.
         solver_seed: The ray tracer's Monte-Carlo seed; the ``solver`` stream of
-            ``scenario.seed`` when None. Reassign it to re-measure a
+            the top-level ``seed`` when None. Reassign it to re-measure a
             configuration under other solver noise.
     """
 
@@ -116,13 +116,13 @@ class Evaluator:
         self._setup = radio.RadioSetup.from_config(cfg)
         # Shared seed: common Monte-Carlo noise cancels, so KPI *differences* are much cleaner.
         if self.solver_seed is None:
-            self.solver_seed = seeds.stream(cfg, "solver")
+            self.solver_seed = seeds.stream(cfg.seed, "solver")
         ue_file = Path(cfg.data.output.ue_file)
         if not ue_file.is_file():
             raise FileNotFoundError(f"No UE table at {ue_file}. Run `task preprocess` first.")
         self._ue = pd.read_parquet(ue_file)
         self._capacity = CapacitySpec.from_config(cfg, self.band_labels, len(self.space.cells))
-        self._scene = radio.load_scene(cfg, self.space.cells)
+        self._scene = radio.load_scene(cfg)
 
     def __enter__(self) -> Evaluator:
         """Return the evaluator, ready to score."""

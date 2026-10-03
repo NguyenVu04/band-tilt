@@ -165,7 +165,6 @@ def generate_layout(
             be answered by placing a mast on a building.
     """
     cells: list[Cell] = []
-    nodes: list[str] = []
     for node_index, (ideal_x, ideal_y) in enumerate(node_positions(bounds, spec.node_spacing_m)):
         x, y, z = _mount(
             mi_scene,
@@ -182,6 +181,7 @@ def generate_layout(
             cells.append(
                 Cell(
                     name=f"n{node_index}c{cell_index}",
+                    node=f"n{node_index}",
                     x=x,
                     y=y,
                     z=z,
@@ -190,8 +190,7 @@ def generate_layout(
                     max_prb=dict(max_prb),
                 )
             )
-            nodes.append(f"n{node_index}")
-    return cells_to_frame(cells, nodes)
+    return cells_to_frame(cells)
 
 
 def _mount(

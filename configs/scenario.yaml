@@ -1,12 +1,11 @@
 # @package scenario
-# What the scene holds: the scene file, its grid, the UE population over time
-# and the node/cell layout. Swap scenarios by changing scene_name or any block
-# here and re-running `task simulation:scenario`.
+# The synthetic-data generator: the grid, the UE population over time and the
+# node/cell layout drawn over the scene. Re-run `task simulation:scenario`
+# after changing any block. It writes the files simulation.input names, which
+# nothing else regenerates; real data can stand in for them.
 
-# Folder under data/scenes/ holding scene.xml, its mesh/ and the manifest.
-scene_name: hanoi
-# Scene XML path, or a bundled Sionna-RT scene name.
-scene_file: data/scenes/${scenario.scene_name}/scene.xml
+# The scene the generator rasters: the one the radio stage reads.
+scene_file: ${simulation.input.scene_file}
 
 # Grid shared by UE density and radio maps.
 grid:
@@ -21,8 +20,8 @@ grid:
 ue:
   # UEs per interval, inclusive range.
   count_range: [10, 20]
-  # UE height, also the radio-map plane [m].
-  height_m: 1.5
+  # UE height: the radio stage's plane.
+  height_m: ${simulation.ue.height_m}
 
 # Traffic over time.
 time:
@@ -82,8 +81,7 @@ layout:
 
 seed: ${seed}
 
-# Scenario outputs.
+# Generator outputs beyond simulation.input: what was drawn and how, read
+# only by src/scenario and the notebooks.
 output:
-  ue_file: data/external/ue_positions.csv
-  cells_file: data/external/cells.csv
-  manifest_file: data/scenes/${scenario.scene_name}/scenario.json
+  record_file: data/scenes/${simulation.scene_name}/synthetic.json

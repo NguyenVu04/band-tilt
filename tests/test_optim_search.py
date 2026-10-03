@@ -123,7 +123,7 @@ def make_cfg(tmp_path):
     def build(method: str) -> DictConfig:
         config = OmegaConf.create(_CONFIG)
         config.optim.method = OmegaConf.create(_METHODS[method])
-        config.data = {"output": {"cells_file": write_cells(tmp_path, _CELLS)}}
+        config.simulation.input = {"cells_file": write_cells(tmp_path, _CELLS)}
         return config
 
     return build
