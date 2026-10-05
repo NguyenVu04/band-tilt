@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import read_cells
+from src.core.cell import Cell, read_cells
 from src.core.ue import OPTIONAL_UE_COLUMNS, UE_COLUMNS
 from src.data.load import Artifacts
 from src.simulation.radio import baseline_tilts
@@ -27,12 +27,21 @@ _UE = "ue_positions.csv"
 _CELLS = "cells.csv"
 
 # The manifest keys any producer must supply, synthetic or measured.
+_GRID_KEYS = ("origin_x", "origin_y", "tile_size_m", "n_cols", "n_rows")
 _MANIFEST_KEYS = (
     ("scenario_id",),
-    *(("grid", key) for key in ("origin_x", "origin_y", "tile_size_m", "n_cols", "n_rows")),
+    *(("grid", key) for key in _GRID_KEYS),
     ("time", "t_s"),
     ("time", "interval_s"),
 )
+
+# The radio-map arrays this module and its consumers index unguarded.
+_RADIO_KEYS = ("rsrp_dbm", "tx_name", "band_label", "scenario_id", "ue_height_m", *_GRID_KEYS)
+
+# How far a stored tile centre may sit from the manifest grid, as a share of a
+# tile. The solver stores float32 centres, so exact equality is not available;
+# the fault this catches is a half-tile offset.
+_CENTRE_TOL = 1e-3
 
 _INTEGER_COLUMNS = ("t_index", "tile_col", "tile_row", "component")
 
@@ -98,11 +107,19 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         if numeric:
             record("no missing ue value", _UE, *_count(ue[real].isna().to_numpy()))
     record("ue table holds at least one row", _UE, len(ue) > 0)
+    if not missing_keys:
+        record("manifest grid and time values are numbers", _MANIFEST, _numeric(manifest))
+    missing_arrays = [key for key in _RADIO_KEYS if key not in artifacts.radio]
+    record(
+        "npz carries the arrays the contract reads", _MAP, not missing_arrays, len(missing_arrays)
+    )
+    cells: tuple[Cell, ...] = ()
+    cell_source = _CELLS
     try:
         cells = read_cells(cfg.simulation.input.cells_file)
-    except (FileNotFoundError, ValueError):
-        cells = ()
-    record("cell table reads", _CELLS, bool(cells))
+    except (FileNotFoundError, ValueError) as error:
+        cell_source = f"{_CELLS}: {error}"
+    record("cell table reads", cell_source, bool(cells))
     if not all(holds for _, _, holds, _ in checks):
         return table()
 
@@ -142,16 +159,19 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     record(
         "npz grid matches the manifest grid",
         _MANIFEST,
-        all(
-            float(artifacts.radio[key]) == float(grid[key])
-            for key in ("origin_x", "origin_y", "tile_size_m", "n_cols", "n_rows")
-        ),
+        all(float(artifacts.radio[key]) == float(grid[key]) for key in _GRID_KEYS),
     )
     record(
         "npz ue_height_m matches the config",
         _CONFIG,
         float(artifacts.radio["ue_height_m"]) == float(cfg.simulation.ue.height_m),
     )
+    if "tile_centre" in artifacts.radio:
+        record(
+            "npz tile_centre matches the manifest grid",
+            _MANIFEST,
+            _centres_match(artifacts.radio["tile_centre"], grid, n_rows, n_cols),
+        )
     sinr_shape = sinr is not None and sinr.shape == rsrp.shape
     record("npz sinr_db has the shape of rsrp_dbm", _MAP, sinr_shape)
     if sinr_shape:
@@ -249,6 +269,33 @@ def require(checks: pd.DataFrame) -> None:
     raise SchemaError(
         f"{len(failed)} of {len(checks)} schema checks failed:\n{lines}\n"
         "The artifacts and the config disagree. Regenerate or re-supply them."
+    )
+
+
+def _numeric(manifest: dict) -> bool:
+    """Whether the manifest's grid and time entries convert to numbers."""
+    try:
+        for key in _GRID_KEYS:
+            float(manifest["grid"][key])
+        np.asarray(manifest["time"]["t_s"], dtype=np.float64)
+        float(manifest["time"]["interval_s"])
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _centres_match(centres: np.ndarray, grid: dict, n_rows: int, n_cols: int) -> bool:
+    """Whether the solver's ``[n_rows, n_cols, 3]`` tile centres sit on the manifest grid."""
+    centres = np.asarray(centres)
+    if centres.shape != (n_rows, n_cols, 3):
+        return False
+    tile = float(grid["tile_size_m"])
+    x = float(grid["origin_x"]) + (np.arange(n_cols) + 0.5) * tile
+    y = float(grid["origin_y"]) + (np.arange(n_rows) + 0.5) * tile
+    atol = _CENTRE_TOL * tile
+    return bool(
+        np.allclose(centres[..., 0], x[None, :], rtol=0, atol=atol)
+        and np.allclose(centres[..., 1], y[:, None], rtol=0, atol=atol)
     )
 
 

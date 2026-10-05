@@ -129,6 +129,23 @@ class TiltSpace:
             for index, cell in enumerate(self.cells)
         )
 
+    @property
+    def unit_span(self) -> np.ndarray:
+        """Per-dimension width the unit cube is scaled by.
+
+        A dimension whose bounds coincide has nowhere to move, so its width is
+        one: any unit value maps back to the same tilt after :meth:`clip`.
+        """
+        return np.where(self.upper > self.lower, self.upper - self.lower, 1.0)
+
+    def from_unit(self, point: np.ndarray) -> np.ndarray:
+        """The tilt vector for a point of the unit cube, clipped to the box."""
+        return self.clip(self.lower + np.asarray(point, dtype=float) * self.unit_span)
+
+    def to_unit(self, tilt_deg: np.ndarray) -> np.ndarray:
+        """The unit-cube point of a tilt vector; the inverse of :meth:`from_unit` inside the box."""
+        return (np.asarray(tilt_deg, dtype=float).reshape(-1) - self.lower) / self.unit_span
+
     def clip(self, tilt_deg: np.ndarray) -> np.ndarray:
         """The vector moved to the nearest point inside the box."""
         return np.clip(np.asarray(tilt_deg, dtype=float).reshape(-1), self.lower, self.upper)

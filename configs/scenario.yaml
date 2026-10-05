@@ -4,9 +4,6 @@
 # after changing any block. It writes the files simulation.input names, which
 # nothing else regenerates; real data can stand in for them.
 
-# The scene the generator rasters: the one the radio stage reads.
-scene_file: ${simulation.input.scene_file}
-
 # Grid shared by UE density and radio maps.
 grid:
   # Tile side [m].

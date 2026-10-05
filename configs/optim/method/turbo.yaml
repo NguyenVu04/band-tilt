@@ -1,15 +1,22 @@
 # @package optim.method
-# TuRBO-1 (Eriksson et al., 2019) on the objective, budget matched to random.yaml.
+# TuRBO-1 (Eriksson et al., 2019) on the objective, budget from optim.budget.
 
 name: turbo
 
 budget:
   # Sobol points before the trust region starts; a restart spends another set.
-  n_init: 16
+  n_init: ${optim.budget.n_init}
   # Trust-region evaluations.
-  n_iter: 128
+  n_iter: ${optim.budget.n_iter}
   # Candidates per GP refit.
   batch_size: 3
+
+# Thompson-sampling pool per proposal: min(max, max(min, per_dimension * d)),
+# the BoTorch TuRBO-1 tutorial's rule.
+candidates:
+  min: 2000
+  max: 5000
+  per_dimension: 200
 
 # Trust region in the unit cube.
 trust_region:

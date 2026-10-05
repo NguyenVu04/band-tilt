@@ -12,7 +12,7 @@ from scipy import stats
 
 from src.evaluation import maps
 from src.evaluation.runs import Run
-from src.kpi.capacity import CapacitySpec, covered, finite, serve_intervals
+from src.kpi.capacity import CapacitySpec, covered, covered_best, finite, serve_intervals
 from src.kpi.overlap import overlap_neighbors
 from src.optim.methods.base import INIT
 from src.optim.objective import (
@@ -398,8 +398,8 @@ def reproducibility(
     """
     rows = []
     for name, kpi in recorded.items():
-        maps = configurations[name]
-        again = evaluate_kpis(maps.rsrp, maps.sinr, band_labels, ue, cfg, served=maps.served)
+        config = configurations[name]
+        again = evaluate_kpis(config.rsrp, config.sinr, band_labels, ue, cfg, served=config.served)
         for kpi_name in NETWORK_KPIS:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
@@ -742,7 +742,6 @@ def band_layer_summary(
         ``served_share`` (UE reports served on the band, with every UE
         connected) and ``served_sinr_median_db`` of those reports.
     """
-    hole_dbm = float(cfg.kpi.hole_dbm)
     rows = []
     for name, config in configurations.items():
         spec = CapacitySpec.from_config(cfg, band_labels, config.rsrp.shape[1])
@@ -750,15 +749,15 @@ def band_layer_summary(
         strongest = finite(config.rsrp).max(axis=1)
         served_band = config.served["band"].to_numpy()
         for index, band in enumerate(band_labels):
-            covered = strongest[index] > hole_dbm
+            is_covered = covered_best(strongest[index], cfg)
             mine = served_band == index
             rows.append(
                 {
                     "configuration": name,
                     "band": band,
-                    "coverage_share": float(covered.mean()),
-                    "mean_band_rsrp_dbm": float(strongest[index][covered].mean())
-                    if covered.any()
+                    "coverage_share": float(is_covered.mean()),
+                    "mean_band_rsrp_dbm": float(strongest[index][is_covered].mean())
+                    if is_covered.any()
                     else np.nan,
                     "serving_tile_share": float((tile_band == index).mean()),
                     "served_share": float(mine.mean()),

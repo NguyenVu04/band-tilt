@@ -26,7 +26,6 @@ from src.kpi.capacity import max_rsrp
 from src.kpi.overlap import overlap_neighbors
 from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
-from src.utils.seed import set_seed
 
 # Subdirectory of cfg.reports.figures_dir and cfg.reports.tables_dir.
 _STAGE = "04_evaluation"
@@ -80,7 +79,6 @@ def _evaluate(
 ) -> tuple[dict[str, pd.DataFrame | Figure], pd.DataFrame]:
     """:func:`evaluate`, also returning :func:`compare.seed_summary` before relabelling."""
     figures_dir, tables_dir = output_dirs(cfg)
-    set_seed(cfg.seed)
     setup_plotting()
     results: dict[str, pd.DataFrame | Figure] = {}
 

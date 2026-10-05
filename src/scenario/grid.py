@@ -31,8 +31,14 @@ class GridSpec:
         """Reject a grid nothing could be sampled over.
 
         Raises:
-            ValueError: When the tile size or the sub-grid is not positive.
+            ValueError: When the tile size or the sub-grid is not positive, or
+                the free-height tolerance is negative.
         """
+        if self.free_height_tol_m < 0:
+            raise ValueError(
+                "scenario.grid.free_height_tol_m must not be negative, "
+                f"got {self.free_height_tol_m}"
+            )
         if self.tile_size_m <= 0:
             raise ValueError(f"scenario.grid.tile_size_m must be positive, got {self.tile_size_m}")
         if self.subsamples_per_tile <= 0:

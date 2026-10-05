@@ -62,6 +62,7 @@ _METHODS = {
     "turbo": {
         "name": "turbo",
         "budget": {"n_init": 4, "n_iter": 4, "batch_size": 2},
+        "candidates": {"min": 2000, "max": 5000, "per_dimension": 200},
         "trust_region": {
             "length_init": 0.8,
             "length_min": 0.0078125,

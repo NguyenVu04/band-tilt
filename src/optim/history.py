@@ -8,6 +8,7 @@ only builds frames; :class:`LocalRunWriter` puts them on disk.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
@@ -78,10 +79,29 @@ class LocalRunWriter:
         return str(path)
 
     def write_json(self, name: str, payload: dict[str, Any]) -> str:
-        """Write one document as ``<name>.json``."""
+        """Write one document as ``<name>.json``, strict JSON.
+
+        A non-finite float is written as the string ``"inf"``, ``"-inf"`` or
+        ``"nan"``, which ``float`` reads back: ``null`` would not say which, and
+        the percentile KPIs are ``-inf`` where nothing is covered.
+        """
         path = self.directory / f"{name}.json"
-        path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        path.write_text(
+            json.dumps(_finite_or_text(payload), indent=2, default=str, allow_nan=False),
+            encoding="utf-8",
+        )
         return str(path)
+
+
+def _finite_or_text(value: Any) -> Any:
+    """``value`` with every non-finite float, at any depth, replaced by its text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _finite_or_text(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_or_text(item) for item in value]
+    return value
 
 
 def write_tilt_change(table: pd.DataFrame, cfg: DictConfig, method: str) -> Path:

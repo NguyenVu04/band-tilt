@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from src.scenario.layout import node_positions
+from src.scenario.layout import LayoutSpec, node_positions
 from src.simulation.scene import SceneBounds
 
 BOUNDS = SceneBounds(min_x=0.0, max_x=1000.0, min_y=-200.0, max_y=800.0, min_z=0.0, max_z=50.0)
@@ -37,3 +37,28 @@ def test_triangle_wider_than_the_scene_is_rejected():
     """A spacing whose top corner leaves the scene fails and names the config key."""
     with pytest.raises(ValueError, match="node_spacing_m"):
         node_positions(BOUNDS, 501.0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("cells_per_node", 0, "cells_per_node"),
+        ("node_spacing_m", 0.0, "node_spacing_m"),
+        ("snap_radius_m", -1.0, "snap_radius_m"),
+        ("clearance_radius_m", -1.0, "clearance_radius_m"),
+    ],
+)
+def test_a_layout_no_node_could_be_placed_under_is_rejected(field, value, match):
+    """A zero-cell or negative-radius layout fails at the config, not as an empty table."""
+    good = dict(
+        node_spacing_m=400.0,
+        cells_per_node=3,
+        azimuth_offset_deg=0.0,
+        mast_height_m=25.0,
+        min_free_fraction=0.9,
+        clearance_radius_m=20.0,
+        snap_radius_m=100.0,
+    )
+    LayoutSpec(**good)
+    with pytest.raises(ValueError, match=match):
+        LayoutSpec(**{**good, field: value})

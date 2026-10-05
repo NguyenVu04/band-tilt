@@ -1,7 +1,7 @@
 """The synthetic-data generator: an independent workflow nothing else imports.
 
 One ``python -m src.scenario.run`` entry point (``task simulation:scenario``)
-rasters the scene named by ``scenario.scene_file``, draws the UE population over
+rasters the scene named by ``simulation.input.scene_file``, draws the UE population over
 it once per interval across the horizon, and lays the nodes and cells out on its
 open ground. It writes the UE table, the cell table and the manifest to the
 paths ``simulation.input`` names, where real data can stand in for them, and

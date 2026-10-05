@@ -26,10 +26,10 @@ Modules, each with one reason to change:
 ``run``
     Every table and figure notebook 04 presents; the ``task evaluate`` entry point.
 
-Two views of the same cut:
-This package reports coverage weighted by where UEs actually stand, alongside
-the tile-weighted rates. The two can disagree sharply, because a hole need not
-fall where anyone stands, and that difference is why both are printed.
+Two views of the same cut. This package reports coverage weighted by where UEs
+actually stand, alongside the tile-weighted rates. The two can disagree sharply,
+because a hole need not fall where anyone stands, and that difference is why both
+are printed.
 
 Neither is the objective. The search maximises the tile-uniform effective
 coverage (:mod:`src.optim.objective`), which reads no

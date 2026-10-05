@@ -30,15 +30,7 @@ from src.simulation.scene import SceneSpec
 from src.tracking import log_stage
 
 # Output paths do not affect scenario identity.
-_IDENTITY_KEYS = (
-    "scene_file",
-    "grid",
-    "ue",
-    "time",
-    "density",
-    "layout",
-    "seed",
-)
+_IDENTITY_KEYS = ("grid", "ue", "time", "density", "layout", "seed")
 
 
 def scenario_id(cfg: DictConfig) -> str:
@@ -50,6 +42,7 @@ def scenario_id(cfg: DictConfig) -> str:
     split on.
     """
     identity = {key: _resolved(cfg.scenario[key]) for key in _IDENTITY_KEYS}
+    identity["scene_file"] = str(cfg.simulation.input.scene_file)
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return "scn_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
@@ -69,6 +62,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
     ue = UeSpec.from_config(cfg)
     density_spec = DensitySpec.from_config(cfg)
     traffic_spec = TrafficSpec.from_config(cfg)
+    layout = LayoutSpec.from_config(cfg)
 
     scene, bounds = scene_module.load(SceneSpec.from_config(cfg))
 
@@ -91,10 +85,9 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
         seeds.stream(cfg.scenario.seed, "sample"),
     )
 
-    ue_file = sample.write_csv(
-        Path(cfg.simulation.input.ue_file), interval, t_s, x, y, component, raster, ue
-    )
-    layout = LayoutSpec.from_config(cfg)
+    # The layout is the step that can fail on config; draw everything before writing
+    # so a failure leaves the previous scenario's files intact, and write the
+    # manifest last because it is what marks the set complete.
     cells = generate_layout(
         scene.mi_scene,
         bounds,
@@ -104,14 +97,18 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
         default_tilts(cfg),
         default_max_prb(cfg),
     )
+
+    ue_file = sample.write_csv(
+        Path(cfg.simulation.input.ue_file), interval, t_s, x, y, component, raster, ue
+    )
     cells_file = Path(cfg.simulation.input.cells_file)
     cells_file.parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(cells_file, index=False, float_format="%.3f")
-    manifest_file = _write_json(
-        Path(cfg.simulation.input.manifest_file), _manifest(cfg, raster, schedule)
-    )
     record_file = _write_json(
         Path(cfg.scenario.output.record_file), _record(cfg, bounds, field, schedule, x)
+    )
+    manifest_file = _write_json(
+        Path(cfg.simulation.input.manifest_file), _manifest(cfg, raster, schedule)
     )
 
     eligible = density.eligible_tiles(raster)
@@ -179,7 +176,7 @@ def _record(
     return {
         "scenario_id": scenario_id(cfg),
         "seed": int(cfg.scenario.seed),
-        "scene_file": str(cfg.scenario.scene_file),
+        "scene_file": str(cfg.simulation.input.scene_file),
         "layout": OmegaConf.to_container(cfg.scenario.layout, resolve=True),
         "grid": {"launch_z": bounds.launch_z},
         # Store inputs to the density, not its deterministic tile weights.

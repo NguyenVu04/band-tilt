@@ -3,8 +3,8 @@
 
 name: random
 
+# Both from optim.budget; the first n_init Sobol draws are labelled `init`,
+# same as turbo's initial design.
 budget:
-  # Sobol draws labelled `init`, same as turbo's initial design.
-  n_init: 16
-  # Further Sobol draws.
-  n_iter: 128
+  n_init: ${optim.budget.n_init}
+  n_iter: ${optim.budget.n_iter}

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
+from src.optim.history import LocalRunWriter
 from src.optim.objective import (
     KPI_NAMES,
     MAXIMISED,
@@ -275,3 +279,18 @@ def test_map_kpis_shares_reductions_without_changing_any_kpi() -> None:
         "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
         "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
     }
+
+
+def test_run_json_is_strict_and_non_finite_kpis_round_trip(tmp_path) -> None:
+    """``-inf`` and NaN KPIs (nothing covered) survive a parser that rejects bare constants."""
+    kpi = _kpi(rsrp_p05_dbm=-np.inf, overlap_neighbor_mean=np.nan)
+    path = LocalRunWriter(tmp_path).write_json("run", {"best_kpi": kpi.as_dict()})
+
+    def refuse(token: str) -> None:
+        raise ValueError(f"not strict JSON: {token}")
+
+    loaded = json.loads(Path(path).read_text(encoding="utf-8"), parse_constant=refuse)
+    again = KpiVector.from_mapping(loaded["best_kpi"])
+    assert again.rsrp_p05_dbm == -np.inf
+    assert np.isnan(again.overlap_neighbor_mean)
+    assert again.hole_rate == kpi.hole_rate

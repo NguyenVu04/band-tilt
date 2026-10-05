@@ -41,7 +41,6 @@ def log_stage(
     *,
     groups: Sequence[str] = (),
     metrics: Mapping[str, float] | None = None,
-    step_metrics: Iterable[Mapping[str, float]] = (),
     artifacts: Iterable[str | Path] = (),
     outputs: Iterable[str | Path] = (),
     tags: Mapping[str, Any] | None = None,
@@ -57,7 +56,6 @@ def log_stage(
         stage: The run name and the ``stage`` tag.
         groups: Top-level config groups whose scalar leaves become params.
         metrics: Final scalar metrics.
-        step_metrics: One mapping per step, logged with the step as its index.
         artifacts: Files or directories copied into the run; a relative
             directory keeps its path. Missing ones are skipped.
         outputs: Paths recorded as ``output.<name>`` tags and not copied —
@@ -85,8 +83,6 @@ def log_stage(
         mlflow.log_dict(resolved, "config.yaml")
         if metrics:
             mlflow.log_metrics({k: float(v) for k, v in metrics.items()})
-        for step, row in enumerate(step_metrics):
-            mlflow.log_metrics({k: float(v) for k, v in row.items()}, step=step)
         for path in map(Path, artifacts):
             if path.is_dir():
                 # The relative path, so reports/figures/X and reports/tables/X stay apart.

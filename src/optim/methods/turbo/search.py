@@ -26,11 +26,6 @@ from src.optim.methods.base import ATTACHED, INCUMBENT, INIT, SEARCH, SOBOL, sob
 # Generation-node name of a trust-region proposal.
 TURBO = "TuRBO"
 
-# BoTorch TuRBO-1 tutorial: min(5000, max(2000, 200 d)) candidates.
-_MIN_CANDIDATES = 2000
-_MAX_CANDIDATES = 5000
-_CANDIDATES_PER_DIMENSION = 200
-
 # Purposes a derived seed is drawn for; see _derived_seed.
 _RESTART = 1
 _PROPOSAL = 2
@@ -140,7 +135,8 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     Args:
         evaluator: Scores a tilt vector.
         cfg: Composed config; reads ``cfg.optim.method.budget``,
-            ``cfg.optim.method.trust_region`` and ``cfg.optim.seed``.
+            ``cfg.optim.method.trust_region``, ``cfg.optim.method.candidates``
+            and ``cfg.optim.seed``.
 
     Returns:
         The history, whose first row is always the committed incumbent. Rows are
@@ -155,27 +151,28 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     seed = int(cfg.optim.seed)
     region = TrustRegion.from_config(cfg, space.n_dim, batch_size)
 
-    lower = space.lower
-    # A dimension whose bounds coincide has nowhere to move; any span maps it back.
-    span = np.where(space.upper > space.lower, space.upper - space.lower, 1.0)
+    candidates = cfg.optim.method.candidates
+    n_candidates = min(
+        int(candidates.max), max(int(candidates.min), int(candidates.per_dimension) * space.n_dim)
+    )
 
     history = History(space)
     incumbent = evaluator.evaluate(space.baseline)
     history.append(incumbent, phase=INCUMBENT, generation_node=ATTACHED)
     # The GP's data since the last restart: unit-cube points and their scores.
-    unit_x = [(space.baseline - lower) / span]
+    unit_x = [space.to_unit(space.baseline)]
     score_y = [incumbent.kpi.objective]
 
     def evaluate(points: np.ndarray, phase: str, node: str) -> list[float]:
         new = []
         for point in points:
-            tilts = space.clip(lower + point * span)
+            tilts = space.from_unit(point)
             result = evaluator.evaluate(tilts)
             history.append(result, phase=phase, generation_node=node)
             # The clipped point, not the proposal: on a dimension whose bounds
             # coincide the two differ, and a GP told the input moved when the
             # tilt could not would fit the trust region to a fictitious axis.
-            unit_x.append((tilts - lower) / span)
+            unit_x.append(space.to_unit(tilts))
             new.append(result.kpi.objective)
         score_y.extend(new)
         return new
@@ -204,6 +201,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
             np.array(score_y),
             region,
             min(batch_size, remaining),
+            n_candidates,
             _derived_seed(seed, _PROPOSAL, len(history)),
         )
         region.update(max(evaluate(batch, SEARCH, TURBO)))
@@ -211,15 +209,20 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
 
 
 def _propose(
-    unit_x: np.ndarray, score_y: np.ndarray, region: TrustRegion, q: int, seed: int
+    unit_x: np.ndarray,
+    score_y: np.ndarray,
+    region: TrustRegion,
+    q: int,
+    n_candidates: int,
+    seed: int,
 ) -> np.ndarray:
     """A batch of ``q`` unit-cube points, Thompson-sampled inside the trust region.
 
     Fits a GP to the restart's data, centres the region on its best point with
     side lengths scaled by the GP lengthscales (geometric mean one), perturbs a
-    random subset of the centre's dimensions, and keeps the ``q`` candidates
-    that maximise posterior samples. Seeds a forked torch RNG, so the caller's
-    random state is untouched.
+    random subset of the centre's dimensions in each of ``n_candidates``
+    candidates, and keeps the ``q`` that maximise posterior samples. Seeds a
+    forked torch RNG, so the caller's random state is untouched.
     """
     import torch
     from botorch.fit import fit_gpytorch_mll
@@ -246,7 +249,6 @@ def _propose(
         low = torch.clamp(centre - scale * region.length / 2.0, 0.0, 1.0)
         high = torch.clamp(centre + scale * region.length / 2.0, 0.0, 1.0)
 
-        n_candidates = min(_MAX_CANDIDATES, max(_MIN_CANDIDATES, _CANDIDATES_PER_DIMENSION * dim))
         pool = SobolEngine(dim, scramble=True, seed=seed).draw(n_candidates, dtype=torch.float64)
         pool = low + (high - low) * pool
         probability = min(region.perturbed_dimensions / dim, 1.0)

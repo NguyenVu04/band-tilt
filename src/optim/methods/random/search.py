@@ -35,8 +35,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
 
     history = History(space)
     history.append(evaluator.evaluate(space.baseline), phase=INCUMBENT, generation_node=ATTACHED)
-    span = space.upper - space.lower
     for index, point in enumerate(sobol(space.n_dim, n_total, int(cfg.optim.seed))):
-        result = evaluator.evaluate(space.clip(space.lower + point * span))
+        result = evaluator.evaluate(space.from_unit(point))
         history.append(result, phase=INIT if index < n_init else SEARCH, generation_node=SOBOL)
     return history

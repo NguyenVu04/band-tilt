@@ -38,13 +38,13 @@ def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
 
     layers = finite(rsrp)
     serving = layers.max(axis=1, keepdims=True)
-    covered = serving > hole_dbm
+    is_covered = serving > hole_dbm
     # Stated as a lower bound on the neighbour rather than as a difference:
     # `serving - layers` is NaN where both are -inf, and warns.
-    counted = (layers >= serving - margin_db) & (layers > hole_dbm) & covered
+    counted = (layers >= serving - margin_db) & (layers > hole_dbm) & is_covered
     # The serving transmitter is within the margin of itself; drop it, but only
     # where the band is covered, or an uncovered location would count -1.
-    return np.where(covered[:, 0], counted.sum(axis=1) - 1, 0).sum(axis=0)
+    return np.where(is_covered[:, 0], counted.sum(axis=1) - 1, 0).sum(axis=0)
 
 
 def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:

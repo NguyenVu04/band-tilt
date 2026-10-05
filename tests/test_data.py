@@ -117,6 +117,24 @@ def _manifest_without(artifacts: Artifacts, *path: str) -> Artifacts:
     return dataclasses.replace(artifacts, manifest=manifest)
 
 
+def _radio_without(artifacts: Artifacts, key: str) -> Artifacts:
+    return dataclasses.replace(
+        artifacts, radio={k: v for k, v in artifacts.radio.items() if k != key}
+    )
+
+
+def _manifest_with(artifacts: Artifacts, **grid: object) -> Artifacts:
+    manifest = copy.deepcopy(artifacts.manifest)
+    manifest["grid"].update(grid)
+    return dataclasses.replace(artifacts, manifest=manifest)
+
+
+def _tile_centres(offset: float = 0.0) -> np.ndarray:
+    """``[n_rows, n_cols, 3]`` centres of the fixture's 2 x 2 grid of 10 m tiles."""
+    xs, ys = np.meshgrid([5.0, 15.0], [5.0, 15.0])
+    return np.stack([xs + offset, ys, np.full_like(xs, 1.5)], axis=-1)
+
+
 def _sinr_nan_where_rsrp_is_not(artifacts: Artifacts) -> Artifacts:
     sinr = artifacts.radio["sinr_db"].copy()
     sinr[0, 0, 0, 0] = np.nan
@@ -173,6 +191,22 @@ _LIES = {
         lambda a: _manifest_without(a, "time", "interval_s"),
         "manifest carries scenario_id, grid and time",
     ),
+    "npz without n_rows": (
+        lambda a: _radio_without(a, "n_rows"),
+        "npz carries the arrays the contract reads",
+    ),
+    "npz without rsrp": (
+        lambda a: _radio_without(a, "rsrp_dbm"),
+        "npz carries the arrays the contract reads",
+    ),
+    "text origin_x": (
+        lambda a: _manifest_with(a, origin_x="west"),
+        "manifest grid and time values are numbers",
+    ),
+    "half-tile centre offset": (
+        lambda a: _radio(a, tile_centre=_tile_centres(offset=5.0)),
+        "npz tile_centre matches the manifest grid",
+    ),
     "t_s after its interval": (
         lambda a: _ue(a, t_s=[5000.0, 10.0, 20.0]),
         "t_s lies inside the interval its t_index names",
@@ -188,6 +222,21 @@ def test_each_lie_fails_its_check_and_require_raises(artifacts, cfg, lie) -> Non
     assert check in checks.loc[~checks["holds"], "check"].tolist()
     with pytest.raises(schema.SchemaError, match="schema checks failed"):
         schema.require(checks)
+
+
+def test_centres_on_the_manifest_grid_pass(artifacts, cfg) -> None:
+    """The solver's own tile centres agree with the grid the UEs were binned into."""
+    checks = schema.verify(_radio(artifacts, tile_centre=_tile_centres()), cfg)
+    assert checks["holds"].all(), checks[~checks["holds"]]
+    assert "npz tile_centre matches the manifest grid" in checks["check"].tolist()
+
+
+def test_an_unreadable_cell_table_says_why(artifacts, cfg) -> None:
+    """The check's source carries the reader's reason, not just that it failed."""
+    cfg.simulation.input.cells_file = "no/such/cells.csv"
+    checks = schema.verify(artifacts, cfg)
+    source = checks.loc[checks["check"] == "cell table reads", "source"].item()
+    assert "No cell table at" in source
 
 
 def test_a_missing_cell_table_fails_the_contract(artifacts, cfg) -> None:
@@ -241,6 +290,25 @@ def test_a_repeated_cell_band_row_is_refused() -> None:
     """Two rows for one pair would otherwise let the later one silently win."""
     with pytest.raises(ValueError, match="more than one row for c0/b1"):
         cells_from_frame(pd.concat([_CELLS, _CELLS.assign(tilt_deg=9.0)]))
+
+
+def test_rows_of_one_cell_that_disagree_on_its_position_are_refused() -> None:
+    """The first row would otherwise silently decide where the cell stands."""
+    other_band = _CELLS.assign(band="b2", node_x=1.0)
+    with pytest.raises(ValueError, match="disagree on its node or position"):
+        cells_from_frame(pd.concat([_CELLS, other_band]))
+
+
+def test_a_cell_with_a_non_finite_position_is_refused() -> None:
+    """A NaN coordinate would reach the ray tracer as a transmitter nowhere."""
+    with pytest.raises(ValueError, match="not finite"):
+        cells_from_frame(_CELLS.assign(node_x=np.nan))
+
+
+def test_a_fractional_prb_limit_is_refused_not_truncated() -> None:
+    """``int(52.7)`` would quietly schedule on 52 PRBs."""
+    with pytest.raises(ValueError, match="not a whole number"):
+        cells_from_frame(_CELLS.assign(max_prb=52.7))
 
 
 def test_the_site_frame_is_one_row_per_cell_with_its_node(tmp_path) -> None:

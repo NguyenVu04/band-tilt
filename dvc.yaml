@@ -16,13 +16,14 @@ stages:
       - data/scenes/hanoi/scene.xml
       - data/scenes/hanoi/mesh
     params:
+      - configs/config.yaml:
+          - seed
       - configs/scenario.yaml:
           - grid
           - density
           - time
           - ue
           - layout
-          - seed
       - configs/simulation.yaml:
           - scene_name
           - input

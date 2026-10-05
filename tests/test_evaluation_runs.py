@@ -197,6 +197,15 @@ def test_verify_passes_when_everything_matches(tmp_path) -> None:
     run_store.require(checks)  # must not raise
 
 
+def test_verify_names_a_run_saved_without_its_radio_map(tmp_path) -> None:
+    """``save_radio_map=false`` is a failed check, not an exception from inside verify."""
+    directory = make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
+    (directory / "best_radio_map.npz").unlink()
+    checks = run_store.verify([run_store.load(directory)], radio_archive())
+    failed = checks.loc[~checks["holds"], "check"].tolist()
+    assert failed == ["every run kept its radio map"]
+
+
 def test_verify_catches_a_different_scenario(tmp_path) -> None:
     """Two scenarios are two experiments, not two results."""
     runs = [

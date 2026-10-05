@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec, max_rsrp, spectral_efficiency
+from src.kpi.capacity import CapacitySpec, covered_best, max_rsrp, spectral_efficiency
 
 # Display range for RSRP images. The lower bound mirrors kpi.hole_dbm in
 # configs/kpi.yaml, so the darkest colour and "uncovered" mean the same thing to
@@ -62,9 +62,8 @@ def coverage_class(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
         ``[n_rows, n_cols]`` of :data:`HOLE`, :data:`WEAK` or :data:`GOOD`.
     """
     best = max_rsrp(rsrp)
-    hole_dbm = float(cfg.kpi.hole_dbm)
     weak_dbm = float(cfg.kpi.weak_dbm)
-    return np.where(best <= hole_dbm, HOLE, np.where(best <= weak_dbm, WEAK, GOOD))
+    return np.where(~covered_best(best, cfg), HOLE, np.where(best <= weak_dbm, WEAK, GOOD))
 
 
 def coverage_table(rsrp: np.ndarray, counts: np.ndarray, cfg: DictConfig) -> pd.DataFrame:
@@ -110,9 +109,8 @@ def change_mask(before: np.ndarray, after: np.ndarray, cfg: DictConfig) -> np.nd
         difference: a tile gaining 3 dB while remaining a hole has not changed
         anything a KPI can see.
     """
-    hole_dbm = float(cfg.kpi.hole_dbm)
-    was_hole = before <= hole_dbm
-    is_hole = after <= hole_dbm
+    was_hole = ~covered_best(before, cfg)
+    is_hole = ~covered_best(after, cfg)
     return np.where(was_hole & ~is_hole, 1, np.where(~was_hole & is_hole, -1, 0))
 
 

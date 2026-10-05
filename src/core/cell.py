@@ -26,6 +26,9 @@ CELL_COLUMNS = (
     "max_prb",
 )
 
+# What every row of one cell must agree on: its mast, then where that cell stands and points.
+_SITE_COLUMNS = ("node", "node_x", "node_y", "node_z", "azimuth_deg")
+
 
 @dataclass(frozen=True)
 class Tilt:
@@ -184,7 +187,9 @@ def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
 
     Raises:
         ValueError: When a column is missing, a ``(cell, band)`` pair has more
-            than one row, or as :class:`Tilt` and :class:`Cell` validate.
+            than one row, a cell's rows disagree on where it stands or points,
+            a position is not finite, a ``max_prb`` is not a whole number, or
+            as :class:`Tilt` and :class:`Cell` validate.
     """
     missing = [column for column in CELL_COLUMNS if column not in frame.columns]
     if missing:
@@ -195,7 +200,11 @@ def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
         raise ValueError(f"cell table has more than one row for {', '.join(pairs)}")
     cells = []
     for name, rows in frame.groupby("cell", sort=False, observed=True):
+        if len(rows[list(_SITE_COLUMNS)].drop_duplicates()) > 1:
+            raise ValueError(f"cell {name!r} has rows that disagree on its node or position")
         first = rows.iloc[0]
+        if not np.isfinite(first[list(_SITE_COLUMNS[1:])].to_numpy(dtype=float)).all():
+            raise ValueError(f"cell {name!r} has a position or azimuth that is not finite")
         tilt, max_prb = {}, {}
         for row in rows.itertuples():
             if pd.notna(row.tilt_deg):
@@ -203,6 +212,11 @@ def cells_from_frame(frame: pd.DataFrame) -> tuple[Cell, ...]:
                     float(row.tilt_deg), (float(row.tilt_min_deg), float(row.tilt_max_deg))
                 )
             if pd.notna(row.max_prb):
+                if row.max_prb != int(row.max_prb):
+                    raise ValueError(
+                        f"cell {name!r} band {row.band!r} has max_prb {row.max_prb}, "
+                        "which is not a whole number"
+                    )
                 max_prb[str(row.band)] = int(row.max_prb)
         cells.append(
             Cell(

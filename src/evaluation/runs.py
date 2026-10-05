@@ -226,12 +226,20 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
         [run.label for run in runs if run.scenario_id != expected_scenario],
     )
 
+    # A run saved without its map cannot be compared on the map's contents;
+    # name it here rather than failing every check below.
+    mapped = [run for run in runs if (run.directory / _RADIO_MAP).is_file()]
+    record(
+        "every run kept its radio map",
+        [run.label for run in runs if not (run.directory / _RADIO_MAP).is_file()],
+    )
+
     for key in _GRID_KEYS:
         record(
             f"grid {key} matches the baseline",
             [
                 run.label
-                for run in runs
+                for run in mapped
                 if not np.array_equal(np.asarray(run.radio_map[key]), np.asarray(baseline[key]))
             ],
         )
@@ -241,7 +249,7 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
             f"solver {key} matches the baseline",
             [
                 run.label
-                for run in runs
+                for run in mapped
                 if not np.array_equal(np.asarray(run.radio_map[key]), np.asarray(baseline[key]))
             ],
         )
@@ -250,7 +258,7 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
         "bands match the baseline, in order",
         [
             run.label
-            for run in runs
+            for run in mapped
             if [str(label) for label in run.radio_map["band_label"]]
             != [str(label) for label in baseline["band_label"]]
         ],
@@ -261,7 +269,7 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
         "band carrier frequencies match the baseline, in order",
         [
             run.label
-            for run in runs
+            for run in mapped
             if not np.array_equal(
                 np.asarray(run.radio_map["band_hz"]), np.asarray(baseline["band_hz"])
             )

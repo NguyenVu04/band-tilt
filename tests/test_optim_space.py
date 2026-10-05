@@ -124,3 +124,18 @@ def test_from_config_names_a_cell_missing_a_band(tmp_path) -> None:
     cells = [_CELLS[0], {**_CELLS[1], "tilt": {"high": _CELLS[1]["tilt"]["high"]}}]
     with pytest.raises(ValueError, match=r"c1/low"):
         TiltSpace.from_config(_config(tmp_path, cells))
+
+
+def test_unit_cube_mapping_round_trips_and_pins_a_zero_width_dimension() -> None:
+    """A dimension whose bounds coincide maps every unit value back to its one tilt."""
+    space = TiltSpace(
+        cells=(),
+        band_names=(),
+        lower=np.array([0.0, 5.0]),
+        upper=np.array([10.0, 5.0]),
+        baseline=np.array([2.0, 5.0]),
+    )
+    assert space.from_unit(np.array([0.25, 0.9])).tolist() == [2.5, 5.0]
+    assert space.to_unit(space.baseline).tolist() == [0.2, 0.0]
+    assert space.from_unit(space.to_unit(space.baseline)).tolist() == space.baseline.tolist()
+    assert space.from_unit(np.array([2.0, 0.0])).tolist() == [10.0, 5.0]

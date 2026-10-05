@@ -1,1 +1,1 @@
-"""Helpers shared by the notebooks: global seeding and figure defaults."""
+"""Helpers shared by the notebooks and the evaluation stage: figure defaults."""

@@ -58,9 +58,21 @@ class LayoutSpec:
         """Reject a layout no node could be placed under.
 
         Raises:
-            ValueError: When the mast height is not positive, or the free
-                fraction is outside ``[0, 1]``.
+            ValueError: When the node spacing, mast height or cells per node
+                is not positive, a radius is negative, or the free fraction is
+                outside ``[0, 1]``.
         """
+        if self.node_spacing_m <= 0:
+            raise ValueError(
+                f"scenario.layout.node_spacing_m must be positive, got {self.node_spacing_m}"
+            )
+        if self.cells_per_node < 1:
+            raise ValueError(
+                f"scenario.layout.cells_per_node must be at least 1, got {self.cells_per_node}"
+            )
+        for name in ("clearance_radius_m", "snap_radius_m"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"scenario.layout.{name} must not be negative")
         if self.mast_height_m <= 0:
             raise ValueError(
                 f"scenario.layout.mast_height_m must be positive, got {self.mast_height_m}"

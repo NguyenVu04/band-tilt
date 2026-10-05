@@ -33,7 +33,13 @@ def output_directory(cfg: DictConfig, method: str) -> Path:
     comparing runs and a rerun must not destroy the one it is compared against.
     """
     stamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
-    return Path(cfg.optim.output.dir) / method / stamp
+    base = Path(cfg.optim.output.dir) / method
+    # A second run in the same second would otherwise write into the first's directory.
+    directory, suffix = base / stamp, 0
+    while directory.exists():
+        suffix += 1
+        directory = base / f"{stamp}-{suffix}"
+    return directory
 
 
 def run(cfg: DictConfig) -> tuple[History, Path]:
