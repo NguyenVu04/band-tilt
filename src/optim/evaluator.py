@@ -121,7 +121,7 @@ class Evaluator:
         if not ue_file.is_file():
             raise FileNotFoundError(f"No UE table at {ue_file}. Run `task preprocess` first.")
         self._ue = pd.read_parquet(ue_file)
-        self._capacity = CapacitySpec.from_config(cfg, self.band_labels, len(self.space.cells))
+        self._capacity = CapacitySpec.from_config(cfg, self.band_labels, len(self.space.sectors))
         self._scene = radio.load_scene(cfg)
 
     def __enter__(self) -> Evaluator:
@@ -152,19 +152,19 @@ class Evaluator:
         Raises:
             RuntimeError: When the evaluator has been closed.
             ValueError: When the vector leaves the box; see
-                :meth:`src.optim.space.TiltSpace.to_cells`.
+                :meth:`src.optim.space.TiltSpace.to_sectors`.
         """
         if self._scene is None:
             raise RuntimeError("this Evaluator is closed; build a new one to evaluate again")
 
         # A copy, so the result never aliases an array the caller goes on to mutate.
         tilt_deg = np.array(tilt_deg, dtype=float).reshape(-1)
-        cells = self.space.to_cells(tilt_deg)
+        sectors = self.space.to_sectors(tilt_deg)
 
         # Timed around the whole loop, so per-band scene setup counts as simulator time.
         started = time.perf_counter()
         rsrp, sinr, self._centres, _elapsed = radio.solve_bands(
-            self._scene, cells, self._setup, int(self.solver_seed)
+            self._scene, sectors, self._setup, int(self.solver_seed)
         )
         seconds = time.perf_counter() - started
 
@@ -200,7 +200,7 @@ class Evaluator:
             rsrp=result.rsrp,
             sinr=result.sinr,
             bands=setup.bands,
-            cells=self.space.to_cells(result.tilt_deg),
+            sectors=self.space.to_sectors(result.tilt_deg),
             grid_meta=setup.grid_meta,
             solver_spec=setup.solver,
             solver_seed=int(self.solver_seed),

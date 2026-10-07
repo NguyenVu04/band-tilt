@@ -1,4 +1,4 @@
-"""The tilt space: dimension order, bounds, and the vector-to-cell mapping."""
+"""The tilt space: dimension order, bounds, and the vector-to-sector mapping."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.optim.space import TiltSpace
-from tests.conftest import write_cells
+from tests.conftest import write_sectors
 
-# Two cells, two bands, with deliberately different boxes per band so a test
+# Two sectors, two bands, with deliberately different boxes per band so a test
 # that silently transposed the dimension order could not still pass.
 _BANDS = {"simulation": {"radio_map": {"bands": [{"name": "high"}, {"name": "low"}]}}}
-_CELLS = [
+_SECTORS = [
     {
         "name": "c0",
         "x": 0.0,
@@ -38,20 +38,20 @@ _CELLS = [
 ]
 
 
-def _config(directory, cells=_CELLS):
-    """The bands and the cell table written under ``directory``."""
+def _config(directory, sectors=_SECTORS):
+    """The bands and the sector table written under ``directory``."""
     return OmegaConf.merge(
-        _BANDS, {"simulation": {"input": {"cells_file": write_cells(directory, cells)}}}
+        _BANDS, {"simulation": {"input": {"sectors_file": write_sectors(directory, sectors)}}}
     )
 
 
 @pytest.fixture
 def space(tmp_path) -> TiltSpace:
-    """A two-cell, two-band space."""
+    """A two-sector, two-band space."""
     return TiltSpace.from_config(_config(tmp_path))
 
 
-def test_dimension_order_is_cell_major_band_minor(space: TiltSpace) -> None:
+def test_dimension_order_is_sector_major_band_minor(space: TiltSpace) -> None:
     """The order every downstream join relies on."""
     assert space.pairs == (("c0", "high"), ("c0", "low"), ("c1", "high"), ("c1", "low"))
     assert space.parameter_names == (
@@ -63,73 +63,73 @@ def test_dimension_order_is_cell_major_band_minor(space: TiltSpace) -> None:
     assert space.n_dim == 4
 
 
-def test_bounds_and_baseline_come_from_the_cell_table(space: TiltSpace) -> None:
+def test_bounds_and_baseline_come_from_the_sector_table(space: TiltSpace) -> None:
     """Per-band boxes differ, so the space is a box and not a cube."""
     assert np.array_equal(space.lower, [0.0, 2.0, 0.0, 2.0])
     assert np.array_equal(space.upper, [16.0, 12.0, 16.0, 12.0])
     assert np.array_equal(space.baseline, [8.0, 4.0, 9.0, 5.0])
 
 
-def test_to_cells_round_trips_the_baseline(space: TiltSpace) -> None:
+def test_to_sectors_round_trips_the_baseline(space: TiltSpace) -> None:
     """Rebuilding at the baseline reproduces the committed layout."""
-    cells = space.to_cells(space.baseline)
-    assert [cell.name for cell in cells] == ["c0", "c1"]
-    assert cells[0].tilt_for("high").baseline_deg == 8.0
-    assert cells[1].tilt_for("low").baseline_deg == 5.0
+    sectors = space.to_sectors(space.baseline)
+    assert [sector.name for sector in sectors] == ["c0", "c1"]
+    assert sectors[0].tilt_for("high").baseline_deg == 8.0
+    assert sectors[1].tilt_for("low").baseline_deg == 5.0
 
 
-def test_to_cells_keeps_position_and_azimuth(space: TiltSpace) -> None:
+def test_to_sectors_keeps_position_and_azimuth(space: TiltSpace) -> None:
     """Only tilt is a decision variable; the geometry is fixed."""
-    cells = space.to_cells(np.array([1.0, 3.0, 2.0, 4.0]))
-    assert (cells[1].x, cells[1].y, cells[1].z) == (10.0, 0.0, 30.0)
-    assert cells[1].azimuth_deg == 120.0
-    assert cells[1].tilt_for("high").bounds_deg == (0.0, 16.0)
+    sectors = space.to_sectors(np.array([1.0, 3.0, 2.0, 4.0]))
+    assert (sectors[1].x, sectors[1].y, sectors[1].z) == (10.0, 0.0, 30.0)
+    assert sectors[1].azimuth_deg == 120.0
+    assert sectors[1].tilt_for("high").bounds_deg == (0.0, 16.0)
 
 
-def test_to_cells_rejects_a_value_outside_its_own_band_box(space: TiltSpace) -> None:
+def test_to_sectors_rejects_a_value_outside_its_own_band_box(space: TiltSpace) -> None:
     """13 degrees is legal on ``high`` and illegal on ``low``.
 
     The one case a shared cube would wave through, which is why the bounds are
     per dimension rather than per space.
     """
     with pytest.raises(ValueError, match=r"c0/low"):
-        space.to_cells(np.array([13.0, 13.0, 8.0, 8.0]))
+        space.to_sectors(np.array([13.0, 13.0, 8.0, 8.0]))
 
 
-def test_to_cells_rejects_a_wrong_length_or_non_finite_vector(space: TiltSpace) -> None:
+def test_to_sectors_rejects_a_wrong_length_or_non_finite_vector(space: TiltSpace) -> None:
     """Both would otherwise reach the ray tracer as a silent misalignment."""
     with pytest.raises(ValueError, match="expected 4 tilts"):
-        space.to_cells(np.zeros(3))
+        space.to_sectors(np.zeros(3))
     with pytest.raises(ValueError, match="non-finite"):
-        space.to_cells(np.array([np.nan, 4.0, 9.0, 5.0]))
+        space.to_sectors(np.array([np.nan, 4.0, 9.0, 5.0]))
 
 
 def test_clip_moves_a_proposal_inside_the_box(space: TiltSpace) -> None:
     """What the search applies before handing a candidate to the evaluator."""
     clipped = space.clip(np.array([-5.0, 99.0, 8.0, 5.0]))
     assert np.array_equal(clipped, [0.0, 12.0, 8.0, 5.0])
-    space.to_cells(clipped)
+    space.to_sectors(clipped)
 
 
 def test_as_frame_is_one_row_per_dimension(space: TiltSpace) -> None:
     """The shape the deliverable table is built from."""
     frame = space.as_frame(space.baseline)
     assert len(frame) == space.n_dim
-    assert list(frame.columns) == ["cell", "band", "tilt_deg", "tilt_min_deg", "tilt_max_deg"]
-    assert frame["cell"].tolist() == ["c0", "c0", "c1", "c1"]
+    assert list(frame.columns) == ["sector", "band", "tilt_deg", "tilt_min_deg", "tilt_max_deg"]
+    assert frame["sector"].tolist() == ["c0", "c0", "c1", "c1"]
 
 
-def test_from_config_names_a_cell_missing_a_band(tmp_path) -> None:
-    """A cell-band pair with no tilt is a dimension with no bounds."""
-    cells = [_CELLS[0], {**_CELLS[1], "tilt": {"high": _CELLS[1]["tilt"]["high"]}}]
+def test_from_config_names_a_sector_missing_a_band(tmp_path) -> None:
+    """A sector-band pair with no tilt is a dimension with no bounds."""
+    sectors = [_SECTORS[0], {**_SECTORS[1], "tilt": {"high": _SECTORS[1]["tilt"]["high"]}}]
     with pytest.raises(ValueError, match=r"c1/low"):
-        TiltSpace.from_config(_config(tmp_path, cells))
+        TiltSpace.from_config(_config(tmp_path, sectors))
 
 
 def test_unit_cube_mapping_round_trips_and_pins_a_zero_width_dimension() -> None:
     """A dimension whose bounds coincide maps every unit value back to its one tilt."""
     space = TiltSpace(
-        cells=(),
+        sectors=(),
         band_names=(),
         lower=np.array([0.0, 5.0]),
         upper=np.array([10.0, 5.0]),

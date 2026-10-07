@@ -86,7 +86,7 @@ def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
         values = table[name]
         # The percentile measures are -inf when nothing is covered
         # (src/kpi/quality.py), so a total-outage pair would subtract to NaN and
-        # print as a blank cell. Two configurations that both cover nothing have
+        # print as a blank sector. Two configurations that both cover nothing have
         # not moved the measure.
         delta = np.where(
             (values == reference) & np.isinf(values), 0.0, values.to_numpy() - reference

@@ -9,7 +9,7 @@ from src.kpi.capacity import max_rsrp
 
 
 def hole_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
-    """Fraction of the grid receiving no usable signal from any cell-band.
+    """Fraction of the grid receiving no usable signal from any sector-band.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.

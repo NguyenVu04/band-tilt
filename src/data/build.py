@@ -1,8 +1,8 @@
 """Build the processed UE table from the verified artifacts.
 
 ``ue.parquet`` is the UE population, typed, with every UE kept; the search and
-the evaluation both score on it. The cell table is not copied: every consumer
-reads ``simulation.input.cells_file`` itself.
+the evaluation both score on it. The sector table is not copied: every consumer
+reads ``simulation.input.sectors_file`` itself.
 """
 
 from __future__ import annotations

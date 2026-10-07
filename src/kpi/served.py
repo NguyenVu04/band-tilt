@@ -13,7 +13,7 @@ import pandas as pd
 
 
 def ue_service_failure_rate(served: pd.DataFrame) -> float:
-    """Fraction of UE reports the serving rule left without a cell, ``1 - served share``.
+    """Fraction of UE reports the serving rule left without a sector, ``1 - served share``.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output, one row per UE

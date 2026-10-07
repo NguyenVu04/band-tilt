@@ -1,6 +1,6 @@
 """Ray-trace one clean radio map per band.
 
-Reads the manifest and the cell table named in ``simulation.input`` and writes
+Reads the manifest and the sector table named in ``simulation.input`` and writes
 RSRP and SINR on the manifest's grid, both per resource element, as the
 solver's :class:`sionna.rt.RadioMap` reports them. Nothing here draws or
 redraws the UEs: a map must describe the population already on disk, whoever
@@ -20,7 +20,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
-from src.core.cell import Cell, read_cells
+from src.core.sector import Sector, read_sectors
 from src.simulation import materials, seeds, transmitter
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneSpec
@@ -51,12 +51,12 @@ _N_RB = {
 class Band:
     """One carrier.
 
-    Tilt is deliberately absent: it belongs to the cell-band pair, so it lives
-    on the cell (:class:`src.core.cell.Cell`). A band-level
-    tilt would force every cell of a band to point alike.
+    Tilt is deliberately absent: it belongs to the sector-band pair, so it lives
+    on the sector (:class:`src.core.sector.Sector`). A band-level
+    tilt would force every sector of a band to point alike.
 
     Attributes:
-        name: Identifies the band in the cell tilt table and the radio map.
+        name: Identifies the band in the sector tilt table and the radio map.
             The one place the band's identity is spelled.
         frequency_hz: Carrier frequency.
         bandwidth_hz: Channel bandwidth. Fixes N_RB and so ``max_prb``; the
@@ -188,7 +188,7 @@ def load_scene(cfg: DictConfig) -> Any:
 
 
 def solve_bands(
-    scene: Any, cells: tuple[Cell, ...], setup: RadioSetup, solver_seed: int
+    scene: Any, sectors: tuple[Sector, ...], setup: RadioSetup, solver_seed: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[float]]:
     """Solve every band with :func:`solve_band`.
 
@@ -200,7 +200,7 @@ def solve_bands(
     for band in setup.bands:
         rsrp, sinr, seconds, centres = solve_band(
             scene,
-            cells,
+            sectors,
             band,
             setup.solver,
             solver_seed,
@@ -217,14 +217,14 @@ def solve_bands(
 def solve(cfg: DictConfig) -> Path:
     """Solve every band's radio map and write them. Returns the output path."""
     setup = RadioSetup.from_config(cfg)
-    cells = read_cells(cfg.simulation.input.cells_file)
-    _check_tilt_table(cells, setup.bands)
+    sectors = read_sectors(cfg.simulation.input.sectors_file)
+    _check_tilt_table(sectors, setup.bands)
     solver_seed = seeds.stream(cfg.seed, "solver")
 
     scene = load_scene(cfg)
-    rsrp, sinr, centres, elapsed = solve_bands(scene, cells, setup, solver_seed)
+    rsrp, sinr, centres, elapsed = solve_bands(scene, sectors, setup, solver_seed)
     for band, band_rsrp, seconds in zip(setup.bands, rsrp, elapsed, strict=True):
-        tilts = [cell.tilt_for(band.name).baseline_deg for cell in cells]
+        tilts = [sector.tilt_for(band.name).baseline_deg for sector in sectors]
         # Reduce over the reached tiles only: a tile no ray found is all-NaN,
         # and nanmax over one warns rather than simply meaning "no coverage".
         served = np.isfinite(band_rsrp).any(axis=0)
@@ -240,7 +240,7 @@ def solve(cfg: DictConfig) -> Path:
         rsrp=rsrp,
         sinr=sinr,
         bands=setup.bands,
-        cells=cells,
+        sectors=sectors,
         grid_meta=setup.grid_meta,
         solver_spec=setup.solver,
         solver_seed=solver_seed,
@@ -253,13 +253,15 @@ def solve(cfg: DictConfig) -> Path:
     return path
 
 
-def baseline_tilts(cells: tuple[Cell, ...], band_names: Sequence[str]) -> np.ndarray:
-    """Each cell's baseline tilt, ``[n_band, n_tx]``: a radio map's ``tilt_deg`` array.
+def baseline_tilts(sectors: tuple[Sector, ...], band_names: Sequence[str]) -> np.ndarray:
+    """Each sector's baseline tilt, ``[n_band, n_tx]``: a radio map's ``tilt_deg`` array.
 
     Raises:
-        KeyError: When a cell carries no tilt for one of the bands.
+        KeyError: When a sector carries no tilt for one of the bands.
     """
-    return np.array([[cell.tilt_for(band).baseline_deg for cell in cells] for band in band_names])
+    return np.array(
+        [[sector.tilt_for(band).baseline_deg for sector in sectors] for band in band_names]
+    )
 
 
 def write_radio_map(
@@ -268,7 +270,7 @@ def write_radio_map(
     rsrp: np.ndarray,
     sinr: np.ndarray,
     bands: tuple[Band, ...],
-    cells: tuple[Cell, ...],
+    sectors: tuple[Sector, ...],
     grid_meta: dict[str, Any],
     solver_spec: SolverSpec,
     solver_seed: int,
@@ -290,11 +292,11 @@ def write_radio_map(
         sinr_db=sinr.astype(np.float32),
         band_hz=np.array([band.frequency_hz for band in bands]),
         band_label=np.array([band.name for band in bands]),
-        # One tilt per cell-band pair, [band, tx], matching rsrp_dbm's leading
+        # One tilt per sector-band pair, [band, tx], matching rsrp_dbm's leading
         # two axes. This is the configuration the map was solved at, so a stored
         # map carries the decision vector that produced it.
-        tilt_deg=baseline_tilts(cells, [band.name for band in bands]),
-        tx_name=np.array([cell.name for cell in cells]),
+        tilt_deg=baseline_tilts(sectors, [band.name for band in bands]),
+        tx_name=np.array([sector.name for sector in sectors]),
         origin_x=grid_meta["origin_x"],
         origin_y=grid_meta["origin_y"],
         tile_size_m=grid_meta["tile_size_m"],
@@ -329,7 +331,7 @@ def write_radio_map(
 
 def solve_band(
     scene: Any,
-    cells: tuple[Cell, ...],
+    sectors: tuple[Sector, ...],
     band: Band,
     spec: SolverSpec,
     solver_seed: int,
@@ -365,10 +367,10 @@ def solve_band(
     scene.bandwidth = band.scs_hz
     scene.temperature = spec.temperature_k
 
-    for cell in cells:
-        if scene.get(cell.name) is not None:
-            scene.remove(cell.name)
-    transmitter.build(scene, cells, band.name, power_dbm)
+    for sector in sectors:
+        if scene.get(sector.name) is not None:
+            scene.remove(sector.name)
+    transmitter.build(scene, sectors, band.name, power_dbm)
 
     size_x = grid_meta["n_cols"] * grid_meta["tile_size_m"]
     size_y = grid_meta["n_rows"] * grid_meta["tile_size_m"]
@@ -386,7 +388,7 @@ def solve_band(
         ),
         orientation=mi.Point3f(0.0, 0.0, 0.0),
         size=mi.Point2f(size_x, size_y),
-        # sionna-rt calls a map square a "cell"; it is our tile.
+        # sionna-rt calls a map square a "sector"; it is our tile.
         cell_size=mi.Point2f(grid_meta["tile_size_m"], grid_meta["tile_size_m"]),
         samples_per_tx=spec.samples_per_tx,
         max_depth=spec.max_depth,
@@ -424,8 +426,8 @@ def solve_band(
     )
 
 
-def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
-    """Check every cell carries a tilt and a PRB limit for every band, that limit being N_RB.
+def _check_tilt_table(sectors: tuple[Sector, ...], bands: tuple[Band, ...]) -> None:
+    """Check every sector carries a tilt and a PRB limit for every band, that limit being N_RB.
 
     Checked once, up front, so a mismatched table names every gap rather than
     failing on whichever band happens to be solved first. Nothing downstream
@@ -433,21 +435,21 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
     would otherwise go unnoticed.
 
     Raises:
-        ValueError: When any cell-band pair has no tilt or no ``max_prb``, a
+        ValueError: When any sector-band pair has no tilt or no ``max_prb``, a
             band's ``scs_hz`` and ``bandwidth`` have no N_RB in TS 38.101-1
             Table 5.3.2-1, or a ``max_prb`` differs from that N_RB.
     """
     missing = [
-        f"{cell.name}/{band.name}"
-        for cell in cells
+        f"{sector.name}/{band.name}"
+        for sector in sectors
         for band in bands
-        if band.name not in cell.tilt or band.name not in cell.max_prb
+        if band.name not in sector.tilt or band.name not in sector.max_prb
     ]
     if missing:
         raise ValueError(
-            f"{len(missing)} cell-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
-            f"{' ...' if len(missing) > 8 else ''}. Every cell needs one entry per band in "
-            "simulation.radio_map.bands; regenerate or fix the cell table if the bands changed."
+            f"{len(missing)} sector-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
+            f"{' ...' if len(missing) > 8 else ''}. Every sector needs one entry per band in "
+            "simulation.radio_map.bands; regenerate or fix the sector table if the bands changed."
         )
     n_rb = {band.name: _N_RB.get(band.scs_hz, {}).get(band.bandwidth_hz) for band in bands}
     unknown = [
@@ -461,16 +463,16 @@ def _check_tilt_table(cells: tuple[Cell, ...], bands: tuple[Band, ...]) -> None:
             "channel bandwidth and subcarrier spacing the table lists."
         )
     wrong = [
-        f"{cell.name}/{band.name} has {cell.max_prb[band.name]}, needs {n_rb[band.name]}"
-        for cell in cells
+        f"{sector.name}/{band.name} has {sector.max_prb[band.name]}, needs {n_rb[band.name]}"
+        for sector in sectors
         for band in bands
-        if cell.max_prb[band.name] != n_rb[band.name]
+        if sector.max_prb[band.name] != n_rb[band.name]
     ]
     if wrong:
         raise ValueError(
-            f"{len(wrong)} cell-band pairs have a max_prb other than N_RB for the band's "
+            f"{len(wrong)} sector-band pairs have a max_prb other than N_RB for the band's "
             f"bandwidth and scs_hz: {', '.join(wrong[:8])}{' ...' if len(wrong) > 8 else ''}. "
-            "Fix the cell table's max_prb (generated: scenario.layout.default_max_prb)."
+            "Fix the sector table's max_prb (generated: scenario.layout.default_max_prb)."
         )
 
 

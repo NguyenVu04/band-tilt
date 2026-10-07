@@ -1,15 +1,15 @@
 """Serving-cell choice and the throughput each UE gets.
 
-The one serving rule in the project, read by the UE KPIs and the per-cell-band
+The one serving rule in the project, read by the UE KPIs and the per-sector-band
 tables. Within an interval UEs connect one at a time. A UE's candidates are the
-cell-bands above ``kpi.hole_dbm``; it joins the one where its equal share of the
+sector-bands above ``kpi.hole_dbm``; it joins the one where its equal share of the
 usable PRBs, ``kpi.capacity.max_admission_utilisation`` of ``max_prb`` split over
 the UEs already there plus itself, carries the most throughput. Nobody is
 refused: a UE with no candidate is the only one not served.
 
 Its estimated throughput is read after the interval's last UE has connected,
-at the equal share of its cell-band's final UE count, so a UE's figure falls as
-later UEs join the same cell-band.
+at the equal share of its sector-band's final UE count, so a UE's figure falls as
+later UEs join the same sector-band.
 
 UEs connect in ``t_s`` order. Two UEs reporting at the same instant are taken
 strongest RSRP first, over every layer at the UE, and row order breaks what
@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import read_cells
+from src.core.sector import read_sectors
 
 # TS 38.211 4.4.4.1: one resource block is 12 consecutive subcarriers.
 _SUBCARRIERS_PER_PRB = 12
@@ -40,14 +40,14 @@ _SUBCARRIERS_PER_PRB = 12
 
 @dataclass(frozen=True)
 class CapacitySpec:
-    """The serving and PRB settings, aligned to the radio map's bands and cells.
+    """The serving and PRB settings, aligned to the radio map's bands and sectors.
 
     Attributes:
         min_rsrp_dbm: A layer at or below this is never a candidate.
         max_admission_utilisation: Share of ``max_prb`` shared among a
-            cell-band's UEs.
+            sector-band's UEs.
         prb_bandwidth_hz: Bandwidth of one PRB per band, shape ``[n_band]``.
-        max_prb: PRB limit per cell-band, shape ``[n_band, n_tx]``.
+        max_prb: PRB limit per sector-band, shape ``[n_band, n_tx]``.
     """
 
     min_rsrp_dbm: float
@@ -57,14 +57,14 @@ class CapacitySpec:
 
     @property
     def pool_prb(self) -> np.ndarray:
-        """PRBs shared among a cell-band's UEs, ``[n_band, n_tx]``."""
+        """PRBs shared among a sector-band's UEs, ``[n_band, n_tx]``."""
         return self.max_admission_utilisation * self.max_prb
 
     @classmethod
     def from_config(cls, cfg: DictConfig, band_labels: Sequence[str], n_tx: int) -> CapacitySpec:
-        """Read ``kpi.capacity``, ``kpi.hole_dbm``, the cells and each band's ``scs_hz``.
+        """Read ``kpi.capacity``, ``kpi.hole_dbm``, the sectors and each band's ``scs_hz``.
 
-        The cells are read from ``simulation.input.cells_file`` in table order, which
+        The sectors are read from ``simulation.input.sectors_file`` in table order, which
         is the radio map's tx axis: :func:`src.simulation.radio.solve` writes
         them in that order and preprocessing checks ``tx_name`` against it. ``scs_hz`` is read
         from ``simulation.radio_map.bands``, the same value the solver's noise
@@ -72,9 +72,9 @@ class CapacitySpec:
 
         Raises:
             ValueError: When a band has no ``simulation.radio_map.bands`` entry,
-                the config holds other than ``n_tx`` cells, or
+                the config holds other than ``n_tx`` sectors, or
                 ``max_admission_utilisation`` is outside ``(0, 1]``.
-            KeyError: When a cell has no ``max_prb`` for a band.
+            KeyError: When a sector has no ``max_prb`` for a band.
         """
         admission = float(cfg.kpi.capacity.max_admission_utilisation)
         if not 0.0 < admission <= 1.0:
@@ -85,11 +85,11 @@ class CapacitySpec:
         missing = [label for label in band_labels if label not in bands]
         if missing:
             raise ValueError(f"No simulation.radio_map.bands entry for {', '.join(missing)}.")
-        cells = read_cells(cfg.simulation.input.cells_file)
-        if len(cells) != n_tx:
+        sectors = read_sectors(cfg.simulation.input.sectors_file)
+        if len(sectors) != n_tx:
             raise ValueError(
-                f"{cfg.simulation.input.cells_file} holds {len(cells)} cells for a radio map with "
-                f"{n_tx} transmitters."
+                f"{cfg.simulation.input.sectors_file} holds {len(sectors)} sectors for a "
+                f"radio map with {n_tx} transmitters."
             )
         return cls(
             min_rsrp_dbm=float(cfg.kpi.hole_dbm),
@@ -98,7 +98,7 @@ class CapacitySpec:
                 [float(bands[label].scs_hz) for label in band_labels]
             ),
             max_prb=np.array(
-                [[float(cell.max_prb_for(label)) for cell in cells] for label in band_labels]
+                [[float(sector.max_prb_for(label)) for sector in sectors] for label in band_labels]
             ),
         )
 
@@ -114,7 +114,7 @@ def finite(rsrp: np.ndarray) -> np.ndarray:
 
 
 def max_rsrp(rsrp: np.ndarray) -> np.ndarray:
-    """Strongest signal at each location, over every cell-band layer.
+    """Strongest signal at each location, over every sector-band layer.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
@@ -143,7 +143,7 @@ def serving_sinr(rsrp: np.ndarray, sinr: np.ndarray) -> np.ndarray:
     """SINR of the strongest layer at each location.
 
     The layer :func:`max_rsrp` reports, read out of the solver's own SINR, so
-    the RSRP and SINR percentiles describe the same cell-band at every tile.
+    the RSRP and SINR percentiles describe the same sector-band at every tile.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``, NaN where
@@ -207,7 +207,7 @@ def _tile_index(ue: pd.DataFrame, shape: tuple[int, int]) -> tuple[np.ndarray, n
 # SINR is the solver's per-RE value. Signal, interference and noise are all flat
 # across the carrier, so it holds on every PRB alike and frequency-selective
 # fading does not appear. The PRB limits themselves are 3GPP:
-# max_prb per cell-band is N_RB from TS 38.101-1 Table 5.3.2-1.
+# max_prb per sector-band is N_RB from TS 38.101-1 Table 5.3.2-1.
 
 
 def spectral_efficiency(sinr: np.ndarray) -> np.ndarray:
@@ -228,7 +228,7 @@ def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndar
 def _select_serving(
     rsrp: np.ndarray, sinr: np.ndarray, t_s: np.ndarray, spec: CapacitySpec
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Connect one interval's UEs, each to the cell-band that gives it the most throughput.
+    """Connect one interval's UEs, each to the sector-band that gives it the most throughput.
 
     UEs are taken in ``t_s`` order, simultaneous ones strongest RSRP first over
     every layer at the UE, and the order given breaks what remains. Each takes
@@ -330,12 +330,12 @@ def serve_intervals(
     Returns:
         One row per UE row, index aligned: ``t_index``, ``tile_row``,
         ``tile_col``, ``band``, ``tx`` (``-1`` when not served), ``sinr_db``
-        and ``estimated_throughput_mbps`` at the serving cell-band, NaN when
+        and ``estimated_throughput_mbps`` at the serving sector-band, NaN when
         not served.
 
     Raises:
         ValueError: When the UE table is off the map's grid or the config does not
-            cover the map's bands and cells.
+            cover the map's bands and sectors.
     """
     if spec is None:
         spec = CapacitySpec.from_config(cfg, band_labels, rsrp.shape[1])

@@ -19,7 +19,7 @@ from src.kpi import (
 )
 from src.kpi.capacity import _tile_index, finite, max_rsrp, serve_intervals
 from src.kpi.overlap import effective_coverage, overlap_neighbors
-from tests.conftest import write_cells
+from tests.conftest import write_sectors
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def cfg(tmp_path):
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
                 "input": {
-                    "cells_file": write_cells(
+                    "sectors_file": write_sectors(
                         tmp_path,
                         [
                             {
@@ -60,7 +60,7 @@ def _map(values: list[list[list[float]]]) -> np.ndarray:
     """A radio map from nested ``[band][tx]`` lists of per-tile values.
 
     Each innermost list becomes the single row of a ``1 x n`` grid, so every
-    fixture below reads as a table of cell-band layers against locations.
+    fixture below reads as a table of sector-band layers against locations.
     """
     return np.array(values, dtype=float)[:, :, None, :]
 
@@ -146,7 +146,7 @@ def test_overlap_counts_within_each_band_and_sums_across_them(cfg) -> None:
     """The co-band rule: a strong other-band layer is not an overlapping neighbour.
 
     Tile 0 has two transmitters within the margin on each band, so each band
-    contributes one neighbour beyond its own serving cell. Tile 1 has one
+    contributes one neighbour beyond its own serving sector. Tile 1 has one
     reachable transmitter per band and the two bands sit 20 dB apart - close
     enough to overlap if bands were compared against each other, which the
     co-band rule does not do.
@@ -161,7 +161,7 @@ def test_overlap_counts_within_each_band_and_sums_across_them(cfg) -> None:
 
 
 def test_an_uncovered_band_contributes_no_neighbours(cfg) -> None:
-    """Subtracting the serving cell must not take an uncovered band below zero."""
+    """Subtracting the serving sector must not take an uncovered band below zero."""
     rsrp = _map([[[-130.0], [-130.0]], [[-80.0], [-140.0]]])
     assert overlap_neighbors(rsrp, cfg).tolist() == [[0]]
 
@@ -200,7 +200,7 @@ def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
 
 
 def _share(*relative_db: float) -> float:
-    """The strongest cell's power share, before the strength factor scales it."""
+    """The strongest sector's power share, before the strength factor scales it."""
     return 1.0 / (1.0 + sum(10.0 ** (db / 10.0) for db in relative_db))
 
 
@@ -234,7 +234,7 @@ def test_effective_coverage_ignores_rivals_at_or_below_the_hole_threshold(cfg) -
 
 
 def test_effective_coverage_is_zero_where_no_band_is_covered(cfg) -> None:
-    """A hole has no serving cell to count, which is what scores it zero."""
+    """A hole has no serving sector to count, which is what scores it zero."""
     rsrp = _map([[[-130.0], [-130.0]], [[np.nan], [-140.0]]])
     assert effective_coverage(rsrp, cfg).tolist() == [[0.0]]
 

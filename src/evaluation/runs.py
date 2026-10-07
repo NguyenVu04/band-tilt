@@ -51,7 +51,7 @@ class Run:
         directory: Where it lives.
         history: One row per search evaluation; see
             :meth:`src.optim.history.History.frame`.
-        best_tilt: The deliverable table, one row per cell-band.
+        best_tilt: The deliverable table, one row per sector-band.
         meta: The parsed ``run.json``.
     """
 
@@ -312,7 +312,7 @@ def require(checks: pd.DataFrame) -> None:
 def _kpi_definition(run: Run) -> dict[str, Any]:
     """Everything a reported measure reads, from the run's own ``run.json``.
 
-    The thresholds, the capacity model and each cell's PRB limit (recorded by
+    The thresholds, the capacity model and each sector's PRB limit (recorded by
     :func:`src.optim.run.run`): two runs that differ on any one did not measure
     the same thing. ``capacity`` sets the PRB
     share behind the estimated throughput; the objective does not read it.

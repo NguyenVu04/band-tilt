@@ -46,8 +46,8 @@ coverage hole where the high-band signal fades before a low-band layer reaches
 it. Manual, band-by-band tuning is slow and can miss these interactions.
 
 This project treats tilt setting as one coordinated, multivariable optimization
-problem. For `N` cells and `B` bands, the conceptual output is a tilt-offset
-vector with one value for every `(cell, band)` pair:
+problem. For `N` sectors and `B` bands, the conceptual output is a tilt-offset
+vector with one value for every `(sector, band)` pair:
 
 ```text
 delta_tilt = [delta_tilt_1,1, ..., delta_tilt_1,B, ..., delta_tilt_N,B]
@@ -61,7 +61,7 @@ the two. The intended network state includes each layer's signal-strength map,
 demand, and band-specific propagation behaviour.
 
 The repository evaluates this idea entirely in simulation. `src/scenario/`
-generates a time-varying UE population and a cell layout over a local Sionna-RT
+generates a time-varying UE population and a sector layout over a local Sionna-RT
 scene file, and `src/simulation/` ray-traces per-band radio maps from those
 files, which real data could replace. The search and evaluation both count every UE
 position. The implemented
@@ -80,8 +80,8 @@ one objective,
 `J = mean_g sum_b u_bg^2 / sum_b u_bg` with
 `u_bg = s_bg / (1 + sum_i 10^((R_bi - R_bs) / 10))`
 ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)): the share of
-band `b`'s received power at tile `g` held by its strongest cell `s`, over every
-other co-band cell `i` above `kpi.hole_dbm`. It is exactly 1 when one cell is
+band `b`'s received power at tile `g` held by its strongest sector `s`, over every
+other co-band sector `i` above `kpi.hole_dbm`. It is exactly 1 when one sector is
 alone on the band, 1/2 with an equal rival, and 0 where nothing covers the tile.
 `s_bg` scales that by how
 far the band's strongest sits between `kpi.hole_dbm` and `kpi.weak_dbm`, clipped
@@ -90,12 +90,12 @@ the contraharmonic mean of its bands' `u_bg`, which is bounded by its best band
 but, unlike a maximum over bands, is not monotone in the layers present: a weak extra layer lowers it. `J`
 is the share of the grid *effectively covered*, in `[0, 1]`. The objective has no parameters of its own.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) connects each interval's UEs in
-report-time order, each to the cell-band above `kpi.hole_dbm` where an equal
+report-time order, each to the sector-band above `kpi.hole_dbm` where an equal
 share of `kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit,
 split over the UEs already there and itself, carries the most Shannon
 throughput. Nobody is refused: the UE service failure rate counts the UEs with no
-cell-band above the hole threshold, and every other UE's estimated throughput is
-its cell-band's equal share at the end of the interval.
+sector-band above the hole threshold, and every other UE's estimated throughput is
+its sector-band's equal share at the end of the interval.
 
 Sionna-RT scores every candidate the search proposes, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
@@ -114,7 +114,7 @@ not calibrated against operator measurements.
 flowchart TB
     scene["Sionna-RT scene<br/>data/scenes/&lt;scene_name&gt;/"]
     gen["src/scenario<br/>synthetic generator (or real data)"]
-    inputs["simulation.input<br/>UE table · cell table · manifest"]
+    inputs["simulation.input<br/>UE table · sector table · manifest"]
 
     sim["src/simulation<br/>radio map"]
     prep["src/data<br/>schema verification · typed tables"]
@@ -155,8 +155,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 
 | Component | Responsibility | Location |
 |---|---|---|
-| Core | The `Cell` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
-| Scenario | UE population, traffic, node/cell layout | [`src/scenario/`](src/scenario/) |
+| Core | The `Sector` / per-band `Tilt` data model shared by every other module | [`src/core/`](src/core/) |
+| Scenario | UE population, traffic, node/sector layout | [`src/scenario/`](src/scenario/) |
 | Simulation | Scene loading, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
 | KPI | The twelve reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
@@ -173,8 +173,8 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Dependency | Purpose | Criticality | Notes |
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
-| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the cell table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
-| Cell layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per cell | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.cells_file`, `data/scenes/<scene_name>/cells.csv` (one row per cell-band, [`src/core/cell.py`](src/core/cell.py)). Every stage reads that file directly; `task preprocess` checks the radio map against it but copies nothing — no external data needed |
+| Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the sector table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
+| Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the radio map against it but copies nothing — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
@@ -231,8 +231,8 @@ uv run pytest
 ```
 
 `tests/` covers `src/scenario/`'s density, region, traffic, node-layout and grid
-logic, `src/simulation/`'s seed-stream and radio-map-archive logic, the KPIs, `src/data/`'s schema contract, UE-table build and cell-table round trip, and `src/optim/` and
-`src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. `src/core/`'s cell and UE-table contracts
+logic, `src/simulation/`'s seed-stream and radio-map-archive logic, the KPIs, `src/data/`'s schema contract, UE-table build and sector-table round trip, and `src/optim/` and
+`src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. `src/core/`'s sector and UE-table contracts
 are covered through `tests/test_data.py`, and `tests/test_architecture.py` keeps every
 module outside `src/scenario/` from importing it; see
 [Implementation status](#implementation-status).
@@ -254,8 +254,8 @@ composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
 
 | Group | File | Holds |
 |---|---|---|
-| `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/cell layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, cell table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
+| `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/sector layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule, the UE service failure rate and the estimated throughput. The objective has no block of its own: it reads `hole_dbm` and `weak_dbm` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
@@ -404,7 +404,7 @@ band-tilt/
 
 | Area | State |
 |---|---|
-| `src/core/` — the `Cell` / `Tilt` data model | Implemented |
+| `src/core/` — the `Sector` / `Tilt` data model | Implemented |
 | `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
@@ -450,7 +450,7 @@ task check
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/scenario/`'s `density.py`, `sample.py` (region), `traffic.py`,
 `layout.py` (node positions) and `grid.py`, `src/simulation/`'s `seeds.py` and the `radio.py` archive, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
-and `src/tracking.py`. `src/core/`'s cell table is covered by `tests/test_data.py`; `src/evaluation/run.py` has no tests yet.
+and `src/tracking.py`. `src/core/`'s sector table is covered by `tests/test_data.py`; `src/evaluation/run.py` has no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
 dataset.** Fixtures are tiny and synthetic, so `task test` runs the same way in

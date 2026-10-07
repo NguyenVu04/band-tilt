@@ -56,9 +56,9 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
 
     with Evaluator(cfg) as evaluator:
         scenario_id = evaluator.scenario_id
-        # The cell table lives outside the config snapshot, so the PRB limits the
+        # The sector table lives outside the config snapshot, so the PRB limits the
         # throughput was measured under are recorded with the run.
-        max_prb = {cell.name: cell.max_prb for cell in evaluator.space.cells}
+        max_prb = {sector.name: sector.max_prb for sector in evaluator.space.sectors}
         history = run_search(evaluator, cfg)
         radio_map = None
         if bool(cfg.optim.output.save_radio_map):

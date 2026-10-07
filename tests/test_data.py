@@ -10,18 +10,18 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.core.cell import cells_from_frame, cells_to_frame, read_cells, site_frame
+from src.core.sector import read_sectors, sectors_from_frame, sectors_to_frame, site_frame
 from src.data import schema
 from src.data.build import build_ue
 from src.data.load import Artifacts
 
-_CELLS = pd.DataFrame(
+_SECTORS = pd.DataFrame(
     {
         "node": ["n0"],
         "node_x": [0.0],
         "node_y": [0.0],
         "node_z": [25.0],
-        "cell": ["c0"],
+        "sector": ["c0"],
         "azimuth_deg": [0.0],
         "band": ["b1"],
         "tilt_deg": [8.0],
@@ -34,14 +34,14 @@ _CELLS = pd.DataFrame(
 
 @pytest.fixture
 def cfg(tmp_path):
-    """One cell on one band over a 2 x 2 grid of 10 m tiles."""
-    cells_file = tmp_path / "cells.csv"
-    _CELLS.to_csv(cells_file, index=False)
+    """One sector on one band over a 2 x 2 grid of 10 m tiles."""
+    sectors_file = tmp_path / "sectors.csv"
+    _SECTORS.to_csv(sectors_file, index=False)
     return OmegaConf.create(
         {
             "simulation": {
                 "ue": {"height_m": 1.5},
-                "input": {"cells_file": str(cells_file)},
+                "input": {"sectors_file": str(sectors_file)},
                 "antenna": {"power_rs": 5.0},
                 "radio_map": {"bands": [{"name": "b1", "frequency": 700000000}]},
             },
@@ -231,26 +231,26 @@ def test_centres_on_the_manifest_grid_pass(artifacts, cfg) -> None:
     assert "npz tile_centre matches the manifest grid" in checks["check"].tolist()
 
 
-def test_an_unreadable_cell_table_says_why(artifacts, cfg) -> None:
+def test_an_unreadable_sector_table_says_why(artifacts, cfg) -> None:
     """The check's source carries the reader's reason, not just that it failed."""
-    cfg.simulation.input.cells_file = "no/such/cells.csv"
+    cfg.simulation.input.sectors_file = "no/such/sectors.csv"
     checks = schema.verify(artifacts, cfg)
-    source = checks.loc[checks["check"] == "cell table reads", "source"].item()
-    assert "No cell table at" in source
+    source = checks.loc[checks["check"] == "sector table reads", "source"].item()
+    assert "No sector table at" in source
 
 
-def test_a_missing_cell_table_fails_the_contract(artifacts, cfg) -> None:
-    """The radio map is checked against the cell table, so no table is a failure, not a crash."""
-    cfg.simulation.input.cells_file = "no/such/cells.csv"
+def test_a_missing_sector_table_fails_the_contract(artifacts, cfg) -> None:
+    """The radio map is checked against the sector table, so no table is a failure, not a crash."""
+    cfg.simulation.input.sectors_file = "no/such/sectors.csv"
     checks = schema.verify(artifacts, cfg)
-    assert checks.loc[~checks["holds"], "check"].tolist() == ["cell table reads"]
+    assert checks.loc[~checks["holds"], "check"].tolist() == ["sector table reads"]
 
 
 def test_a_map_solved_at_other_tilts_fails_the_contract(artifacts, cfg) -> None:
-    """The map must be the one the cell table's baseline tilts produce."""
+    """The map must be the one the sector table's baseline tilts produce."""
     checks = schema.verify(_radio(artifacts, tilt_deg=np.array([[9.0]])), cfg)
     failed = checks.loc[~checks["holds"], "check"].tolist()
-    assert failed == ["npz tilt_deg equals the cell table's baseline tilts"]
+    assert failed == ["npz tilt_deg equals the sector table's baseline tilts"]
 
 
 def test_build_ue_types_and_sorts_without_dropping_a_row(artifacts) -> None:
@@ -271,51 +271,51 @@ def test_build_ue_keeps_a_table_without_component(artifacts) -> None:
     assert "component" not in ue.columns
 
 
-def test_a_cell_table_round_trips_through_its_frame() -> None:
-    """Writing cells and reading them back keeps every tilt, bound and PRB limit."""
-    cells = cells_from_frame(_CELLS)
-    again = cells_from_frame(cells_to_frame(cells))
-    assert again == cells
+def test_a_sector_table_round_trips_through_its_frame() -> None:
+    """Writing sectors and reading them back keeps every tilt, bound and PRB limit."""
+    sectors = sectors_from_frame(_SECTORS)
+    again = sectors_from_frame(sectors_to_frame(sectors))
+    assert again == sectors
     assert again[0].tilt["b1"].bounds_deg == (0.0, 20.0)
     assert again[0].max_prb_for("b1") == 52
 
 
 def test_a_tilt_outside_its_bounds_is_refused() -> None:
-    """The run would start infeasible, so the cell table does not load."""
+    """The run would start infeasible, so the sector table does not load."""
     with pytest.raises(ValueError, match="outside its bounds"):
-        cells_from_frame(_CELLS.assign(tilt_deg=25.0))
+        sectors_from_frame(_SECTORS.assign(tilt_deg=25.0))
 
 
-def test_a_repeated_cell_band_row_is_refused() -> None:
+def test_a_repeated_sector_band_row_is_refused() -> None:
     """Two rows for one pair would otherwise let the later one silently win."""
     with pytest.raises(ValueError, match="more than one row for c0/b1"):
-        cells_from_frame(pd.concat([_CELLS, _CELLS.assign(tilt_deg=9.0)]))
+        sectors_from_frame(pd.concat([_SECTORS, _SECTORS.assign(tilt_deg=9.0)]))
 
 
-def test_rows_of_one_cell_that_disagree_on_its_position_are_refused() -> None:
-    """The first row would otherwise silently decide where the cell stands."""
-    other_band = _CELLS.assign(band="b2", node_x=1.0)
+def test_rows_of_one_sector_that_disagree_on_its_position_are_refused() -> None:
+    """The first row would otherwise silently decide where the sector stands."""
+    other_band = _SECTORS.assign(band="b2", node_x=1.0)
     with pytest.raises(ValueError, match="disagree on its node or position"):
-        cells_from_frame(pd.concat([_CELLS, other_band]))
+        sectors_from_frame(pd.concat([_SECTORS, other_band]))
 
 
-def test_a_cell_with_a_non_finite_position_is_refused() -> None:
+def test_a_sector_with_a_non_finite_position_is_refused() -> None:
     """A NaN coordinate would reach the ray tracer as a transmitter nowhere."""
     with pytest.raises(ValueError, match="not finite"):
-        cells_from_frame(_CELLS.assign(node_x=np.nan))
+        sectors_from_frame(_SECTORS.assign(node_x=np.nan))
 
 
 def test_a_fractional_prb_limit_is_refused_not_truncated() -> None:
     """``int(52.7)`` would quietly schedule on 52 PRBs."""
     with pytest.raises(ValueError, match="not a whole number"):
-        cells_from_frame(_CELLS.assign(max_prb=52.7))
+        sectors_from_frame(_SECTORS.assign(max_prb=52.7))
 
 
-def test_the_site_frame_is_one_row_per_cell_with_its_node(tmp_path) -> None:
-    """Two band rows of one cell collapse to one site, its mast named by ``node``."""
-    path = tmp_path / "cells.csv"
-    pd.concat([_CELLS, _CELLS.assign(band="b2", tilt_deg=6.0)]).to_csv(path, index=False)
-    sites = site_frame(read_cells(path))
+def test_the_site_frame_is_one_row_per_sector_with_its_node(tmp_path) -> None:
+    """Two band rows of one sector collapse to one site, its mast named by ``node``."""
+    path = tmp_path / "sectors.csv"
+    pd.concat([_SECTORS, _SECTORS.assign(band="b2", tilt_deg=6.0)]).to_csv(path, index=False)
+    sites = site_frame(read_sectors(path))
     assert sites.to_dict("records") == [
-        {"cell": "c0", "node": "n0", "x": 0.0, "y": 0.0, "z": 25.0, "azimuth_deg": 0.0}
+        {"sector": "c0", "node": "n0", "x": 0.0, "y": 0.0, "z": 25.0, "azimuth_deg": 0.0}
     ]

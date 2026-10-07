@@ -4,7 +4,7 @@ One stage, a ``python -m`` entry point, reads the files ``simulation.input``
 names, whether the synthetic generator wrote them or real data supplies them:
 
 ``radio``
-    Reads the manifest and the cell table, places the transmitters, and
+    Reads the manifest and the sector table, places the transmitters, and
     ray-traces one clean radio map per band.
 
 The population moves over time; the map does not, and does not need to. Tilt
@@ -30,7 +30,7 @@ Supporting modules, each with one reason to change:
 ``seeds``
     The named random streams, each hashed from the one configured seed and its name.
 ``transmitter``
-    The transmitters built from the cell table.
+    The transmitters built from the sector table.
 
 Settings cross the config boundary as frozen dataclasses with ``from_config``
 constructors — the only places the key names of ``configs/simulation.yaml``

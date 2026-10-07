@@ -1,6 +1,6 @@
 # @package scenario
 # The synthetic-data generator: the grid, the UE population over time and the
-# node/cell layout drawn over the scene. Re-run `task simulation:scenario`
+# node/sector layout drawn over the scene. Re-run `task simulation:scenario`
 # after changing any block. It writes the files simulation.input names, which
 # nothing else regenerates; real data can stand in for them.
 
@@ -50,14 +50,14 @@ density:
   # Least distance between hotspot centres [m].
   min_hotspot_distance_m: 500.0
 
-# Multi-band cells on four nodes: a centre node and three around it at 120 deg.
+# Multi-band sectors on four nodes: a centre node and three around it at 120 deg.
 layout:
   # Inter-site distance, centre node to each corner node [m]; the corners are
   # sqrt(3) times this apart. 3GPP TR 38.901 Table 7.2-1 ISD: 500 m UMa, 1732 m RMa.
   node_spacing_m: 1000.0
-  # Cells per node, evenly spaced in azimuth.
-  cells_per_node: 3
-  # Azimuth of the first cell [deg].
+  # Sectors per node, evenly spaced in azimuth.
+  sectors_per_node: 3
+  # Azimuth of the first sector [deg].
   azimuth_offset_deg: 45.0
   # Mast height above ground [m]; TR 38.901 Table 7.2-1 h_BS is 25 m UMa, 35 m RMa.
   mast_height_m: 25.0
@@ -67,12 +67,12 @@ layout:
   clearance_radius_m: 20.0
   # Search radius for open ground near a node [m].
   snap_radius_m: 250.0
-  # Incumbent tilt of every cell, per band [deg].
+  # Incumbent tilt of every sector, per band [deg].
   default_tilt:
     b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 20.0]}
     b1800: {baseline_deg: 10.0, bounds_deg: [0.0, 20.0]}
     b700: {baseline_deg: 8.0, bounds_deg: [0.0, 20.0]}
-  # PRB limit of every cell, per band: N_RB at 15 kHz SCS (TS 38.101-1
+  # PRB limit of every sector, per band: N_RB at 15 kHz SCS (TS 38.101-1
   # Table 5.3.2-1). Keep in step with simulation.radio_map.bands.
   default_max_prb: {b2600: 216, b1800: 106, b700: 52}
 

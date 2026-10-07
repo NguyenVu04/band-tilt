@@ -42,17 +42,17 @@ def test_triangle_wider_than_the_scene_is_rejected():
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
-        ("cells_per_node", 0, "cells_per_node"),
+        ("sectors_per_node", 0, "sectors_per_node"),
         ("node_spacing_m", 0.0, "node_spacing_m"),
         ("snap_radius_m", -1.0, "snap_radius_m"),
         ("clearance_radius_m", -1.0, "clearance_radius_m"),
     ],
 )
 def test_a_layout_no_node_could_be_placed_under_is_rejected(field, value, match):
-    """A zero-cell or negative-radius layout fails at the config, not as an empty table."""
+    """A zero-sector or negative-radius layout fails at the config, not as an empty table."""
     good = dict(
         node_spacing_m=400.0,
-        cells_per_node=3,
+        sectors_per_node=3,
         azimuth_offset_deg=0.0,
         mast_height_m=25.0,
         min_free_fraction=0.9,

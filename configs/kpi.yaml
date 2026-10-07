@@ -7,10 +7,10 @@ hole_dbm: -120.0
 # Upper bound of weak coverage; the lower bound is hole_dbm [dBm].
 weak_dbm: -90.0
 
-# A co-band cell within this margin of the strongest one overlaps it [dB].
+# A co-band sector within this margin of the strongest one overlaps it [dB].
 overlap_margin_db: 6.0
 
 # Serving-cell choice and estimated throughput (src/kpi/capacity.py).
 capacity:
-  # Share of max_prb shared equally among a cell-band's UEs.
+  # Share of max_prb shared equally among a sector-band's UEs.
   max_admission_utilisation: 0.8

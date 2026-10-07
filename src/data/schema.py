@@ -1,7 +1,7 @@
 """Check the UE table, manifest and radio map against the contract before anything reads them.
 
 Every check names the source of the bound it enforces: ``configs/simulation.yaml``,
-the scenario manifest, the cell table, the UE table's contract
+the scenario manifest, the sector table, the UE table's contract
 (:mod:`src.core.ue`), or the radio map itself. A bound with no nameable source
 is a statistical threshold and does not belong in this contract.
 
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell, read_cells
+from src.core.sector import Sector, read_sectors
 from src.core.ue import OPTIONAL_UE_COLUMNS, UE_COLUMNS
 from src.data.load import Artifacts
 from src.simulation.radio import baseline_tilts
@@ -24,7 +24,7 @@ _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
 _MAP = "radio_map.npz"
 _UE = "ue_positions.csv"
-_CELLS = "cells.csv"
+_SECTORS = "sectors.csv"
 
 # The manifest keys any producer must supply, synthetic or measured.
 _GRID_KEYS = ("origin_x", "origin_y", "tile_size_m", "n_cols", "n_rows")
@@ -58,7 +58,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     """Run every check and report the outcome, one row each.
 
     Structural checks (manifest keys, UE columns and dtypes, a non-empty UE
-    table, a readable cell table) run first. When one fails, the checks that
+    table, a readable sector table) run first. When one fails, the checks that
     would index into the broken structure are skipped rather than crashing, so
     the table always lists what is wrong.
 
@@ -66,7 +66,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         artifacts: The loaded artifacts, as read.
         cfg: Composed config; reads ``simulation.ue.height_m``,
             ``simulation.antenna.power_rs``, ``simulation.radio_map.bands`` and
-            ``simulation.input.cells_file``.
+            ``simulation.input.sectors_file``.
 
     Returns:
         A frame of ``check``, ``source``, ``holds`` and ``violations``. Never
@@ -113,13 +113,13 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     record(
         "npz carries the arrays the contract reads", _MAP, not missing_arrays, len(missing_arrays)
     )
-    cells: tuple[Cell, ...] = ()
-    cell_source = _CELLS
+    sectors: tuple[Sector, ...] = ()
+    sector_source = _SECTORS
     try:
-        cells = read_cells(cfg.simulation.input.cells_file)
+        sectors = read_sectors(cfg.simulation.input.sectors_file)
     except (FileNotFoundError, ValueError) as error:
-        cell_source = f"{_CELLS}: {error}"
-    record("cell table reads", cell_source, bool(cells))
+        sector_source = f"{_SECTORS}: {error}"
+    record("sector table reads", sector_source, bool(sectors))
     if not all(holds for _, _, holds, _ in checks):
         return table()
 
@@ -133,9 +133,9 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
 
     # Do the files describe the same run?
     record(
-        "npz tx_name matches the cell table",
-        _CELLS,
-        artifacts.tx_names == [cell.name for cell in cells],
+        "npz tx_name matches the sector table",
+        _SECTORS,
+        artifacts.tx_names == [sector.name for sector in sectors],
     )
     record(
         "npz band_label matches the configured bands",
@@ -237,16 +237,16 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     # Positions are continuous draws, so a repeated row is a writer fault.
     record("no duplicate rows", _UE, *_count(ue.duplicated().to_numpy()))
 
-    # The cell table the map was solved at.
+    # The sector table the map was solved at.
     tilts_match = False
-    if "tilt_deg" in artifacts.radio and artifacts.tx_names == [cell.name for cell in cells]:
+    if "tilt_deg" in artifacts.radio and artifacts.tx_names == [sector.name for sector in sectors]:
         tilt_deg = np.asarray(artifacts.radio["tilt_deg"], dtype=np.float64)
         try:
-            configured = baseline_tilts(cells, artifacts.band_labels)
+            configured = baseline_tilts(sectors, artifacts.band_labels)
         except KeyError:
             configured = np.empty(0)
         tilts_match = tilt_deg.shape == configured.shape and bool(np.allclose(tilt_deg, configured))
-    record("npz tilt_deg equals the cell table's baseline tilts", _CELLS, tilts_match)
+    record("npz tilt_deg equals the sector table's baseline tilts", _SECTORS, tilts_match)
 
     return table()
 

@@ -47,7 +47,7 @@ def _kpi(**overrides: float) -> KpiVector:
 
 
 def _share(*relative_db: float) -> float:
-    """The strongest cell's power share, rivals given in dB relative to it."""
+    """The strongest sector's power share, rivals given in dB relative to it."""
     return 1.0 / (1.0 + sum(10.0 ** (db / 10.0) for db in relative_db))
 
 
@@ -114,13 +114,13 @@ def test_from_mapping_names_a_missing_measure() -> None:
 # these fixtures isolate the share. Strength has its own tests further on.
 
 
-def test_one_dominant_cell_scores_the_maximum(cfg) -> None:
+def test_one_dominant_sector_scores_the_maximum(cfg) -> None:
     """The whole point of the objective: exactly one strong server is worth 1.0."""
     assert _score(_map([[-90.0, -130.0]]), cfg) == pytest.approx(1.0)
 
 
 def test_an_equal_rival_halves_the_band(cfg) -> None:
-    """Two cells at the same power each hold half of it."""
+    """Two sectors at the same power each hold half of it."""
     assert _score(_map([[-80.0, -80.0]]), cfg) == pytest.approx(0.5)
 
 
@@ -133,7 +133,7 @@ def test_a_rival_costs_in_proportion_to_its_power(cfg) -> None:
     assert near < far < 1.0
 
 
-def test_a_third_cell_costs_more_than_the_second(cfg) -> None:
+def test_a_third_sector_costs_more_than_the_second(cfg) -> None:
     """The utility keeps falling, so the search never trades one crowd for a worse one."""
     two = _score(_map([[-80.0, -84.0, -130.0]]), cfg)
     three = _score(_map([[-80.0, -84.0, -85.0]]), cfg)
@@ -176,7 +176,7 @@ def test_a_no_path_tile_scores_zero(cfg) -> None:
 
 
 def test_the_objective_is_bounded_by_one(cfg) -> None:
-    """Every tile served strongly by exactly one cell is the best a map can do."""
+    """Every tile served strongly by exactly one sector is the best a map can do."""
     rsrp = np.array([[[[-90.0, -85.0], [-88.0, -80.0]]]], dtype=float)
     rsrp = np.concatenate([rsrp, np.full_like(rsrp, -130.0)], axis=1)
     assert _score(rsrp, cfg) == pytest.approx(1.0)

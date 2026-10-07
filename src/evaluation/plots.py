@@ -33,10 +33,10 @@ COLOURS = {
 }
 
 
-def _overlay(axis: plt.Axes, cells: pd.DataFrame | None, hotspots: pd.DataFrame | None) -> None:
+def _overlay(axis: plt.Axes, sectors: pd.DataFrame | None, hotspots: pd.DataFrame | None) -> None:
     """Mark the nodes (crimson triangles) and demand hotspot centres (black crosses)."""
-    if cells is not None and len(cells):
-        axis.scatter(cells["x"], cells["y"], marker="^", s=45, color="crimson", zorder=3)
+    if sectors is not None and len(sectors):
+        axis.scatter(sectors["x"], sectors["y"], marker="^", s=45, color="crimson", zorder=3)
     if hotspots is not None and len(hotspots):
         axis.scatter(hotspots["x"], hotspots["y"], marker="x", s=70, color="black", zorder=4)
 
@@ -48,7 +48,7 @@ def class_map(
     colours: Sequence[str],
     title: str,
     extent: list[float],
-    cells: pd.DataFrame | None = None,
+    sectors: pd.DataFrame | None = None,
 ) -> None:
     """Draw a categorical raster with a legend; ``values`` index ``names``, ``-1`` for none."""
     axis.imshow(
@@ -60,7 +60,7 @@ def class_map(
         vmax=len(names) - 0.5,
         interpolation="nearest",
     )
-    _overlay(axis, cells, None)
+    _overlay(axis, sectors, None)
     handles = [plt.Rectangle((0, 0), 1, 1, color=colour) for colour in colours]
     axis.legend(handles, names, loc="lower left", fontsize=8, frameon=True)
     axis.set(title=title, xlabel="x [m]", ylabel="y [m]")
@@ -82,7 +82,7 @@ def coverage_maps(
     radio: dict[str, Any],
     cfg: DictConfig,
     *,
-    cells: pd.DataFrame | None = None,
+    sectors: pd.DataFrame | None = None,
     name: str = "optimized",
     band: str | None = None,
 ) -> Figure:
@@ -96,7 +96,7 @@ def coverage_maps(
         after: Best-server RSRP of the other configuration.
         radio: Any radio-map archive, for the grid extent.
         cfg: Composed config; reads ``kpi.hole_dbm``.
-        cells: Optional cell table with ``x`` and ``y``.
+        sectors: Optional sector table with ``x`` and ``y``.
         name: Key of the second configuration, for its title.
         band: The band both rasters were read on, for the title.
     """
@@ -113,7 +113,7 @@ def coverage_maps(
             vmax=maps.RSRP_LIMITS[1],
         )
         figure.colorbar(image, ax=axis, label="Best-server RSRP [dBm]")
-        _overlay(axis, cells, None)
+        _overlay(axis, sectors, None)
         _map_axes(axis, extent, label(key))
 
     change = maps.change_mask(before, after, cfg)
@@ -122,7 +122,7 @@ def coverage_maps(
     )
     bar = figure.colorbar(image, ax=axes[2], ticks=[-1, 0, 1])
     bar.ax.set_yticklabels(["Hole opened", "Unchanged", "Hole closed"])
-    _overlay(axes[2], cells, None)
+    _overlay(axes[2], sectors, None)
     _map_axes(
         axes[2],
         extent,
@@ -139,7 +139,7 @@ def demand_signal_maps(
     radio: dict[str, Any],
     cfg: DictConfig,
     *,
-    cells: pd.DataFrame | None = None,
+    sectors: pd.DataFrame | None = None,
     hotspots: pd.DataFrame | None = None,
     quantile: float = 0.75,
 ) -> Figure:
@@ -162,7 +162,7 @@ def demand_signal_maps(
         else None,
     )
     figure.colorbar(image, ax=axes[0], label="UE reports (log scale)")
-    _overlay(axes[0], cells, hotspots)
+    _overlay(axes[0], sectors, hotspots)
     _map_axes(axes[0], extent, "Traffic demand")
 
     image = axes[1].imshow(
@@ -173,7 +173,7 @@ def demand_signal_maps(
         vmax=maps.RSRP_LIMITS[1],
     )
     figure.colorbar(image, ax=axes[1], label="Best-server RSRP [dBm]")
-    _overlay(axes[1], cells, hotspots)
+    _overlay(axes[1], sectors, hotspots)
     _map_axes(axes[1], extent, "Signal strength")
 
     flagged = maps.underserved(rsrp, counts, cfg, quantile)
@@ -185,7 +185,7 @@ def demand_signal_maps(
         vmin=0,
         vmax=1,
     )
-    _overlay(axes[2], cells, hotspots)
+    _overlay(axes[2], sectors, hotspots)
     _map_axes(axes[2], extent, f"High demand without good coverage: {int(flagged.sum())} tiles")
     return figure
 
@@ -199,7 +199,7 @@ def map_row(
     vmax: float | None = None,
     symmetric: bool = False,
     cmap: Any = None,
-    cells: pd.DataFrame | None = None,
+    sectors: pd.DataFrame | None = None,
     hotspots: pd.DataFrame | None = None,
 ) -> Figure:
     """One raster per panel, side by side, on one colour scale.
@@ -213,7 +213,7 @@ def map_row(
         symmetric: Centre the scale on zero with a diverging colormap, for
             difference maps.
         cmap: Colormap; viridis, or ``RdBu_r`` when ``symmetric``.
-        cells: Optional cell table with ``x`` and ``y``.
+        sectors: Optional sector table with ``x`` and ``y``.
         hotspots: Optional hotspot table with ``x`` and ``y``.
     """
     extent = maps.extent_of(radio)
@@ -242,25 +242,25 @@ def map_row(
         image = axis.imshow(
             value, origin="lower", extent=extent, aspect="equal", vmin=vmin, vmax=vmax, cmap=cmap
         )
-        _overlay(axis, cells, hotspots)
+        _overlay(axis, sectors, hotspots)
         _map_axes(axis, extent, title)
     figure.colorbar(image, ax=axes[0].tolist(), label=colorbar_label)
     return figure
 
 
-def cell_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
-    """One value per cell-band as a cell-by-band grid, one panel per configuration.
+def sector_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
+    """One value per sector-band as a sector-by-band grid, one panel per configuration.
 
     Args:
-        tables: Configuration key to :func:`src.evaluation.compare.cell_band_load` output.
+        tables: Configuration key to :func:`src.evaluation.compare.sector_band_load` output.
         value: The column to draw; the colour scale is shared across panels.
     """
     first = next(iter(tables.values()))
-    cell_order = list(dict.fromkeys(first["cell"]))
+    sector_order = list(dict.fromkeys(first["sector"]))
     band_order = list(dict.fromkeys(first["band"]))
     grids = {
-        key: table.pivot(index="cell", columns="band", values=value)
-        .reindex(index=cell_order, columns=band_order)
+        key: table.pivot(index="sector", columns="band", values=value)
+        .reindex(index=sector_order, columns=band_order)
         .to_numpy(float)
         for key, table in tables.items()
     }
@@ -268,7 +268,7 @@ def cell_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
     figure, axes = plt.subplots(
         1,
         len(tables),
-        figsize=(1.3 * len(band_order) * len(tables) + 2.5, 0.3 * len(cell_order) + 1.8),
+        figsize=(1.3 * len(band_order) * len(tables) + 2.5, 0.3 * len(sector_order) + 1.8),
         constrained_layout=True,
         squeeze=False,
     )
@@ -276,13 +276,13 @@ def cell_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
     for index, (axis, (key, grid)) in enumerate(zip(axes[0], grids.items(), strict=True)):
         image = axis.imshow(grid, vmin=0.0, vmax=top, cmap="YlGnBu", aspect="auto")
         axis.grid(False)
-        for (row, col), cell_value in np.ndenumerate(grid):
-            axis.text(col, row, f"{cell_value:.3g}", ha="center", va="center", fontsize=7)
+        for (row, col), sector_value in np.ndenumerate(grid):
+            axis.text(col, row, f"{sector_value:.3g}", ha="center", va="center", fontsize=7)
         axis.set_xticks(range(len(band_order)), [label(band) for band in band_order])
-        axis.set_yticks(range(len(cell_order)), cell_order if index == 0 else [])
+        axis.set_yticks(range(len(sector_order)), sector_order if index == 0 else [])
         axis.set_title(label(key))
     figure.colorbar(image, ax=axes[0].tolist(), label=label(value))
-    figure.suptitle(f"{label(value)} per cell and frequency band")
+    figure.suptitle(f"{label(value)} per sector and frequency band")
     return figure
 
 
@@ -383,7 +383,7 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
 
 
 def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
-    """Where every cell-band ended up, and how far it moved.
+    """Where every sector-band ended up, and how far it moved.
 
     Args:
         best_tilt: A run's ``best_tilt`` table.
@@ -403,7 +403,7 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
     axes[0].set_title("Proposed against current tilt")
     axes[0].legend(fontsize=8, title="Band")
 
-    # Band in table order, then cell; a stable sort keeps the table's cell order.
+    # Band in table order, then sector; a stable sort keeps the table's sector order.
     bands = list(dict.fromkeys(best_tilt["band"]))
     order = best_tilt.sort_values("band", key=lambda s: s.map(bands.index), kind="stable")
     axes[1].barh(
@@ -413,13 +413,16 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
     )
     axes[1].set_yticks(
         range(len(order)),
-        [f"{cell} {label(band)}" for cell, band in zip(order["cell"], order["band"], strict=True)],
+        [
+            f"{sector} {label(band)}"
+            for sector, band in zip(order["sector"], order["band"], strict=True)
+        ],
         fontsize=6,
     )
     axes[1].invert_yaxis()
     axes[1].axvline(0, color="0.4", lw=1)
     axes[1].set_xlabel("Tilt change [°] (negative: uptilt, positive: downtilt)")
-    axes[1].set_title("Tilt change per cell and band")
+    axes[1].set_title("Tilt change per sector and band")
     figure.suptitle(f"Recommended antenna tilt changes — {label(name)}")
     return figure
 
@@ -472,30 +475,30 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
 
 
 def tilt_delta_heatmap(best_tilt: pd.DataFrame, name: str) -> Figure:
-    """Tilt change per cell and band on one diverging scale.
+    """Tilt change per sector and band on one diverging scale.
 
     Args:
         best_tilt: A run's ``best_tilt`` table.
         name: Key of the configuration, for the title.
     """
-    table = best_tilt.astype({"cell": str, "band": str})
-    cells = list(dict.fromkeys(table["cell"]))
+    table = best_tilt.astype({"sector": str, "band": str})
+    sectors = list(dict.fromkeys(table["sector"]))
     bands = list(dict.fromkeys(table["band"]))
-    grid = table.pivot(index="cell", columns="band", values="delta_tilt_deg")
-    grid = grid.reindex(index=cells, columns=bands).to_numpy()
+    grid = table.pivot(index="sector", columns="band", values="delta_tilt_deg")
+    grid = grid.reindex(index=sectors, columns=bands).to_numpy()
     limit = float(np.nanmax(np.abs(grid))) or 1.0
 
     figure, axis = plt.subplots(
-        figsize=(1.6 * len(bands) + 2.5, 0.35 * len(cells) + 1.5), constrained_layout=True
+        figsize=(1.6 * len(bands) + 2.5, 0.35 * len(sectors) + 1.5), constrained_layout=True
     )
     image = axis.imshow(grid, cmap="RdBu_r", vmin=-limit, vmax=limit, aspect="auto")
     axis.grid(False)
     for (row, col), value in np.ndenumerate(grid):
         axis.text(col, row, f"{value:+.1f}", ha="center", va="center", fontsize=8)
     axis.set_xticks(range(len(bands)), [label(band) for band in bands])
-    axis.set_yticks(range(len(cells)), cells)
+    axis.set_yticks(range(len(sectors)), sectors)
     figure.colorbar(image, ax=axis, label="Tilt change [°] (negative: uptilt)")
-    axis.set_title(f"Tilt change per cell and band — {label(name)}")
+    axis.set_title(f"Tilt change per sector and band — {label(name)}")
     return figure
 
 
@@ -504,7 +507,7 @@ def coverage_class_maps(
     radio: dict[str, Any],
     cfg: DictConfig,
     *,
-    cells: pd.DataFrame | None = None,
+    sectors: pd.DataFrame | None = None,
 ) -> Figure:
     """Hole, weak and good coverage per configuration, on identical classes.
 
@@ -512,7 +515,7 @@ def coverage_class_maps(
         rasters: Configuration key to its radio map's ``rsrp_dbm``.
         radio: Any radio-map archive, for the grid extent.
         cfg: Composed config; reads ``kpi.hole_dbm`` and ``kpi.weak_dbm``.
-        cells: Optional cell table with ``x`` and ``y``.
+        sectors: Optional sector table with ``x`` and ``y``.
     """
     extent = maps.extent_of(radio)
     colours = ListedColormap(["black", "tab:orange", "tab:green"])
@@ -535,7 +538,7 @@ def coverage_class_maps(
             vmin=-0.5,
             vmax=2.5,
         )
-        _overlay(axis, cells, None)
+        _overlay(axis, sectors, None)
         _map_axes(
             axis,
             extent,

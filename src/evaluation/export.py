@@ -17,13 +17,13 @@ from src.utils.plotting import label
 # Beside reports/figures, and ignored by git the same way.
 TABLES_DIR = Path("reports/tables")
 
-# Columns whose values are keys too, so a band or KPI reads the same in a cell
+# Columns whose values are keys too, so a band or KPI reads the same in a sector
 # as in a header.
 _KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration")
 
 
 def readable(frame: pd.DataFrame) -> pd.DataFrame:
-    """A copy with display names for the columns and for key-valued cells."""
+    """A copy with display names for the columns and for key-valued sectors."""
     out = frame.copy()
     for column in _KEY_COLUMNS:
         if column in out.columns:

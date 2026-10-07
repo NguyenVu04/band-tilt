@@ -1,4 +1,4 @@
-"""Shared fixtures: the cell table the stages read from disk."""
+"""Shared fixtures: the sector table the stages read from disk."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from src.core.cell import Cell, cells_to_frame
+from src.core.sector import Sector, sectors_to_frame
 
 
-def write_cells(directory: Path, cells: Sequence[dict], name: str = "cells.csv") -> str:
-    """Write cells given as mappings to a cell table under ``directory``; returns its path."""
-    built = [Cell.from_config(OmegaConf.create(cell)) for cell in cells]
+def write_sectors(directory: Path, sectors: Sequence[dict], name: str = "sectors.csv") -> str:
+    """Write sectors given as mappings to a sector table under ``directory``; returns its path."""
+    built = [Sector.from_config(OmegaConf.create(sector)) for sector in sectors]
     path = Path(directory) / name
-    cells_to_frame(built).to_csv(path, index=False)
+    sectors_to_frame(built).to_csv(path, index=False)
     return str(path)

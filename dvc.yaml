@@ -4,7 +4,7 @@
 # `params` list only the settings that change a stage's output.
 
 stages:
-  # Synthetic data: scene raster, UE population and cell layout (notebook 00).
+  # Synthetic data: scene raster, UE population and sector layout (notebook 00).
   # It writes the simulation.input files; real data can replace this stage.
   simulation_scenario:
     cmd: python -m src.scenario.run
@@ -31,7 +31,7 @@ stages:
           - scene
     outs:
       - data/external/ue_positions.csv
-      - data/scenes/hanoi/cells.csv
+      - data/scenes/hanoi/sectors.csv
       - data/scenes/hanoi/scenario.json
       - data/scenes/hanoi/synthetic.json
 
@@ -44,11 +44,11 @@ stages:
       - src/simulation/seeds.py
       - src/simulation/transmitter.py
       - src/simulation/scene.py
-      - src/core/cell.py
+      - src/core/sector.py
       - data/scenes/hanoi/scene.xml
       - data/scenes/hanoi/mesh
       - data/scenes/hanoi/scenario.json
-      - data/scenes/hanoi/cells.csv
+      - data/scenes/hanoi/sectors.csv
     params:
       - configs/config.yaml:
           - seed
@@ -71,7 +71,7 @@ stages:
       - src/simulation/radio.py
       - src/core
       - data/external/ue_positions.csv
-      - data/scenes/hanoi/cells.csv
+      - data/scenes/hanoi/sectors.csv
       - data/scenes/hanoi/scenario.json
       - data/interim/radio_map.npz
     params:
@@ -102,11 +102,11 @@ stages:
       - src/simulation/transmitter.py
       - src/simulation/scene.py
       - src/simulation/seeds.py
-      - src/core/cell.py
+      - src/core/sector.py
       - data/scenes/hanoi/scene.xml
       - data/scenes/hanoi/mesh
       - data/scenes/hanoi/scenario.json
-      - data/scenes/hanoi/cells.csv
+      - data/scenes/hanoi/sectors.csv
       - data/processed/ue.parquet
     params:
       - configs/optim/base.yaml:

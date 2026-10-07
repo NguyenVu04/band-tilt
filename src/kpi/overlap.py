@@ -1,11 +1,11 @@
-"""Overlap: how often co-band cells crowd each other, and by how many.
+"""Overlap: how often co-band sectors crowd each other, and by how many.
 
 The overlap rule is CO-BAND: within one band, the strongest transmitter serves
 and the other transmitters on that same band are its neighbours. Two carriers of
-one cell are therefore never neighbours of each other.
+one sector are therefore never neighbours of each other.
 
 :func:`effective_coverage` prices the same co-band crowding smoothly, as the
-strongest cell's share of its band's received power, and takes the
+strongest sector's share of its band's received power, and takes the
 contraharmonic mean over bands. It is what the objective scores.
 """
 
@@ -50,9 +50,9 @@ def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
 def effective_coverage(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     """How well each tile is served, over its layers, in ``[0, 1]``.
 
-    Per band, the strongest cell ``s`` holds the share
+    Per band, the strongest sector ``s`` holds the share
     ``1 / (1 + sum_i 10^((R_i - R_s) / 10))`` of the band's received power, over
-    every other cell ``i`` on that band above ``cfg.kpi.hole_dbm``: 1 for a lone
+    every other sector ``i`` on that band above ``cfg.kpi.hole_dbm``: 1 for a lone
     server, 1/2 for two equal ones. That is scaled by how far ``R_s`` sits between
     ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``, so a server barely above the
     hole threshold scores near nothing and one at or above the weak threshold

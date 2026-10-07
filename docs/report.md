@@ -1,16 +1,16 @@
 # Multi-Band Tilt Coordination for Coverage-Efficient 5G/6G RAN
 
-*Band-tilt project report. Every number, table and figure below comes from the optimization runs of 2026-10-02 listed in Appendix A, read by notebooks `00_simulation` through `04_evaluation` as re-executed on 2026-10-03, and the configuration in `configs/`. Paths are relative to this file (`docs/`): generated tables and figures are under `../reports/`, run directories under `../outputs/`. RSRP, interference and noise are all per resource element: thermal noise is k·T over one 15 kHz subcarrier, not over the channel bandwidth. Twelve KPIs are recorded for every candidate; the evaluation reports eight over all bands and the coverage, overlap, RSRP and SINR measures per band ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)).*
+*Band-tilt project report. Every number, table and figure below comes from the optimization runs of 2026-10-06 listed in Appendix A, read by notebooks `00_simulation` through `04_evaluation` as re-executed on 2026-10-06, and the configuration in `configs/`. Paths are relative to this file (`docs/`): generated tables and figures are under `../reports/`, run directories under `../outputs/`. RSRP, interference and noise are all per resource element: thermal noise is k·T over one 15 kHz subcarrier, not over the channel bandwidth. Twelve KPIs are recorded for every candidate; the evaluation reports eight over all bands and the coverage, overlap, RSRP and SINR measures per band ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)).*
 
 ---
 
 ## Abstract
 
-This study asks whether a network-wide search over antenna tilts can improve coverage in a multi-band cell layout when every band on every cell is tuned jointly, not one band at a time.
+This study asks whether a network-wide search over antenna tilts can improve coverage in a multi-band sector layout when every band on every sector is tuned jointly, not one band at a time.
 
-The study area is a 6.2 × 6.5 km urban scene ray-traced with Sionna-RT. It holds four nodes on 25 m masts, with three sectors each (twelve cells), carrying three bands: 700, 1800 and 2600 MHz. That gives 36 absolute-tilt decision variables in [0°, 20°]. The starting tilts are one value per band: 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz. A week-long, time-varying population of 10,087 UE positions was drawn over the scene, and every UE counts, in the search and in the evaluation.
+The study area is a 6.2 × 6.5 km urban scene ray-traced with Sionna-RT. It holds four nodes on 25 m masts, with three sectors each (twelve in all), carrying three bands: 700, 1800 and 2600 MHz. That gives 36 absolute-tilt decision variables in [0°, 20°]. The starting tilts are one value per band: 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz. A week-long, time-varying population of 10,087 UE positions was drawn over the scene, and every UE counts, in the search and in the evaluation.
 
-Candidates were ray-traced and scored on one objective J ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)). Per tile, each band scores its strongest cell's share of the band's received power, scaled by how usable that cell's signal is. The tile then takes the *contraharmonic mean* of those band scores, so every covered layer counts in proportion to how well it serves. J lies in [0, 1], is 1 only when every covered band on every tile has one server at or above the weak threshold and no co-band rival above the hole threshold, and has no free parameters. Twelve KPIs were measured beside it, none of them weighted into it.
+Candidates were ray-traced and scored on one objective J ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)). Per tile, each band scores its strongest sector's share of the band's received power, scaled by how usable that sector's signal is. The tile then takes the *contraharmonic mean* of those band scores, so every covered layer counts in proportion to how well it serves. J lies in [0, 1], is 1 only when every covered band on every tile has one server at or above the weak threshold and no co-band rival above the hole threshold, and has no free parameters. Twelve KPIs were measured beside it, none of them weighted into it.
 
 Two searches started from the same current configuration with matched budgets of 145 evaluations and the same seed:
 - Sobol random search,
@@ -25,7 +25,7 @@ Both methods worsen the band-collapsed co-band overlap rate. TuRBO worsens it le
 Three findings shape how these should be read.
 - **TuRBO's KPI profile is one draw.** One seed, one run: the GPU ray tracer is reproducible only to round-off, and the GP fit can amplify that into different proposals. Its two runners-up sit within 0.0002 of the winner's J at overlap rates from 0.3350 to 0.3419 (Section 6.4).
 - **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.3). Nothing in the objective stops a search from buying J by switching a weak layer off. On this run's TuRBO winner, 77.2 % of tiles have such a band (Section 6.8). The pipeline does not compute it.
-- **The proposal is a large move.** Every one of the 36 cell-bands changes, by up to 11.9°, and two tilts sit within 0.15° of the box edges.
+- **The proposal is a large move.** Every one of the 36 sector-bands changes, by up to 11.9°, and two tilts sit within 0.15° of the box edges.
 
 **Caveats.** The results come from one scenario, one search seed per method, and a simplified capacity model. No configuration is recommended for deployment.
 
@@ -54,7 +54,7 @@ The result is a loop that is slow, expensive in field time, and blind to cross-b
 
 ### 1.2 What this study does
 
-It treats the tilts of every (cell, band) pair as one coordinated optimisation problem and evaluates it entirely in simulation. A ray tracer (Sionna-RT [1]) over real city geometry acts as a digital twin: it scores every proposed configuration on coverage, overlap, signal quality and the throughput the simulated UEs would get. Two searches are compared on the same objective and budget:
+It treats the tilts of every (sector, band) pair as one coordinated optimisation problem and evaluates it entirely in simulation. A ray tracer (Sionna-RT [1]) over real city geometry acts as a digital twin: it scores every proposed configuration on coverage, overlap, signal quality and the throughput the simulated UEs would get. Two searches are compared on the same objective and budget:
 - random search, as the model-free control,
 - trust-region Bayesian optimization (TuRBO [2]), which learns where to look.
 
@@ -62,14 +62,14 @@ It treats the tilts of every (cell, band) pair as one coordinated optimisation p
 
 **What you get from a run.** Not a single magic setting but a reviewable package:
 - A shortlist of measured configurations (`../reports/outputs/solutions_<method>.csv`): the current one, the recommendation and the runners-up, each with all twelve KPIs and its delta against today. Every number is a ray-traced measurement, not a model prediction.
-- The tilt change per cell and band (`tilt_change_<method>.csv`, Appendix C), which is the content of a RET change request.
-- A cell-impact table (Section 6.5) ranking which carriers gain or lose traffic, so you know where to look first after a change.
+- The tilt change per sector and band (`tilt_change_<method>.csv`, Appendix C), which is the content of a RET change request.
+- A sector-impact table (Section 6.5) ranking which carriers gain or lose traffic, so you know where to look first after a change.
 - The trade-offs made explicit: where the recommendation gains coverage, where it adds overlap, which layer the traffic moves to.
 
 **What it changes in your work.**
-- **From trial-and-error to choosing between measured options.** On this scenario, 145 ray-traced candidates took 11 to 13 minutes on a laptop GPU. The equivalent field loop is one change, then days of counters, per sector.
+- **From trial-and-error to choosing between measured options.** On this scenario, 145 ray-traced candidates took 10 to 13 minutes on a laptop GPU. The equivalent field loop is one change, then days of counters, per sector.
 - **From band-by-band to layer-aware decisions.** The search found that the best configuration widens most carriers but pulls one or two layers in on six sectors, handing that sector's near area to one band and its reach to another (Section 6.6). That pattern is hard to reach one ticket at a time.
-- **From reacting to complaints to planning a rollout.** The cell-impact table says which carriers to watch, and the shortlist offers near-equivalent alternatives when a proposed tilt is mechanically or operationally unacceptable.
+- **From reacting to complaints to planning a rollout.** The sector-impact table says which carriers to watch, and the shortlist offers near-equivalent alternatives when a proposed tilt is mechanically or operationally unacceptable.
 
 **What stays your job.** The study does not replace engineering judgement, and Section 6.8 lists why:
 - **Field validation.** One simulated city is not your network. Results are uncalibrated against drive tests, and nothing has been tested on a held-out scenario.
@@ -81,22 +81,22 @@ The value claimed here is therefore narrow and testable: **on one realistic scen
 
 ## 2. Problem Definition
 
-**Operational statement.** Given a multi-band site layout and its current tilts, propose new electrical tilts for every cell and band that close coverage holes and weak areas, keep co-band overlap under control, and raise the signal quality and throughput users get, while each band keeps the role its propagation suits. The proposal must come with its measured effect on every KPI and its tilt delta per antenna, so an engineer can review it before any RET change.
+**Operational statement.** Given a multi-band site layout and its current tilts, propose new electrical tilts for every sector and band that close coverage holes and weak areas, keep co-band overlap under control, and raise the signal quality and throughput users get, while each band keeps the role its propagation suits. The proposal must come with its measured effect on every KPI and its tilt delta per antenna, so an engineer can review it before any RET change.
 
 **Network.** The study area is a local city scene (`data/scenes/hanoi/scene.xml`), rasterised into a 326 × 310 grid of 20 m tiles: 6,200 × 6,520 m, or 101,060 tiles.
 - **Nodes.** Four nodes sit on the corners and centroid of an equilateral triangle with a 1,732 m side.
-- **Cells.** Each node has three sectors at azimuths 45°, 165° and 285°, on 25 m masts. The antenna is an 8 × 8 cross-polarised TR 38.901 panel with 4.85 dBm reference-signal power per resource element.
-- **Bands.** Every sector carries three bands, giving twelve cells and 36 cell-band pairs (Tables 1 and 2, Figure 1).
+- **Sectors.** Each node has three sectors at azimuths 45°, 165° and 285°, on 25 m masts. The antenna is an 8 × 8 cross-polarised TR 38.901 panel with 4.85 dBm reference-signal power per resource element.
+- **Bands.** Every sector carries three bands, giving twelve sectors and 36 sector-band pairs (Tables 1 and 2, Figure 1).
 
-**Decision variable.** For N = 12 cells and B = 3 bands, the optimizer chooses one absolute electrical tilt per pair:
+**Decision variable.** For N = 12 sectors and B = 3 bands, the optimizer chooses one absolute electrical tilt per pair:
 
 $$\boldsymbol{\theta} = [\theta_{1,1},\dots,\theta_{1,B},\dots,\theta_{N,B}] \in [0^\circ, 20^\circ]^{36}$$
 
-Results are reported as offsets from the current configuration: 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz for every cell (`../reports/tables/00_simulation/decision_variables.csv`). No step size or maximum change is imposed. Tilt movement is reported, not penalised.
+Results are reported as offsets from the current configuration: 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz for every sector (`../reports/tables/00_simulation/decision_variables.csv`). No step size or maximum change is imposed. Tilt movement is reported, not penalised.
 
 **Goal.** A configuration that:
 - reduces coverage holes, meaning tiles whose strongest layer is at or below −120 dBm;
-- reduces co-band overlap, meaning another cell of the same band within 6 dB of that band's strongest cell;
+- reduces co-band overlap, meaning another sector of the same band within 6 dB of that band's strongest sector;
 - fails fewer UEs and raises the throughput the served ones can expect;
 - preserves each band's physical role.
 
@@ -112,7 +112,7 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
 
 ![Study area](../reports/figures/00_simulation/study_area.png)
 
-*Figure 1. Study area: twelve cells on four nodes and a sample of UE positions over the scene. Source: `../reports/figures/00_simulation/study_area.png`.*
+*Figure 1. Study area: twelve sectors on four nodes and a sample of UE positions over the scene. Source: `../reports/figures/00_simulation/study_area.png`.*
 
 ![RSRP per band](../reports/figures/00_simulation/rsrp_per_band.png)
 
@@ -124,7 +124,7 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
 
 *Table 1. Frequency bands. The PRB limits are N_RB at 15 kHz SCS, TS 38.101-1 Table 5.3.2-1 [4]. Source: [`frequency_bands.csv`](../reports/tables/00_simulation/frequency_bands.csv).*
 
-| Band | Carrier [MHz] | Bandwidth [MHz] | PRB limit per cell |
+| Band | Carrier [MHz] | Bandwidth [MHz] | PRB limit per sector |
 |---|---:|---:|---:|
 | 2600 MHz | 2600 | 40 | 216 |
 | 1800 MHz | 1800 | 20 | 106 |
@@ -134,16 +134,16 @@ Results are reported as offsets from the current configuration: 12° on 2600 MHz
 
 | Property | Value |
 |---|---|
-| Scenario ID | `scn_d7899e238887de67` |
+| Scenario ID | `scn_b7b162aabf88a3ee` |
 | Grid | 326 × 310 tiles, 20 m (6,200 × 6,520 m) |
-| Nodes / cells / cell-band pairs | 4 / 12 / 36 |
+| Nodes / sectors / sector-band pairs | 4 / 12 / 36 |
 | Mast height | 25 m |
 | Current tilt (2600 / 1800 / 700 MHz) | 12° / 10° / 8° |
 | Time intervals | 672 × 15 min (7 days) |
 | UEs per interval | 10 to 20 |
 | Demand hotspots | 4, holding 70 % of UEs on average |
 | UE positions drawn | 10,087 |
-| UE positions with no path to any cell | 17.5 % |
+| UE positions with no path to any sector | 17.5 % |
 
 *Table 3. Coverage class by area and by demand at the current tilts. Source: [`coverage_by_area_and_demand.csv`](../reports/tables/01_eda/coverage_by_area_and_demand.csv).*
 
@@ -189,9 +189,9 @@ $$J = \frac{1}{|G|}\sum_{g\in G} \frac{\sum_b u_{bg}^2}{\sum_b u_{bg}},
 A tile scores 0 where no band covers it, that is, where $\sum_b u_{bg} = 0$.
 
 - **Every band is scored, and the tile takes the contraharmonic mean of the band scores.** Each band is weighted by its own score, so the result lies between the plain mean and the best band, and a band that does not cover the tile carries no weight. There is no band selection, and the objective reads no band order.
-- $s$ is band $b$'s strongest cell at tile $g$, and $i$ runs over every other cell **on band $b$ alone** above $T_{\text{cov}}$. The fraction is $s$'s share of the power the band delivers to the tile: 1 when it is alone, 1/2 with an equal rival. Every rival costs in proportion to its linear power, so there is no overlap margin and no step. It is co-band: nothing crosses the band axis.
+- $s$ is band $b$'s strongest sector at tile $g$, and $i$ runs over every other sector **on band $b$ alone** above $T_{\text{cov}}$. The fraction is $s$'s share of the power the band delivers to the tile: 1 when it is alone, 1/2 with an equal rival. Every rival costs in proportion to its linear power, so there is no overlap margin and no step. It is co-band: nothing crosses the band axis.
 - $u_{bg}$ is 0 where band $b$ does not cover the tile, which includes every tile the ray tracer found no path to.
-- $s_{bg}$ is how far that band's strongest cell sits between the hole and weak thresholds. A server at −90 dBm or better keeps all of its utility, one just out of a hole keeps almost none, and power beyond −90 dBm buys nothing.
+- $s_{bg}$ is how far that band's strongest sector sits between the hole and weak thresholds. A server at −90 dBm or better keeps all of its utility, one just out of a hole keeps almost none, and power beyond −90 dBm buys nothing.
 - $T_{\text{cov}}$ = `kpi.hole_dbm` = −120 dBm and $T_{\text{weak}}$ = `kpi.weak_dbm` = −90 dBm. Each physical quantity keeps one threshold, shared with the KPIs.
 
 In RAN terms, $u$ is a per-layer "dominance at usable level" score: a carrier that is the only strong server on its band where it serves scores 1, pilot pollution on that band costs in proportion to the polluters' power, and a server barely above the coverage threshold scores little.
@@ -212,7 +212,7 @@ Two equal rivals leave 0.333. It is exactly 1 only when the server is alone on t
 | 1, 1 | 1.000 |
 | 1, 0.1 | 0.918 |
 | 1, 0.799 (second band with a rival 6 dB down) | 0.911 |
-| 1, 0.5 (second band shared by two equal cells) | 0.833 |
+| 1, 0.5 (second band shared by two equal sectors) | 0.833 |
 | 1, 0.333 (second band at −110 dBm) | 0.833 |
 | 0.5 | 0.500 |
 
@@ -220,18 +220,18 @@ A second layer lowers a tile only by scoring below the first. The cost is larges
 
 **The consequence: J is not monotone in the layers present.** Removing band $b$ from a tile raises the tile's score whenever $0 < u_{bg} <$ the tile's score. So darkening a weak layer can raise J, which a maximum over bands would rule out by construction. Section 6.8 measures how much of the grid this touches on this run's TuRBO winner; the pipeline does not compute it.
 
-**The exchange rate this implies.** Splitting a clean, strong, single-band tile evenly between two cells costs 0.5; a rival 6 dB down costs 0.201, and one 20 dB down 0.010. Closing a hole looks as if it should gain the full 1.000, but it cannot. A tile that has just crossed $T_{\text{cov}}$ sits near −120 dBm, where $s \approx 0$. At −119 dBm a newly covered tile is worth 0.033, and at −110 dBm, 0.333. So one strong tile split evenly between two cells costs more than a hole closed at −110 dBm gains.
+**The exchange rate this implies.** Splitting a clean, strong, single-band tile evenly between two sectors costs 0.5; a rival 6 dB down costs 0.201, and one 20 dB down 0.010. Closing a hole looks as if it should gain the full 1.000, but it cannot. A tile that has just crossed $T_{\text{cov}}$ sits near −120 dBm, where $s \approx 0$. At −119 dBm a newly covered tile is worth 0.033, and at −110 dBm, 0.333. So one strong tile split evenly between two sectors costs more than a hole closed at −110 dBm gains.
 
 J is therefore primarily a *signal-strength and cleanliness* measure that treats hole-closing as a minor bonus. Over random search's 144 Sobol candidates, signed so that a positive value means J and the KPI improve together, J tracks cell-edge RSRP (Spearman 0.90), the weak rate, median RSRP and the hole rate (0.86 each) most closely. It tracks the UE service failure rate (0.57), the overlap rate (0.50) and overlap neighbours (0.44) moderately, median SINR (0.29) and median, mean and cell-edge throughput (0.25, 0.15 and 0.11) loosely, and cell-edge SINR (−0.02) not at all. The pipeline does not produce these correlations; they were computed for this report from random search's history (`../outputs/optim/random/2026-10-02_09-59-04/history.parquet`).
 
 
 **Why not a preferred band or the best band.** Scoring the most preferred band that clears $T_{\text{cov}}$ would let a tilt raise J by dropping a crowded preferred layer below the threshold. Scoring the best band closes that, but prices nothing on a tile's other layers, so a crowded layer costs nothing wherever another layer is clean. The contraharmonic mean prices every covered layer, and it pays for that with monotonicity.
 
-**What it does not read.** Cell load, where UEs stand, and inter-band interference. That last one is a real gap. The power share is co-band, the reported overlap rate merely sums the three per-band counts, and J does not read SINR. The mean does lower a tile for a weak or crowded second layer, but it does so whether or not that layer interferes with the first. The objective has **no free parameters**: it reads two KPI thresholds, both of which the reported KPIs already define.
+**What it does not read.** Sector load, where UEs stand, and inter-band interference. That last one is a real gap. The power share is co-band, the reported overlap rate merely sums the three per-band counts, and J does not read SINR. The mean does lower a tile for a weak or crowded second layer, but it does so whether or not that layer interferes with the first. The objective has **no free parameters**: it reads two KPI thresholds, both of which the reported KPIs already define.
 
 **Nothing is weighted by demand.** Every tile counts equally. A hole where nobody stands costs exactly what a hole in a hotspot costs. Where the traffic stands is still reported, in Table 7b, but nothing optimises it.
 
-**The serving rule** (`src/kpi/capacity.py`) decides which UEs a cell-band serves. Within an interval UEs connect one at a time, each to the cell-band above −120 dBm where an equal share of 0.8 of its `max_prb`, split over the UEs already there and itself, carries the most Shannon throughput. Nobody is refused. It drives the estimated-throughput KPIs and every per-cell-band table; J does not read it.
+**The serving rule** (`src/kpi/capacity.py`) decides which UEs a sector-band serves. Within an interval UEs connect one at a time, each to the sector-band above −120 dBm where an equal share of 0.8 of its `max_prb`, split over the UEs already there and itself, carries the most Shannon throughput. Nobody is refused. It drives the estimated-throughput KPIs and every per-sector-band table; J does not read it.
 
 ## 4. Criteria for Assessing Solutions
 
@@ -240,19 +240,19 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
 1. **Overall quality.** The winner's J, as a change from the current configuration.
 2. **Reported KPIs.** The direction of change against the current configuration, over the eight network KPIs (`NETWORK_KPIS` in `src/evaluation/compare.py`):
    - coverage hole rate ↓, weak-coverage rate ↓, co-band overlap rate ↓, overlapping neighbours per covered tile ↓
-   - UE service failure rate ↓ (share of all UE rows with no cell-band above −120 dBm)
-   - cell-edge, median and mean estimated UE throughput ↑ (5th and 50th percentiles and mean over the served UE rows, at each cell-band's equal PRB share once the interval's last UE has connected)
+   - UE service failure rate ↓ (share of all UE rows with no sector-band above −120 dBm)
+   - cell-edge, median and mean estimated UE throughput ↑ (5th and 50th percentiles and mean over the served UE rows, at each sector-band's equal PRB share once the interval's last UE has connected)
 
    Per band, the hole, weak and overlap rates and the cell-edge and median RSRP and SINR ↑ (5th and 50th percentiles over the band's covered tiles) are reported for every layer. Best-server RSRP and SINR are per band only: the strongest layer across bands is not one any UE is measured on, so their all-band values are recorded with every candidate but not reported.
 
-   A change is labelled better, worse, unchanged, or undefined when the delta is not a number (`src/evaluation/compare.py`). Solver noise per KPI has not been measured, so no tie band is applied. None of the KPIs is weighted into J, so agreement between J and the KPIs is a finding, not a construction. PRB load is not reported: every cell-band with a UE uses its whole usable pool by construction ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)).
+   A change is labelled better, worse, unchanged, or undefined when the delta is not a number (`src/evaluation/compare.py`). Solver noise per KPI has not been measured, so no tie band is applied. None of the KPIs is weighted into J, so agreement between J and the KPIs is a finding, not a construction. PRB load is not reported: every sector-band with a UE uses its whole usable pool by construction ([ADR 0002](adr/0002-contraharmonic-objective-and-kpi-set.md)).
 3. **Search effectiveness.** Whether the search itself earned the gain. Measured by the winner against the median candidate, sample efficiency, and TuRBO paired with random search on the same seed.
 4. **Robustness.** Where the configuration moves demand, not only area, and how it trades one KPI against another. Nothing in J reads demand, so this criterion is entirely a check on the objective rather than a reflection of it.
 5. **Cost.** Ray-tracing evaluations, ray-tracing minutes and wall-clock minutes per run.
 
 ## 5. Research Methodology
 
-**Data generation.** No operator data was available. All data was produced synthetically by the generator (`notebooks/00_simulation.ipynb`, `src/scenario/`), which writes the files `simulation.input` names: the UE table, the cell table and the manifest. The radio stage (`src/simulation/`) and everything after it read only those files, so real data can replace the generator.
+**Data generation.** No operator data was available. All data was produced synthetically by the generator (`notebooks/00_simulation.ipynb`, `src/scenario/`), which writes the files `simulation.input` names: the UE table, the sector table and the manifest. The radio stage (`src/simulation/`) and everything after it read only those files, so real data can replace the generator.
 
 1. **Scenario.** The scene was rasterised onto the 20 m grid, and a population of 10 to 20 UEs was drawn every 15 minutes for 7 days.
    - Each draw mixed four elliptical Gaussian hotspots with a uniform open-ground background. The hotspots sit where surrounding building volume is high, at least 500 m apart.
@@ -261,15 +261,15 @@ Criteria 1 and 2 decide effectiveness, criteria 3 and 4 decide whether the resul
 2. **Radio map.** Each band was ray-traced separately at 10⁷ rays per transmitter and maximum depth 8.
    - Line of sight, specular reflection and refraction were on; diffuse reflection and diffraction were off.
    - Materials were ITU-R P.2040 and frequency-static.
-   - The output was per-cell RSRP and SINR on the grid (`../reports/tables/00_simulation/propagation_parameters.csv`).
+   - The output was per-sector RSRP and SINR on the grid (`../reports/tables/00_simulation/propagation_parameters.csv`).
    - At 25 m masts, 2600 MHz reaches 88.1 % of tiles, 1800 MHz 87.8 % and 700 MHz 91.1 % (`../reports/tables/00_simulation/reach_per_band.csv`).
 3. **Service.** Every UE row is served from the radio map at its tile, in the search and in the evaluation alike. No measurement noise, report censoring or position error is modelled.
 
-The 2026-10-03 re-execution regenerated the scenario and the baseline radio map from scratch. It reproduced the inputs the runs were searched on: the same scenario ID, byte-identical UE and cell tables, and the same baseline KPIs to GPU round-off (largest gap 4.4 × 10⁻⁶ Mbit/s, on median throughput).
+The 2026-10-06 re-execution regenerated the scenario and the baseline radio map from scratch and re-ran both searches, after deleting the earlier runs. It reproduced the previous execution (2026-10-05): the UE table is byte-identical (SHA-256), the baseline KPIs agree to GPU round-off (largest gap 4.6 × 10⁻⁶ Mbit/s, on median throughput), and both searches found the same winners, at evaluations 107 and 119, with the same tilts and the same KPIs and J to round-off. The scenario ID changed from `scn_d7899e238887de67` to `scn_b7b162aabf88a3ee` only because the layout key `cells_per_node` was renamed `sectors_per_node` and that key is part of the ID's hash; the scenario itself is unchanged.
 
 **Verification.** Before optimization, `notebooks/02_preprocessing.ipynb` checked the UE table, the manifest and the radio map against 25 contract checks, all of which held (`../reports/tables/02_preprocessing/verification_checks.csv`).
-- The checks cover the manifest's keys, the UE table's columns, integer and numeric dtypes and missing values, band and cell order, band carriers, scenario ID, grid, UE height, the SINR shape and its no-path pattern, tile and extent bounds, each UE's tile against its coordinates, the RSRP bound, the schedule, duplicate rows and baseline tilts.
-- The notebook then wrote the typed UE table without dropping or altering a row. The cell table is not copied: every stage reads it from the scene folder.
+- The checks cover the manifest's keys, the UE table's columns, integer and numeric dtypes and missing values, band and sector order, band carriers, scenario ID, grid, UE height, the SINR shape and its no-path pattern, tile and extent bounds, each UE's tile against its coordinates, the RSRP bound, the schedule, duplicate rows and baseline tilts.
+- The notebook then wrote the typed UE table without dropping or altering a row. The sector table is not copied: every stage reads it from the scene folder.
 - `notebooks/01_eda.ipynb` recorded data-quality measures and removed nothing.
 
 **Optimization runs.** Notebooks `03a_baseline` and `03b_turbo` ran each method once with search seed 42 (Appendix A).
@@ -283,23 +283,23 @@ The 2026-10-03 re-execution regenerated the scenario and the baseline radio map 
 2. Recomputes each archived winner's KPIs from its saved radio map, to confirm they were recorded correctly. The archived map is a second solve of the winning tilts at the same solver seed, stored as float32, so the check also bounds the GPU ray tracer's run-to-run noise.
 3. Builds the scoreboard against the current configuration.
 4. Compares each winner with the candidates its own search evaluated.
-5. Maps coverage, overlap, the serving-band mix, cell utilisation and tilt movement.
+5. Maps coverage, overlap, the serving-band mix, sector utilisation and tilt movement.
 6. Records cost and convergence.
 
 **Relevance, criteria and practicality.**
 - **Ray tracing over a statistical model.** Real city geometry was ray-traced rather than using a statistical path-loss model, because tilt changes act mainly through building shadowing and reflections, which a statistical model averages away.
 - **Budgets.** Random search and TuRBO had matched budgets and a shared initial design, so criterion 3 isolates the model's contribution.
-- **Seeds.** One seed per method kept the study within a single GPU session: ray tracing took 2.5 to 4.6 s per candidate (Table 11).
+- **Seeds.** One seed per method kept the study within a single GPU session: ray tracing took 2.4 to 3.2 s per candidate (Table 11).
 
 ## 6. Analysis and Interpretation
 
 ### 6.1 Comparability, correctness and repeatability
 
-All 23 comparability checks held (`../reports/tables/04_evaluation/comparability_checks.csv`). The KPIs recomputed from the archived radio maps (`kpi_reproducibility.csv`) match the recorded values to float round-off. Over all 24 recorded network measures, the largest absolute gap is 4.4 × 10⁻⁶ Mbit/s, on the current configuration's median throughput against the re-traced baseline, and **on every rate it is zero**. The differences discussed below therefore come from the configurations, not from bookkeeping.
+All 23 comparability checks held (`../reports/tables/04_evaluation/comparability_checks.csv`). The KPIs recomputed from the archived radio maps (`kpi_reproducibility.csv`) match the recorded values to float round-off. Over all 24 recorded network measures, the largest absolute gap is 2.7 × 10⁻⁶ Mbit/s, on the current configuration's median throughput against the re-traced baseline, and **on every rate it is zero**. The differences discussed below therefore come from the configurations, not from bookkeeping.
 
 **J is rounded before any search reads it.** The ray tracer's Monte-Carlo stream is seeded, but the GPU adds path contributions into a tile in a varying order, so the same tilts traced in two processes can differ in J's trailing digits. TuRBO's GP fit turns any such difference into a different proposal. `src/optim/objective.py` rounds J to 10⁻⁶, below the printed precision. Rounding makes a mismatch unlikely, not impossible.
 
-**The tilt box changed.** These runs search [0°, 20°] per cell-band. Earlier runs under [0°, 15°] (scenario `scn_7d938e15f9ac4618`) are a different scenario ID and are not comparable; they were deleted.
+**The tilt box changed.** These runs search [0°, 20°] per sector-band. Earlier runs under [0°, 15°] (scenario `scn_7d938e15f9ac4618`) are a different scenario ID and are not comparable; they were deleted.
 
 ### 6.2 Overall quality and reported KPIs
 
@@ -451,64 +451,64 @@ TuRBO has the lower overlap on each band, cutting 2600 MHz and 700 MHz most. The
 
 *Figure 10. Serving-band mix per configuration. Source: `../reports/figures/04_evaluation/serving_band_mix.png`.*
 
-![Cell-band throughput](../reports/figures/04_evaluation/cell_band_throughput.png)
+![Sector-band throughput](../reports/figures/04_evaluation/sector_band_throughput.png)
 
-*Figure 11. Median estimated throughput per cell-band, current and recommended. Source: `../reports/figures/04_evaluation/cell_band_throughput.png`.*
+*Figure 11. Median estimated throughput per sector-band, current and recommended. Source: `../reports/figures/04_evaluation/sector_band_throughput.png`.*
 
 **Service.** TuRBO fails 2,119 of 10,087 UE reports against 2,142 today; random search fails 2,145. Every failure stands on a hole tile, since the serving rule refuses nobody. Median served SINR rises on every band under TuRBO, by 3.2 to 5.5 dB; under random search it rises on 2600 MHz only.
 
-**Both methods move traffic off the capacity layer and onto 1800 MHz.** 2600 MHz falls from 52.9 % of UE reports to 47.5 % under TuRBO and 49.0 % under random search, and 1800 MHz rises from 14.2 % to 19.3 % and 19.0 %. Under TuRBO that spread comes with higher SINR on every layer, which is where its throughput gain comes from; under random search it does not. It shows in the cell-impact table (`../reports/tables/04_evaluation/cell_impact.csv`):
-- **Uptilted carriers pick up load:** n2c1's 2600 MHz carrier, uptilted 11.82°, goes from 717 to 1,175 served reports with 8.3 dB more median SINR and 9.7 Mbit/s more median throughput; n3c2's 1800 MHz carrier, uptilted 8.72°, from 136 to 525, with 11.9 dB more median SINR.
-- **Downtilted carriers shed it:** n3c2's 2600 MHz carrier, downtilted 4.67°, drops from 793 reports to 46, and n1c0's 2600 MHz carrier, downtilted 4.03°, from 512 to 118.
+**Both methods move traffic off the capacity layer and onto 1800 MHz.** 2600 MHz falls from 52.9 % of UE reports to 47.5 % under TuRBO and 49.0 % under random search, and 1800 MHz rises from 14.2 % to 19.3 % and 19.0 %. Under TuRBO that spread comes with higher SINR on every layer, which is where its throughput gain comes from; under random search it does not. It shows in the sector-impact table (`../reports/tables/04_evaluation/sector_impact.csv`):
+- **Uptilted carriers pick up load:** n2s1's 2600 MHz carrier, uptilted 11.82°, goes from 717 to 1,175 served reports with 8.3 dB more median SINR and 9.7 Mbit/s more median throughput; n3s2's 1800 MHz carrier, uptilted 8.72°, from 136 to 525, with 11.9 dB more median SINR.
+- **Downtilted carriers shed it:** n3s2's 2600 MHz carrier, downtilted 4.67°, drops from 793 reports to 46, and n1s0's 2600 MHz carrier, downtilted 4.03°, from 512 to 118.
 
 **Per band** (`../reports/tables/04_evaluation/band_layer_summary.csv`), under TuRBO:
 - **Area covered** rises on 2600 MHz, 71.2 % → 72.6 %, and 1800 MHz, 76.5 % → 77.6 %, and holds on 700 MHz at 86.1 %. The low band keeps its coverage-floor role.
 - **Mean RSRP where covered** improves on every layer: 2600 MHz −97.2 → −92.6 dBm, 1800 MHz −91.5 → −88.1 dBm, 700 MHz −84.2 → −82.6 dBm.
 - **Median served SINR** rises on every layer: 2600 MHz 10.0 → 15.5 dB, 1800 MHz 16.0 → 19.8 dB and 700 MHz 20.8 → 23.9 dB.
-- **Per-cell-band median throughput**, the median over a band's twelve carriers, rises on every layer: 2600 MHz 82.1 → 86.1 Mbit/s, 1800 MHz 69.8 → 84.5 and 700 MHz 46.6 → 52.2. The slowest carrier is now n0c2's 700 MHz at 24.5 Mbit/s, where today's slowest, n2c1's 700 MHz, runs at 20.6 Mbit/s (`cell_band_load.csv`).
+- **Per-sector-band median throughput**, the median over a band's twelve carriers, rises on every layer: 2600 MHz 82.1 → 86.1 Mbit/s, 1800 MHz 69.8 → 84.5 and 700 MHz 46.6 → 52.2. The slowest carrier is now n0s2's 700 MHz at 24.5 Mbit/s, where today's slowest, n2s1's 700 MHz, runs at 20.6 Mbit/s (`sector_band_load.csv`).
 
-About 21 % of UE reports remain unserved, all of them on hole tiles, and 17.5 % of UE positions have no path to any cell (Table 2). Tilt alone cannot serve them; that is a site or coverage decision.
+About 21 % of UE reports remain unserved, all of them on hole tiles, and 17.5 % of UE positions have no path to any sector (Table 2). Tilt alone cannot serve them; that is a site or coverage decision.
 
 ### 6.6 Recommended tilt changes
 
 ![Tilt change heatmap](../reports/figures/04_evaluation/tilt_delta_heatmap.png)
 
-*Figure 12. Tilt change per cell and band in the highest-J (TuRBO) configuration. Source: `../reports/figures/04_evaluation/tilt_delta_heatmap.png`.*
+*Figure 12. Tilt change per sector and band in the highest-J (TuRBO) configuration. Source: `../reports/figures/04_evaluation/tilt_delta_heatmap.png`.*
 
 *Table 10. Tilt movement for the highest-J configuration. Negative Δ is an uptilt. Source: [`tilt_movement_summary.csv`](../reports/tables/04_evaluation/tilt_movement_summary.csv).*
 
-| Band | Cells moved | Mean \|Δ\| [°] | Largest \|Δ\| [°] | Mean Δ [°] |
+| Band | Sectors moved | Mean \|Δ\| [°] | Largest \|Δ\| [°] | Mean Δ [°] |
 |---|---:|---:|---:|---:|
 | 2600 MHz | 12 / 12 | 8.34 | 11.82 | −4.75 |
 | 1800 MHz | 12 / 12 | 8.38 | 9.85 | −5.83 |
 | 700 MHz | 12 / 12 | 7.30 | 11.94 | −1.94 |
 
-Every one of the 36 cell-bands moved. The configuration is a net uptilt on every band, and the structure is the point:
+Every one of the 36 sector-bands moved. The configuration is a net uptilt on every band, and the structure is the point:
 - **Most carriers uptilt hard.** 27 of 36 are uptilted, 1800 MHz most. That widening is what lifts the weak rate and the RSRP percentiles.
 - **Nine of the 36 are downtilted, on six sectors.**
 
   | Sector | Downtilted carriers | Uptilted hard on the same sector |
   |---|---|---|
-  | n0c2 | 2600 MHz +5.26°, 700 MHz +11.94° | 1800 MHz −9.08° |
-  | n1c0 | 2600 MHz +4.03°, 700 MHz +8.82° | 1800 MHz −5.65° |
-  | n1c1 | 2600 MHz +7.60° | 1800 MHz −9.04° |
-  | n2c1 | 1800 MHz +5.83°, 700 MHz +11.36° | 2600 MHz −11.82° |
-  | n3c1 | 1800 MHz +9.49° | 2600 MHz −9.70° |
-  | n3c2 | 2600 MHz +4.67° | 1800 MHz −8.72° |
+  | n0s2 | 2600 MHz +5.26°, 700 MHz +11.94° | 1800 MHz −9.08° |
+  | n1s0 | 2600 MHz +4.03°, 700 MHz +8.82° | 1800 MHz −5.65° |
+  | n1s1 | 2600 MHz +7.60° | 1800 MHz −9.04° |
+  | n2s1 | 1800 MHz +5.83°, 700 MHz +11.36° | 2600 MHz −11.82° |
+  | n3s1 | 1800 MHz +9.49° | 2600 MHz −9.70° |
+  | n3s2 | 2600 MHz +4.67° | 1800 MHz −8.72° |
 
   On each of those sectors the search hands the near area to one layer and the reach to another, which is a layer-role decision a per-band procedure does not make. It is consistent with TuRBO having the lower overlap on every band (Table 7a) and with the load shift of Section 6.5.
-- **The box binds at both ends.** Proposed tilts span **0.15° to 19.94°**: n2c0's 1800 MHz carrier sits 0.15° from the 0° bound and n0c2's 700 MHz carrier 0.06° from the 20° bound. The largest single change is 11.94°, n0c2 on 700 MHz.
+- **The box binds at both ends.** Proposed tilts span **0.15° to 19.94°**: n2s0's 1800 MHz carrier sits 0.15° from the 0° bound and n0s2's 700 MHz carrier 0.06° from the 20° bound. The largest single change is 11.94°, n0s2 on 700 MHz.
 
-With one seed, it is not established which of TuRBO's per-cell differences matter and which reflect where the trust region happened to be when the budget ended.
+With one seed, it is not established which of TuRBO's per-sector differences matter and which reflect where the trust region happened to be when the budget ended.
 
-The largest traffic shifts under TuRBO (`../reports/tables/04_evaluation/cell_impact.csv`):
-- n3c2 on 2600 MHz, −747 served reports;
-- n2c1 on 2600 MHz, +458;
-- n1c0 on 2600 MHz, −394;
-- n3c2 on 1800 MHz, +389;
-- n1c1 on 2600 MHz, −246.
+The largest traffic shifts under TuRBO (`../reports/tables/04_evaluation/sector_impact.csv`):
+- n3s2 on 2600 MHz, −747 served reports;
+- n2s1 on 2600 MHz, +458;
+- n1s0 on 2600 MHz, −394;
+- n3s2 on 1800 MHz, +389;
+- n1s1 on 2600 MHz, −246.
 
-Those are the cells to watch after a rollout.
+Those are the sectors to watch after a rollout.
 
 ### 6.7 Cost
 
@@ -516,10 +516,10 @@ Those are the cells to watch after a rollout.
 
 | Method | Evaluations | Best found at | Ray tracing [min] | Wall clock [min] | Ray tracing per evaluation [s] | J gain | J gain per wall-clock minute |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Random search | 145 | 107 | 11.01 | 12.94 | 4.6 | +0.0202 | 0.0016 |
-| TuRBO | 145 | 119 | 5.93 | 11.10 | 2.5 | **+0.0491** | **0.0044** |
+| Random search | 145 | 107 | 7.79 | 9.53 | 3.2 | +0.0202 | 0.0021 |
+| TuRBO | 145 | 119 | 5.77 | 12.54 | 2.4 | **+0.0491** | **0.0039** |
 
-TuRBO's GP fitting and acquisition, which run on the CPU, added about 5.2 minutes of wall clock on top of its 5.9 minutes of ray tracing. Timings are only indicative: both runs traced the same scene on the same RTX 3050 Ti laptop GPU, yet random search's evaluations took 4.6 s against TuRBO's 2.5 s, so GPU state between runs varies more than the methods do.
+TuRBO's GP fitting and acquisition, which run on the CPU, added about 6.8 minutes of wall clock on top of its 5.8 minutes of ray tracing. Timings are only indicative: both runs traced the same scene on the same RTX 3050 Ti laptop GPU, yet random search's evaluations took 3.2 s against TuRBO's 2.4 s, so GPU state between runs varies more than the methods do.
 
 **TuRBO is the more cost-effective of the two by J per minute**, and it overtakes random search's final result within its first 34 evaluations.
 
@@ -531,7 +531,7 @@ These results should be read tentatively, for nine reasons:
 2. **One search seed per method.** No confidence interval or significance test could be computed. The TuRBO–random paired gain is +0.0289, resting on one pair.
 3. **Winner's curse, and TuRBO's sensitivity to J.**
    - Every candidate used the same ray-tracer seed, so the maximum of many candidates may favour configurations that benefit from that seed's Monte-Carlo noise. Solver noise is unmeasured.
-   - The GPU ray tracer is reproducible only to round-off, and the GP fit can amplify any difference in J into different proposals, so a rerun of seed 42 need not find the same winner. An earlier rerun under the previous bounds did not.
+   - The GPU ray tracer is reproducible only to round-off, and the GP fit can amplify any difference in J into different proposals, so a rerun of seed 42 need not find the same winner. An earlier rerun under the previous bounds did not; the reruns of 2026-10-05 and 2026-10-06 under the current bounds did, at the same evaluation (119) and the same J to six digits.
    - TuRBO's two runners-up sit within 0.0002 of the winner's J with overlap rates from 0.3350 to 0.3419, so any per-KPI claim about TuRBO's winner beyond J is one draw.
 4. **J is not monotone in the layers present.** A tile's score rises when it loses a covered band scoring below the tile's own score (Section 3.3).
    - On this run's TuRBO winner, 77.2 % of tiles have such a band. If each could keep only its best band, the ceiling on the gain would be 0.063, against the winner's whole improvement of 0.049.
@@ -541,8 +541,8 @@ These results should be read tentatively, for nine reasons:
    - Nothing in the objective stops a search from buying J by switching a weak layer off.
 5. **Inter-band interference is priced nowhere.** The power share is co-band by definition, the reported overlap rate merely sums the three per-band counts, and J does not read SINR. The contraharmonic mean does lower a tile for a weak second layer, but it does so whether or not that layer interferes. Fixing this needs an interference model, not a reweighting.
 6. **Nothing is weighted by demand.** A hole where nobody stands costs exactly what a hole in a hotspot costs. Table 7b is the only place demand appears.
-7. **The capacity model is a simplification.** It drives the estimated throughput and every per-cell-band figure. It uses a placeholder usable PRB share of 0.8, an equal share with no scheduler, a Shannon rate with no MCS cap, full-load co-band interference, and per-RE thermal noise with no receiver noise figure.
-8. **Tilts at both bounds, and no movement penalty.** The winner places one cell-band at 0.15° and another at 19.94°, and moves all 36 antennas, by up to 11.94°. A real RET range or a change-management policy may not allow either.
+7. **The capacity model is a simplification.** It drives the estimated throughput and every per-sector-band figure. It uses a placeholder usable PRB share of 0.8, an equal share with no scheduler, a Shannon rate with no MCS cap, full-load co-band interference, and per-RE thermal noise with no receiver noise figure.
+8. **Tilts at both bounds, and no movement penalty.** The winner places one sector-band at 0.15° and another at 19.94°, and moves all 36 antennas, by up to 11.94°. A real RET range or a change-management policy may not allow either.
 
 9. **No held-out validation.** Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer.
 
@@ -576,7 +576,7 @@ Running several search seeds, re-tracing the shortlisted configurations under ot
   - an objective that is not monotone in the layers present and does not price inter-band interference at all.
 
 **What this means for a RAN engineer today.**
-- Treat the output as a **ranked set of measured options**, not an instruction. The shortlist and the cell-impact table are the useful artefacts: they say what each option buys and where traffic will move.
+- Treat the output as a **ranked set of measured options**, not an instruction. The shortlist and the sector-impact table are the useful artefacts: they say what each option buys and where traffic will move.
 - **The direction is clearer than the exact values.** TuRBO's net uptilt on every band says the committed tilts are too steep for this layout, and its per-sector pattern (one layer near, one far) is the hypothesis to test first in the field, on one sector, before any network-wide change. Random search shows that an arbitrary change is more likely to hurt than help.
 - **Phase the change.** No movement penalty is applied, so the raw recommendation moves every antenna. Start from the sectors with the largest traffic shifts (Section 6.6) and validate with a drive test around the tiles where holes open.
 
@@ -602,12 +602,12 @@ The runs used the committed configuration in `configs/`:
 
 | Setting | Value |
 |---|---|
-| Scene | `data/scenes/hanoi/scene.xml` (not in Git), with the cell table `cells.csv`, the manifest `scenario.json` and the generator record `synthetic.json` beside it |
+| Scene | `data/scenes/hanoi/scene.xml` (not in Git), with the sector table `sectors.csv`, the manifest `scenario.json` and the generator record `synthetic.json` beside it |
 | Layout | 4 nodes, 1,732 m triangle plus centroid (1,000 m centre to corner), 3 sectors at 45° / 165° / 285°, 25 m masts |
-| Tilt | Current 12° (2600 MHz), 10° (1800 MHz), 8° (700 MHz); bounds [0°, 20°], every cell-band |
+| Tilt | Current 12° (2600 MHz), 10° (1800 MHz), 8° (700 MHz); bounds [0°, 20°], every sector-band |
 | KPI thresholds | `hole_dbm` −120, `weak_dbm` −90, `overlap_margin_db` 6; edge percentile 5 (`LOW_PERCENTILE` in `src/kpi/quality.py`, a code constant) |
 | Objective | co-band power share × strength per band, contraharmonic mean over bands; no parameters; reads `hole_dbm` and `weak_dbm`; rounded to 10⁻⁶ (ADR 0002) |
-| Capacity | max-throughput cell selection over an equal share of 0.8 × `max_prb`, candidates above −120 dBm, SCS 15 kHz, connection in report-time order |
+| Capacity | max-throughput sector selection over an equal share of 0.8 × `max_prb`, candidates above −120 dBm, SCS 15 kHz, connection in report-time order |
 | Noise | k·T·SCS per resource element at 298.15 K (`simulation.radio_map.bands[].scs_hz`), no receiver noise figure |
 | Search | seed 42 (`optim.seed`); TuRBO's restart and proposal seeds derived from it by `numpy.random.SeedSequence`; random and TuRBO 16 + 128; TuRBO batch 3, trust region 0.8 / 0.5⁷ / 1.6, success tolerance 3, failure tolerance 12, improvement 10⁻³, perturbed dimensions 5; 4 solutions published |
 
@@ -615,8 +615,8 @@ Runs used in this report:
 
 | Method | Run directory |
 |---|---|
-| Random search | `../outputs/optim/random/2026-10-02_09-59-04/` |
-| TuRBO | `../outputs/optim/turbo/2026-10-02_09-47-55/` |
+| Random search | `../outputs/optim/random/2026-10-06_03-48-41/` |
+| TuRBO | `../outputs/optim/turbo/2026-10-06_03-58-44/` |
 
 To reproduce, run notebooks `00` through `04` in order, or `task pipeline`; both call the same functions in `src/`. Notebooks 03a and 03b skip any method and seed that already has a run under `optim.output.dir` (`outputs/optim/`), so clear that directory first to re-search.
 
@@ -626,7 +626,7 @@ Every path a stage writes is configurable, so a trial run can be kept apart from
 
 ```text
 BAND_TILT_OVERRIDES="simulation.input.ue_file=outputs/smoke/data/ue_positions.csv
-  simulation.input.cells_file=outputs/smoke/data/cells.csv
+  simulation.input.sectors_file=outputs/smoke/data/sectors.csv
   simulation.input.manifest_file=outputs/smoke/data/scenario.json
   scenario.output.record_file=outputs/smoke/data/synthetic.json
   simulation.output.radio_map_file=outputs/smoke/data/radio_map.npz
@@ -643,34 +643,34 @@ The variable is one line, space-separated. The scene, ray-tracing fidelity and s
 | Stage | Tables (`../reports/tables/…`) | Figures (`../reports/figures/…`) |
 |---|---|---|
 | 00 simulation | `study_area`, `network_configuration`, `node_layout`, `frequency_bands`, `ue_distribution`, `propagation_parameters`, `reach_per_band`, `ue_measurement_summary`, `serving_band_mix`, `decision_variables`, `baseline_kpis`, `coverage_by_area_and_demand` | `study_area`, `traffic_model`, `rsrp_per_band`, `ue_rsrp_distribution`, `serving_band_map`, `coverage_and_overlap_maps` |
-| 01 EDA | `dataset_overview`, `ue_schema`, `missing_values`, `duplicates`, `schema_checks`, `physical_checks`, `band_representation`, `tilt_summary`, `rsrp_statistics`, `coverage_classes_per_band`, `serving_area_per_band`, `serving_band_mix`, `hole_summary`, `weak_by_band`, `overlap_per_band`, `overlap_neighbour_summary`, `cross_band_correlation`, `band_complementarity`, `hotspots`, `coverage_by_area_and_demand`, `signal_vs_ue_density`, `cell_band_configuration`, `kpi_summary`, `rsrp_outliers` | `rsrp_distribution`, `coverage_per_band`, `band_propagation`, `serving_maps`, `coverage_class_map`, `overlap_neighbours`, `cross_band_scatter`, `band_complementarity`, `ue_distribution`, `demand_vs_coverage`, `signal_vs_ue_density`, `cell_band_throughput`, `sinr_distribution` |
+| 01 EDA | `dataset_overview`, `ue_schema`, `missing_values`, `duplicates`, `schema_checks`, `physical_checks`, `band_representation`, `tilt_summary`, `rsrp_statistics`, `coverage_classes_per_band`, `serving_area_per_band`, `serving_band_mix`, `hole_summary`, `weak_by_band`, `overlap_per_band`, `overlap_neighbour_summary`, `cross_band_correlation`, `band_complementarity`, `hotspots`, `coverage_by_area_and_demand`, `signal_vs_ue_density`, `sector_band_configuration`, `kpi_summary`, `rsrp_outliers` | `rsrp_distribution`, `coverage_per_band`, `band_propagation`, `serving_maps`, `coverage_class_map`, `overlap_neighbours`, `cross_band_scatter`, `band_complementarity`, `ue_distribution`, `demand_vs_coverage`, `signal_vs_ue_density`, `sector_band_throughput`, `sinr_distribution` |
 | 02 preprocessing | `ue_overview`, `verification_checks`, `no_path_by_band`, `coverage_classes`, `overlap_neighbours`, `ue_weighted_indicators`, `baseline_kpis`, `optimizer_features`, `objective_decomposition`, `data_quality_summary` | `network_layout`, `rsrp_map`, `overlap_map`, `coverage_map`, `effective_coverage`, `serving_multiplicity` |
 | 03a baseline | `setup_network`, `setup_simulation`, `setup_users`, `baseline_configuration`, `initial_state`, `objective_parameters`, `best_tilt_random`, `tilt_movement_random`, `kpi_comparison_random`, `baseline_results`, `coverage_by_area_and_demand`, `overlap`, `ue_service_summary`, `band_kpis` | `search_progress`, `kpi_progress`, `tilt_movement_random`, `coverage_before_after_random`, `rsrp_change_maps`, `serving_band_mix`, `band_kpis` |
 | 03b TuRBO | `turbo_configuration`, `turbo_evaluations_by_proposer`, `best_tilt_turbo`, `tilt_movement_turbo`, `kpi_comparison_turbo`, `method_results`, `coverage_by_area_and_demand`, `overlap`, `ue_service_summary`, `band_kpis` | `search_progress`, `turbo_evaluations`, `tilt_movement_turbo`, `coverage_before_after_turbo`, `rsrp_change_maps`, `serving_band_mix`, `band_kpis` |
-| 04 evaluation | `comparability_checks`, `experiment_setup`, `kpi_scoreboard`, `kpi_relative_improvement`, `winner_vs_candidates`, `paired_gain_turbo_vs_random`, `candidates`, `kpi_reproducibility`, `coverage_by_area_and_demand`, `overlap_neighbour_summary`, `band_layer_summary`, `band_kpis`, `ue_service_summary`, `cell_band_load`, `cell_impact`, `recommended_tilt`, `tilt_movement_summary`, `method_cost`, `convergence`, `sample_efficiency` | `kpi_improvement`, `tradeoff_hole_rate_vs_overlap_rate`, `tradeoff_hole_rate_vs_ue_service_failure_rate`, `tradeoff_overlap_rate_vs_ue_service_failure_rate`, `rsrp_change_maps_<band>`, `coverage_before_after_<band>`, `coverage_class_maps`, `overlap_neighbour_maps`, `ue_throughput_maps`, `band_kpi_panels`, `serving_band_mix`, `cell_band_throughput`, `tilt_movement`, `tilt_delta_heatmap`, `search_progress` |
+| 04 evaluation | `comparability_checks`, `experiment_setup`, `kpi_scoreboard`, `kpi_relative_improvement`, `winner_vs_candidates`, `paired_gain_turbo_vs_random`, `candidates`, `kpi_reproducibility`, `coverage_by_area_and_demand`, `overlap_neighbour_summary`, `band_layer_summary`, `band_kpis`, `ue_service_summary`, `sector_band_load`, `sector_impact`, `recommended_tilt`, `tilt_movement_summary`, `method_cost`, `convergence`, `sample_efficiency` | `kpi_improvement`, `tradeoff_hole_rate_vs_overlap_rate`, `tradeoff_hole_rate_vs_ue_service_failure_rate`, `tradeoff_overlap_rate_vs_ue_service_failure_rate`, `rsrp_change_maps_<band>`, `coverage_before_after_<band>`, `coverage_class_maps`, `overlap_neighbour_maps`, `ue_throughput_maps`, `band_kpi_panels`, `serving_band_mix`, `sector_band_throughput`, `tilt_movement`, `tilt_delta_heatmap`, `search_progress` |
 
 Deliverables per method are in `../reports/outputs/`: `solutions_<method>.csv` (the shortlist with every measure and its delta), `tilt_options_<method>.csv`, and `tilt_change_<method>.csv` (the recommended row).
 
 ### Appendix C. Highest-J tilt configuration (TuRBO)
 
-*Source: [`recommended_tilt.csv`](../reports/tables/04_evaluation/recommended_tilt.csv); machine-readable form: [`tilt_change_turbo.csv`](../reports/outputs/tilt_change_turbo.csv). Current tilt is 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz for every cell; bounds are [0°, 20°]. Negative Δ is an uptilt.*
+*Source: [`recommended_tilt.csv`](../reports/tables/04_evaluation/recommended_tilt.csv); machine-readable form: [`tilt_change_turbo.csv`](../reports/outputs/tilt_change_turbo.csv). Current tilt is 12° on 2600 MHz, 10° on 1800 MHz and 8° on 700 MHz for every sector; bounds are [0°, 20°]. Negative Δ is an uptilt.*
 
-| Cell | 2600 MHz [°] (Δ) | 1800 MHz [°] (Δ) | 700 MHz [°] (Δ) |
+| Sector | 2600 MHz [°] (Δ) | 1800 MHz [°] (Δ) | 700 MHz [°] (Δ) |
 |---|---|---|---|
-| n0c0 | 2.25 (-9.75) | 0.35 (-9.65) | 0.66 (-7.34) |
-| n0c1 | 0.53 (-11.47) | 0.39 (-9.61) | 2.09 (-5.91) |
-| n0c2 | 17.26 (+5.26) | 0.92 (-9.08) | 19.94 (+11.94) |
-| n1c0 | 16.03 (+4.03) | 4.35 (-5.65) | 16.82 (+8.82) |
-| n1c1 | 19.60 (+7.60) | 0.96 (-9.04) | 2.66 (-5.34) |
-| n1c2 | 3.77 (-8.23) | 2.10 (-7.90) | 2.46 (-5.54) |
-| n2c0 | 0.56 (-11.44) | 0.15 (-9.85) | 1.68 (-6.32) |
-| n2c1 | 0.18 (-11.82) | 15.83 (+5.83) | 19.36 (+11.36) |
-| n2c2 | 1.00 (-11.00) | 0.67 (-9.33) | 0.34 (-7.66) |
-| n3c0 | 6.85 (-5.15) | 3.58 (-6.42) | 4.23 (-3.77) |
-| n3c1 | 2.30 (-9.70) | 19.49 (+9.49) | 1.20 (-6.80) |
-| n3c2 | 16.67 (+4.67) | 1.28 (-8.72) | 1.22 (-6.78) |
+| n0s0 | 2.25 (-9.75) | 0.35 (-9.65) | 0.66 (-7.34) |
+| n0s1 | 0.53 (-11.47) | 0.39 (-9.61) | 2.09 (-5.91) |
+| n0s2 | 17.26 (+5.26) | 0.92 (-9.08) | 19.94 (+11.94) |
+| n1s0 | 16.03 (+4.03) | 4.35 (-5.65) | 16.82 (+8.82) |
+| n1s1 | 19.60 (+7.60) | 0.96 (-9.04) | 2.66 (-5.34) |
+| n1s2 | 3.77 (-8.23) | 2.10 (-7.90) | 2.46 (-5.54) |
+| n2s0 | 0.56 (-11.44) | 0.15 (-9.85) | 1.68 (-6.32) |
+| n2s1 | 0.18 (-11.82) | 15.83 (+5.83) | 19.36 (+11.36) |
+| n2s2 | 1.00 (-11.00) | 0.67 (-9.33) | 0.34 (-7.66) |
+| n3s0 | 6.85 (-5.15) | 3.58 (-6.42) | 4.23 (-3.77) |
+| n3s1 | 2.30 (-9.70) | 19.49 (+9.49) | 1.20 (-6.80) |
+| n3s2 | 16.67 (+4.67) | 1.28 (-8.72) | 1.22 (-6.78) |
 
-Nine of the 36 cell-bands are downtilted: four on 2600 MHz, two on 1800 MHz and three on 700 MHz, on sectors n0c2, n1c0, n1c1, n2c1, n3c1 and n3c2.
+Nine of the 36 sector-bands are downtilted: four on 2600 MHz, two on 1800 MHz and three on 700 MHz, on sectors n0s2, n1s0, n1s1, n2s1, n3s1 and n3s2.
 
 
 ---

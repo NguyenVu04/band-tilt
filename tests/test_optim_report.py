@@ -21,9 +21,9 @@ from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
-from tests.conftest import write_cells
+from tests.conftest import write_sectors
 
-_CELLS = [
+_SECTORS = [
     {
         "name": f"c{index}",
         "x": float(index),
@@ -122,13 +122,13 @@ def cfg(tmp_path) -> DictConfig:
     config = OmegaConf.create(_CONFIG)
     config.optim.output.dir = str(tmp_path / "optim")
     config.optim.output.deliverable_dir = str(tmp_path / "deliverable")
-    config.simulation.input = {"cells_file": write_cells(tmp_path, _CELLS)}
+    config.simulation.input = {"sectors_file": write_sectors(tmp_path, _SECTORS)}
     return config
 
 
 @pytest.fixture
 def space(cfg) -> TiltSpace:
-    """The three-cell, two-band space the stub scores over."""
+    """The three-sector, two-band space the stub scores over."""
     return TiltSpace.from_config(cfg)
 
 
@@ -257,7 +257,7 @@ def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
     assert shortlist["recommended"].sum() == 1
     for name in MEASURE_NAMES:
         assert f"delta_{name}" in shortlist
-    # One tilt table per offered solution, each covering every cell-band pair.
+    # One tilt table per offered solution, each covering every sector-band pair.
     assert set(options["solution"]) == set(shortlist["solution"])
     assert len(options) == len(shortlist) * 6
 

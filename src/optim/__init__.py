@@ -1,7 +1,7 @@
 """Optimization over the absolute-tilt space.
 
 One decision vector, one objective, two ways of searching it. Every method
-here proposes a tilt for each cell-band pair, has it measured by
+here proposes a tilt for each sector-band pair, has it measured by
 :mod:`src.kpi` and scored by :mod:`src.optim.objective`, and writes the same
 artifacts, so a comparison between methods is a comparison of search
 strategies and nothing else.
@@ -10,7 +10,7 @@ Modules, each with one reason to change:
 
 ``space``
     The box an optimizer may move in, and the only place a vector becomes
-    :class:`src.core.cell.Cell` objects.
+    :class:`src.core.sector.Sector` objects.
 ``objective``
     The KPI vector, the sign convention, and the effective-coverage objective
     that picks one configuration.

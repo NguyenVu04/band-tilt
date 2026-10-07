@@ -134,7 +134,7 @@ def write_solution_options(
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
-    ``tilt_options_<method>.csv`` is one row per solution and cell-band, and is
+    ``tilt_options_<method>.csv`` is one row per solution and sector-band, and is
     what a chosen row turns into on the antennas.
 
     Returns:
@@ -226,7 +226,7 @@ class History:
         return best_by_objective(self.kpis)
 
     def tilt_table(self, tilt_deg: np.ndarray) -> pd.DataFrame:
-        """The deliverable: current, optimized and delta tilt per cell-band.
+        """The deliverable: current, optimized and delta tilt per sector-band.
 
         ``delta_tilt_deg`` is reported, never optimized. A penalty on antenna
         movement is an explicit non-goal, so nothing in the objective has seen

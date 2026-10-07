@@ -37,7 +37,7 @@ class Artifacts:
 
     @property
     def tx_names(self) -> list[str]:
-        """Cell names in the radio map's transmitter-axis order."""
+        """Sector names in the radio map's transmitter-axis order."""
         return [str(name) for name in self.radio["tx_name"]]
 
     @property

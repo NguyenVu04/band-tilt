@@ -21,7 +21,7 @@ _MAX_PARAM_LENGTH = 6000
 def _scalar_params(tree: Any, prefix: str = "") -> dict[str, Any]:
     """Flatten nested dicts to dotted keys, keeping scalar leaves only.
 
-    Lists (the cell layout, hotspots) are dropped: they are in ``config.yaml``
+    Lists (the sector layout, hotspots) are dropped: they are in ``config.yaml``
     whole, and as params they would exceed MLflow's value limit.
     """
     if isinstance(tree, Mapping):

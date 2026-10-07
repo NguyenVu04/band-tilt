@@ -1,6 +1,6 @@
-"""Generate a scenario's synthetic data: UEs over time, the cell layout, the manifest.
+"""Generate a scenario's synthetic data: UEs over time, the sector layout, the manifest.
 
-Writes the files ``simulation.input`` names (the UE table, the cell table and
+Writes the files ``simulation.input`` names (the UE table, the sector table and
 the manifest), which every later stage reads and real data can replace, plus
 ``scenario.output.record_file``, the generator's own record of what it drew.
 Layouts use open ground in the loaded scene and remain fixed per scenario.
@@ -53,7 +53,7 @@ def _resolved(node: Any) -> Any:
 
 
 def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
-    """Run the scenario stage. Returns ``(ue_file, cells_file, manifest_file, record_file)``.
+    """Run the scenario stage. Returns ``(ue_file, sectors_file, manifest_file, record_file)``.
 
     Raises:
         ValueError: As :func:`src.scenario.layout.generate_layout`.
@@ -88,7 +88,7 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
     # The layout is the step that can fail on config; draw everything before writing
     # so a failure leaves the previous scenario's files intact, and write the
     # manifest last because it is what marks the set complete.
-    cells = generate_layout(
+    sectors = generate_layout(
         scene.mi_scene,
         bounds,
         raster,
@@ -101,9 +101,9 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
     ue_file = sample.write_csv(
         Path(cfg.simulation.input.ue_file), interval, t_s, x, y, component, raster, ue
     )
-    cells_file = Path(cfg.simulation.input.cells_file)
-    cells_file.parent.mkdir(parents=True, exist_ok=True)
-    cells.to_csv(cells_file, index=False, float_format="%.3f")
+    sectors_file = Path(cfg.simulation.input.sectors_file)
+    sectors_file.parent.mkdir(parents=True, exist_ok=True)
+    sectors.to_csv(sectors_file, index=False, float_format="%.3f")
     record_file = _write_json(
         Path(cfg.scenario.output.record_file), _record(cfg, bounds, field, schedule, x)
     )
@@ -134,13 +134,13 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
         f"{sample.densest_decile_share(tile_col, tile_row, raster, eligible):.1%} of UEs"
     )
     print(
-        f"cells:    {cells['cell'].nunique()} over {cells['node'].nunique()} nodes, "
+        f"sectors:    {sectors['sector'].nunique()} over {sectors['node'].nunique()} nodes, "
         f"masts {layout.mast_height_m} m on tiles at least {layout.min_free_fraction:.0%} open"
     )
-    print(f"csv:      {ue_file}, {cells_file}")
+    print(f"csv:      {ue_file}, {sectors_file}")
     print(f"manifest: {manifest_file}")
     print(f"record:   {record_file}")
-    return ue_file, cells_file, manifest_file, record_file
+    return ue_file, sectors_file, manifest_file, record_file
 
 
 def _manifest(cfg: DictConfig, raster: grid.Raster, schedule: traffic.Schedule) -> dict[str, Any]:

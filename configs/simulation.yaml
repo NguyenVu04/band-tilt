@@ -3,7 +3,7 @@
 # arrays. The synthetic-data generator (configs/scenario.yaml) writes the inputs
 # below; real data can replace them without that generator.
 
-# Folder under data/scenes/ holding scene.xml, its mesh/, the cell table and the manifest.
+# Folder under data/scenes/ holding scene.xml, its mesh/, the sector table and the manifest.
 scene_name: hanoi
 
 # The files the radio stage, preprocessing and the search read.
@@ -12,8 +12,8 @@ input:
   scene_file: data/scenes/${simulation.scene_name}/scene.xml
   # One row per UE per interval (src/core/ue.py).
   ue_file: data/external/ue_positions.csv
-  # One row per cell-band (src/core/cell.py).
-  cells_file: data/scenes/${simulation.scene_name}/cells.csv
+  # One row per sector-band (src/core/sector.py).
+  sectors_file: data/scenes/${simulation.scene_name}/sectors.csv
   # Scenario id, grid and time schedule.
   manifest_file: data/scenes/${simulation.scene_name}/scenario.json
 

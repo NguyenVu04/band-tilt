@@ -16,7 +16,7 @@ from src.optim.objective import MEASURE_NAMES, KpiVector
 
 
 def _served() -> pd.DataFrame:
-    """Serve_intervals-shaped rows: two intervals, one report with no cell."""
+    """Serve_intervals-shaped rows: two intervals, one report with no sector."""
     return pd.DataFrame(
         {
             "t_index": [0, 0, 1, 1],
@@ -28,9 +28,11 @@ def _served() -> pd.DataFrame:
     )
 
 
-def test_cell_band_load_counts_ues_and_their_throughput_per_cell_band() -> None:
+def test_sector_band_load_counts_ues_and_their_throughput_per_sector_band() -> None:
     """Band 0 / tx 1 serves two UEs in interval 0; the unserved report loads nothing."""
-    load = compare.cell_band_load(_served(), ["hi", "lo"], ["c0", "c1"]).set_index(["cell", "band"])
+    load = compare.sector_band_load(_served(), ["hi", "lo"], ["c0", "c1"]).set_index(
+        ["sector", "band"]
+    )
     assert load.loc[("c1", "hi"), "served_reports"] == 2
     assert load.loc[("c1", "hi"), "peak_ues"] == 2
     assert load.loc[("c1", "hi"), "median_throughput_mbps"] == pytest.approx(5.0)
@@ -41,7 +43,7 @@ def test_cell_band_load_counts_ues_and_their_throughput_per_cell_band() -> None:
 
 
 def test_service_summary_counts_unserved_reports_as_not_served() -> None:
-    """One report of four has no cell; shares are of all reports."""
+    """One report of four has no sector; shares are of all reports."""
     summary = compare.service_summary(_served(), ["hi", "lo"])
     assert summary["not_served_share"] == pytest.approx(0.25)
     assert summary["share_hi"] == pytest.approx(0.5)
@@ -292,7 +294,7 @@ def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
 
 
 def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
-    """One band, three cells: tile 0 has two neighbours in margin, tile 1 is a hole."""
+    """One band, three sectors: tile 0 has two neighbours in margin, tile 1 is a hole."""
     rsrp = np.array([[[[-80.0, -130.0]], [[-82.0, -130.0]], [[-85.0, -130.0]]]])
     cfg = OmegaConf.create({"kpi": {"hole_dbm": -120.0, "overlap_margin_db": 6.0}})
     config = compare.Configuration(
@@ -354,7 +356,7 @@ def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
     assert table.loc["lo", "sinr_p50_db"] == pytest.approx(10.0)
     assert np.isnan(table.loc[compare.ALL_BANDS, "sinr_p50_db"])
     assert np.isnan(table.loc[compare.ALL_BANDS, "rsrp_p05_dbm"])
-    # One cell per band has no co-band neighbour; the count is network-wide only.
+    # One sector per band has no co-band neighbour; the count is network-wide only.
     assert table.loc[compare.ALL_BANDS, "overlap_neighbor_mean"] == pytest.approx(0.0)
     assert table.loc[["hi", "lo"], "overlap_neighbor_mean"].isna().all()
 

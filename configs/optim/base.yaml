@@ -1,5 +1,5 @@
 # @package optim
-# Tilt optimization: one absolute tilt per cell-band.
+# Tilt optimization: one absolute tilt per sector-band.
 
 output:
   # Run directories, as <dir>/<method>/<timestamp>.

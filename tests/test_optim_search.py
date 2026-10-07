@@ -21,9 +21,9 @@ from src.optim.history import History, LocalRunWriter, write_run, write_tilt_cha
 from src.optim.methods import run_search
 from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.space import TiltSpace
-from tests.conftest import write_cells
+from tests.conftest import write_sectors
 
-_CELLS = [
+_SECTORS = [
     {
         "name": f"c{index}",
         "x": float(index),
@@ -124,7 +124,7 @@ def make_cfg(tmp_path):
     def build(method: str) -> DictConfig:
         config = OmegaConf.create(_CONFIG)
         config.optim.method = OmegaConf.create(_METHODS[method])
-        config.simulation.input = {"cells_file": write_cells(tmp_path, _CELLS)}
+        config.simulation.input = {"sectors_file": write_sectors(tmp_path, _SECTORS)}
         return config
 
     return build
@@ -138,7 +138,7 @@ def cfg(make_cfg):
 
 @pytest.fixture
 def evaluator(cfg) -> StubEvaluator:
-    """A stub over a three-cell, two-band space."""
+    """A stub over a three-sector, two-band space."""
     return StubEvaluator(TiltSpace.from_config(cfg))
 
 

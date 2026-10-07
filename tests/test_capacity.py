@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 
 from src.evaluation import compare
 from src.kpi import capacity
-from tests.conftest import write_cells
+from tests.conftest import write_sectors
 
 # 12 subcarriers of 15 kHz: 180 kHz per PRB.
 _B_PRB = 180_000.0
@@ -17,8 +17,8 @@ _B_PRB = 180_000.0
 _SINR_SE_06 = 10.0 * np.log10(2.0**0.6 - 1.0)
 
 
-def _cells(*max_prb: dict[str, int]) -> list[dict]:
-    """One co-located cell per ``max_prb`` entry, in tx-axis order."""
+def _sectors(*max_prb: dict[str, int]) -> list[dict]:
+    """One co-located sector per ``max_prb`` entry, in tx-axis order."""
     return [
         {"name": f"c{i}", "x": 0.0, "y": 0.0, "z": 30.0, "azimuth_deg": 0.0, "tilt": {}}
         | {"max_prb": limits}
@@ -28,13 +28,13 @@ def _cells(*max_prb: dict[str, int]) -> list[dict]:
 
 @pytest.fixture
 def cfg(tmp_path):
-    """Two bands at 15 kHz SCS, one cell of 10 PRBs per band, the whole pool usable."""
+    """Two bands at 15 kHz SCS, one sector of 10 PRBs per band, the whole pool usable."""
     return OmegaConf.create(
         {
             "kpi": {"hole_dbm": -120.0, "capacity": {"max_admission_utilisation": 1.0}},
             "simulation": {
                 "radio_map": {"bands": [{"name": n, "scs_hz": 15000} for n in ("hi", "lo")]},
-                "input": {"cells_file": write_cells(tmp_path, _cells({"hi": 10, "lo": 10}))},
+                "input": {"sectors_file": write_sectors(tmp_path, _sectors({"hi": 10, "lo": 10}))},
             },
         }
     )
@@ -47,9 +47,9 @@ def _two_layers(n_ue: int, rsrp_dbm: float = -90.0) -> tuple[np.ndarray, np.ndar
     return rsrp, sinr
 
 
-def test_the_spec_rejects_a_cell_table_that_does_not_match_the_map(cfg) -> None:
-    """The cells are the map's tx axis, so their count must agree."""
-    with pytest.raises(ValueError, match="1 cells for a radio map with 2"):
+def test_the_spec_rejects_a_sector_table_that_does_not_match_the_map(cfg) -> None:
+    """The sectors are the map's tx axis, so their count must agree."""
+    with pytest.raises(ValueError, match="1 sectors for a radio map with 2"):
         capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 2)
 
 
@@ -76,12 +76,12 @@ def test_the_prb_rate_follows_the_shannon_formula() -> None:
     assert capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0)) == pytest.approx(_B_PRB)
 
 
-def test_each_ue_takes_the_cell_band_with_the_largest_equal_share(cfg) -> None:
+def test_each_ue_takes_the_sector_band_with_the_largest_equal_share(cfg) -> None:
     """'hi' is worth 1.8 Mbit/s whole, 'lo' 1.08.
 
     The first UE takes 'hi'. The second finds half of 'hi' (0.9) below all of
     'lo' and takes 'lo'. The third finds a third of 'hi' (0.6) above half of
-    'lo' (0.54) and takes 'hi'. Each UE ends at its cell-band's final share.
+    'lo' (0.54) and takes 'hi'. Each UE ends at its sector-band's final share.
     """
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp, sinr = _two_layers(3)
@@ -126,7 +126,7 @@ def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
 
 def test_intervals_do_not_share_prbs(cfg, tmp_path) -> None:
     """Two UEs split 'hi' in interval 0; the lone UE of interval 1 has it whole."""
-    cfg.simulation.input.cells_file = write_cells(tmp_path, _cells({"hi": 10}), "hi_only.csv")
+    cfg.simulation.input.sectors_file = write_sectors(tmp_path, _sectors({"hi": 10}), "hi_only.csv")
     spec = capacity.CapacitySpec.from_config(cfg, ["hi"], 1)
     rsrp = np.full((3, 1, 1), -90.0)
     band, tx, throughput = capacity.serve_rows(

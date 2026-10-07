@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from src.config import load_config
-from src.core.cell import read_cells, site_frame
+from src.core.sector import read_sectors, site_frame
 from src.evaluation import compare, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable
@@ -52,12 +52,12 @@ def solve(tilt: tuple[float, ...]) -> tuple[KpiVector, np.ndarray, float]:
 def starting_points(cfg, space) -> dict[str, np.ndarray]:
     """The incumbent, then every published solution of every method."""
     points = {CURRENT: space.baseline}
-    index = pd.MultiIndex.from_tuples(space.pairs, names=["cell", "band"])
+    index = pd.MultiIndex.from_tuples(space.pairs, names=["sector", "band"])
     for path in sorted(Path(ROOT, cfg.optim.output.deliverable_dir).glob("tilt_options_*.csv")):
         method = path.stem.removeprefix("tilt_options_")
         options = pd.read_csv(path)
         for solution, group in options.groupby("solution"):
-            tilt = group.set_index(["cell", "band"])["optimized_tilt_deg"].reindex(index)
+            tilt = group.set_index(["sector", "band"])["optimized_tilt_deg"].reindex(index)
             tag = " (recommended)" if group["recommended"].any() else ""
             points[f"{label(method)} solution {solution}{tag}"] = tilt.to_numpy(dtype=float)
     return points
@@ -72,24 +72,24 @@ points = starting_points(cfg, space)
 
 with st.sidebar:
     start_name = st.selectbox("Start from", list(points))
-    st.caption("Shift every cell on a band by the same amount, then fine-tune per cell below.")
+    st.caption("Shift every sector on a band by the same amount, then fine-tune per sector below.")
     shifts = {
         band: st.slider(f"{label(band)} shift [deg]", -15.0, 15.0, 0.0, 0.25)
         for band in space.band_names
     }
 
 start = points[start_name]
-shift = np.array([shifts[band] for _cell, band in space.pairs])
+shift = np.array([shifts[band] for _sector, band in space.pairs])
 proposal = space.clip(start + shift)
 
 grid = pd.DataFrame(
-    proposal.reshape(len(space.cells), len(space.band_names)),
-    index=[cell.name for cell in space.cells],
+    proposal.reshape(len(space.sectors), len(space.band_names)),
+    index=[sector.name for sector in space.sectors],
     columns=list(space.band_names),
 )
-st.subheader("Tilt per cell and band [deg]")
+st.subheader("Tilt per sector and band [deg]")
 st.caption(
-    f"Bounds {space.lower.min():g} to {space.upper.max():g} deg; values outside a cell's own "
+    f"Bounds {space.lower.min():g} to {space.upper.max():g} deg; values outside a sector's own "
     "bounds are clipped. Moving a slider or the start point resets the edits."
 )
 edited = st.data_editor(grid, key=f"grid-{start_name}-{sorted(shifts.items())}")
@@ -114,7 +114,7 @@ left.metric(
     f"{after_kpi.objective - before_kpi.objective:+.4f}",
 )
 moved = np.abs(np.array(tilt) - space.baseline) > 1e-9
-middle.metric("Cell-bands moved", f"{int(moved.sum())} of {space.n_dim}")
+middle.metric("Sector-bands moved", f"{int(moved.sum())} of {space.n_dim}")
 right.metric("Ray tracing", f"{seconds:.1f} s")
 
 table = compare.delta_table(before_kpi, after_kpi).rename(
@@ -128,7 +128,7 @@ st.pyplot(
         after_rsrp,
         baseline_map(),
         cfg,
-        cells=site_frame(read_cells(cfg.simulation.input.cells_file)),
+        sectors=site_frame(read_sectors(cfg.simulation.input.sectors_file)),
         name="what-if",
     ),
     clear_figure=True,

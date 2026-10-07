@@ -328,7 +328,7 @@ def tilt_movement(run: Run) -> pd.DataFrame:
     Reported only: nothing in the objective has seen these numbers.
 
     Returns:
-        Columns ``band``, ``n_cells``, ``n_moved``, ``mean_abs_delta_deg``,
+        Columns ``band``, ``n_sectors``, ``n_moved``, ``mean_abs_delta_deg``,
         ``max_abs_delta_deg``, ``mean_delta_deg``.
     """
     table = run.best_tilt
@@ -337,7 +337,7 @@ def tilt_movement(run: Run) -> pd.DataFrame:
         "band", observed=True
     )
     summary = grouped.agg(
-        n_cells=("cell", "size"),
+        n_sectors=("sector", "size"),
         n_moved=("moved", "sum"),
         mean_abs_delta_deg=("abs_delta", "mean"),
         max_abs_delta_deg=("abs_delta", "max"),
@@ -414,28 +414,28 @@ def reproducibility(
     return pd.DataFrame(rows)
 
 
-def cell_band_load(
+def sector_band_load(
     served: pd.DataFrame, band_labels: Sequence[str], tx_names: Sequence[str]
 ) -> pd.DataFrame:
-    """UEs and their estimated throughput per cell-band for one configuration.
+    """UEs and their estimated throughput per sector-band for one configuration.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output.
         band_labels: Band names, the ``band`` index order.
-        tx_names: Cell names, the ``tx`` index order.
+        tx_names: Sector names, the ``tx`` index order.
 
     Returns:
-        One row per cell-band: ``cell``, ``band``, ``served_reports``,
+        One row per sector-band: ``sector``, ``band``, ``served_reports``,
         ``peak_ues`` (the most UEs sharing it in one interval), and the
         ``median_throughput_mbps`` and ``median_sinr_db`` of the UEs it served.
     """
     rows = []
     for b, band in enumerate(band_labels):
-        for t, cell in enumerate(tx_names):
+        for t, sector in enumerate(tx_names):
             mine = served[(served["band"] == b) & (served["tx"] == t)]
             rows.append(
                 {
-                    "cell": cell,
+                    "sector": sector,
                     "band": band,
                     "served_reports": len(mine),
                     "peak_ues": int(mine.groupby("t_index").size().max()) if len(mine) else 0,
@@ -448,35 +448,35 @@ def cell_band_load(
     return pd.DataFrame(rows)
 
 
-def cell_impact(
+def sector_impact(
     best_tilt: pd.DataFrame,
     before: pd.DataFrame,
     after: pd.DataFrame,
-    cells: pd.DataFrame,
+    sectors: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Per cell-band of a recommended configuration: its tilt change and its load change.
+    """Per sector-band of a recommended configuration: its tilt change and its load change.
 
     Args:
         best_tilt: The run's ``best_tilt`` table.
-        before: :func:`cell_band_load` of the incumbent.
-        after: :func:`cell_band_load` of the recommended configuration.
-        cells: One row per cell with ``cell``, ``node`` and ``azimuth_deg``.
+        before: :func:`sector_band_load` of the incumbent.
+        after: :func:`sector_band_load` of the recommended configuration.
+        sectors: One row per sector with ``sector``, ``node`` and ``azimuth_deg``.
 
     Returns:
-        Sorted by the size of the traffic shift, largest first, so the cells to
+        Sorted by the size of the traffic shift, largest first, so the sectors to
         watch after rollout lead.
     """
-    columns = ["cell", "band", "served_reports", "median_throughput_mbps", "median_sinr_db"]
+    columns = ["sector", "band", "served_reports", "median_throughput_mbps", "median_sinr_db"]
     impact = (
-        best_tilt[["cell", "band", "current_tilt_deg", "optimized_tilt_deg", "delta_tilt_deg"]]
-        .astype({"cell": str, "band": str})
-        .merge(before[columns], on=["cell", "band"])
-        .merge(after[columns], on=["cell", "band"], suffixes=("_before", "_after"))
-        .merge(cells[["cell", "node", "azimuth_deg"]].astype({"cell": str}), on="cell")
+        best_tilt[["sector", "band", "current_tilt_deg", "optimized_tilt_deg", "delta_tilt_deg"]]
+        .astype({"sector": str, "band": str})
+        .merge(before[columns], on=["sector", "band"])
+        .merge(after[columns], on=["sector", "band"], suffixes=("_before", "_after"))
+        .merge(sectors[["sector", "node", "azimuth_deg"]].astype({"sector": str}), on="sector")
     )
     for name in ("served_reports", "median_throughput_mbps", "median_sinr_db"):
         impact[f"{name}_change"] = impact[f"{name}_after"] - impact[f"{name}_before"]
-    leading = ["node", "cell", "azimuth_deg", "band"]
+    leading = ["node", "sector", "azimuth_deg", "band"]
     impact = impact[leading + [c for c in impact.columns if c not in leading]]
     return impact.sort_values(
         "served_reports_change", key=np.abs, ascending=False, ignore_index=True
@@ -561,9 +561,9 @@ def experiment_setup(
     current = sorted(tilt["current_tilt_deg"].unique())
     rows = [
         ("Scenario", baseline["scenario_id"]),
-        ("Cells", len(baseline["tx_name"])),
+        ("Sectors", len(baseline["tx_name"])),
         ("Frequency bands", ", ".join(display_name(str(band)) for band in baseline["band_label"])),
-        ("Decision variables (cell-band tilts)", len(tilt)),
+        ("Decision variables (sector-band tilts)", len(tilt)),
         ("Evaluation area [m]", f"{n_cols * tile:g} x {n_rows * tile:g}"),
         ("Grid resolution [m]", f"{tile:g}"),
         ("Grid tiles", n_rows * n_cols),
@@ -698,7 +698,7 @@ def candidates(runs: list[Run]) -> pd.DataFrame:
 def overlap_neighbour_summary(
     configurations: Mapping[str, Configuration], cfg: DictConfig
 ) -> pd.DataFrame:
-    """How many co-band neighbours overlap the serving cell, per configuration.
+    """How many co-band neighbours overlap the serving sector, per configuration.
 
     Covered tiles are those whose strongest layer is above ``kpi.hole_dbm``. An
     uncovered tile has no neighbours by definition, so the covered mean is the
@@ -736,7 +736,7 @@ def band_layer_summary(
 
     Returns:
         One row per configuration and band: ``coverage_share`` (tiles where the
-        band's strongest cell is above ``kpi.hole_dbm``), ``mean_band_rsrp_dbm``
+        band's strongest sector is above ``kpi.hole_dbm``), ``mean_band_rsrp_dbm``
         over those tiles, ``serving_tile_share`` (tiles where a lone UE would be
         served on the band, :func:`src.evaluation.maps.serving_band`),
         ``served_share`` (UE reports served on the band, with every UE

@@ -1,8 +1,8 @@
 """Importable, testable project logic.
 
 Layout:
-- ``src.core``        the shared domain types and file contracts: cell, UE table
-- ``src.scenario``    the synthetic-data generator: UEs, cell layout, manifest
+- ``src.core``        the shared domain types and file contracts: sector, UE table
+- ``src.scenario``    the synthetic-data generator: UEs, sector layout, manifest
 - ``src.simulation``  Sionna-RT scenes and ray-traced radio maps
 - ``src.data``        verify the inputs and radio map, write the typed UE table
 - ``src.kpi``         the reported KPIs and the serving rule

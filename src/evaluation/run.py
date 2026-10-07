@@ -3,7 +3,7 @@
 Entry point for ``task evaluate``. Reads run directories, the baseline radio
 map and the processed UE table only, so like the rest of :mod:`src.evaluation`
 it needs no GPU. UEs are served from ``data.output.ue_file``, every UE; the
-cells are read from ``simulation.input.cells_file``.
+sectors are read from ``simulation.input.sectors_file``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
-from src.core.cell import read_cells, site_frame
+from src.core.sector import read_sectors, site_frame
 from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
@@ -96,7 +96,7 @@ def _evaluate(
     add("comparability_checks", checks)
 
     ue = pd.read_parquet(cfg.data.output.ue_file)
-    cells = site_frame(read_cells(cfg.simulation.input.cells_file))
+    sectors = site_frame(read_sectors(cfg.simulation.input.sectors_file))
     band_labels = [str(band) for band in baseline["band_label"]]
     tx_names = [str(name) for name in baseline["tx_name"]]
     add("experiment_setup", compare.experiment_setup(baseline, ue, runs, cfg))
@@ -150,7 +150,7 @@ def _evaluate(
                 baseline,
                 colorbar_label=f"Change in {label(band)} best-server RSRP [dB]",
                 symmetric=True,
-                cells=cells,
+                sectors=sectors,
             ),
         )
         add(
@@ -160,7 +160,7 @@ def _evaluate(
                 band_rsrp[winner.method],
                 baseline,
                 cfg,
-                cells=cells,
+                sectors=sectors,
                 name=winner.method,
                 band=band,
             ),
@@ -172,7 +172,7 @@ def _evaluate(
             {key: configurations[key].rsrp for key in ("incumbent", winner.method)},
             baseline,
             cfg,
-            cells=cells,
+            sectors=sectors,
         ),
     )
     add("overlap_neighbour_summary", compare.overlap_neighbour_summary(configurations, cfg))
@@ -187,7 +187,7 @@ def _evaluate(
             colorbar_label="Overlapping co-band neighbours",
             vmin=0.0,
             cmap="magma",
-            cells=cells,
+            sectors=sectors,
         ),
     )
     add("band_layer_summary", compare.band_layer_summary(configurations, band_labels, cfg))
@@ -227,19 +227,19 @@ def _evaluate(
             colorbar_label="Median estimated throughput [Mbit/s]",
             vmin=0.0,
             cmap="viridis",
-            cells=cells,
+            sectors=sectors,
         ),
     )
 
     load = {
-        name: compare.cell_band_load(configurations[name].served, band_labels, tx_names)
+        name: compare.sector_band_load(configurations[name].served, band_labels, tx_names)
         for name in ("incumbent", winner.method)
     }
-    add("cell_band_throughput", plots.cell_band_heatmaps(load, "median_throughput_mbps"))
-    add("cell_band_load", pd.concat([f.assign(configuration=k) for k, f in load.items()]))
+    add("sector_band_throughput", plots.sector_band_heatmaps(load, "median_throughput_mbps"))
+    add("sector_band_load", pd.concat([f.assign(configuration=k) for k, f in load.items()]))
     add(
-        "cell_impact",
-        compare.cell_impact(winner.best_tilt, load["incumbent"], load[winner.method], cells),
+        "sector_impact",
+        compare.sector_impact(winner.best_tilt, load["incumbent"], load[winner.method], sectors),
     )
     add("recommended_tilt", winner.best_tilt)
     add("tilt_movement_summary", compare.tilt_movement(winner))

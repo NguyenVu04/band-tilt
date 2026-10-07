@@ -1,4 +1,4 @@
-"""Lay the nodes and their cells out on the scene's open ground.
+"""Lay the nodes and their sectors out on the scene's open ground.
 
 The layout is drawn once per scenario and then held fixed: only tilt moves.
 """
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell, Tilt, cells_to_frame
+from src.core.sector import Sector, Tilt, sectors_to_frame
 from src.scenario.grid import GridSpec, Raster, disc_offsets
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneBounds
@@ -32,8 +32,8 @@ class LayoutSpec:
         node_spacing_m: Inter-site distance from the centre node to each
             corner node. The corners are ``sqrt(3)`` times this apart, as
             alternate first-tier neighbours on a hexagonal grid are.
-        cells_per_node: Cells per node, at evenly spaced azimuths.
-        azimuth_offset_deg: Rotation applied to every node's cell fan.
+        sectors_per_node: Sectors per node, at evenly spaced azimuths.
+        azimuth_offset_deg: Rotation applied to every node's sector fan.
         mast_height_m: Height of the mast above the ground it stands on.
         min_free_fraction: Share of a tile that must be open ground before a
             mast may stand on it. Below one rather than at it because the
@@ -47,7 +47,7 @@ class LayoutSpec:
     """
 
     node_spacing_m: float
-    cells_per_node: int
+    sectors_per_node: int
     azimuth_offset_deg: float
     mast_height_m: float
     min_free_fraction: float
@@ -58,7 +58,7 @@ class LayoutSpec:
         """Reject a layout no node could be placed under.
 
         Raises:
-            ValueError: When the node spacing, mast height or cells per node
+            ValueError: When the node spacing, mast height or sectors per node
                 is not positive, a radius is negative, or the free fraction is
                 outside ``[0, 1]``.
         """
@@ -66,9 +66,9 @@ class LayoutSpec:
             raise ValueError(
                 f"scenario.layout.node_spacing_m must be positive, got {self.node_spacing_m}"
             )
-        if self.cells_per_node < 1:
+        if self.sectors_per_node < 1:
             raise ValueError(
-                f"scenario.layout.cells_per_node must be at least 1, got {self.cells_per_node}"
+                f"scenario.layout.sectors_per_node must be at least 1, got {self.sectors_per_node}"
             )
         for name in ("clearance_radius_m", "snap_radius_m"):
             if getattr(self, name) < 0:
@@ -88,7 +88,7 @@ class LayoutSpec:
         layout = cfg.scenario.layout
         return cls(
             node_spacing_m=float(layout.node_spacing_m),
-            cells_per_node=int(layout.cells_per_node),
+            sectors_per_node=int(layout.sectors_per_node),
             azimuth_offset_deg=float(layout.azimuth_offset_deg),
             mast_height_m=float(layout.mast_height_m),
             min_free_fraction=float(layout.min_free_fraction),
@@ -102,7 +102,7 @@ def default_tilts(cfg: DictConfig) -> dict[str, Tilt]:
 
     The starting tilt a freshly generated layout is stamped with. Higher bands
     conventionally start tilted harder, to contain a smaller footprint; that is
-    a default, not a rule the cell table has to keep obeying.
+    a default, not a rule the sector table has to keep obeying.
     """
     entries = cfg.scenario.layout.default_tilt
     return {str(band): Tilt.from_config(value) for band, value in entries.items()}
@@ -157,18 +157,18 @@ def generate_layout(
 ) -> pd.DataFrame:
     """Lay the nodes out on a triangle's corners and centroid, each on open ground.
 
-    Returns the cell table (:data:`src.core.cell.CELL_COLUMNS`):
-    ``spec.cells_per_node`` cells for every node. Nodes whose ideal
+    Returns the sector table (:data:`src.core.sector.SECTOR_COLUMNS`):
+    ``spec.sectors_per_node`` sectors for every node. Nodes whose ideal
     position is built over are snapped to the nearest open-ground tile within
     ``spec.snap_radius_m``.
 
     ``grid_spec`` must be the one ``raster`` was built from, so a mast obeys
     exactly the open-ground definition the UEs were drawn against.
 
-    Every cell is stamped with ``default_tilt`` — the same starting tilt per
+    Every sector is stamped with ``default_tilt`` — the same starting tilt per
     band — and with ``max_prb``. That is a starting point, not a constraint:
     the written table is the authority afterwards, and its entries are meant
-    to diverge, since one tilt per cell-band pair is what is being optimized.
+    to diverge, since one tilt per sector-band pair is what is being optimized.
 
     Raises:
         ValueError: When the triangle does not fit inside the scene, or when a
@@ -176,7 +176,7 @@ def generate_layout(
             config changes rather than something to snap away, and neither may
             be answered by placing a mast on a building.
     """
-    cells: list[Cell] = []
+    sectors: list[Sector] = []
     for node_index, (ideal_x, ideal_y) in enumerate(node_positions(bounds, spec.node_spacing_m)):
         x, y, z = _mount(
             mi_scene,
@@ -188,11 +188,11 @@ def generate_layout(
             grid_spec.free_height_tol_m,
             f"n{node_index}",
         )
-        for cell_index in range(spec.cells_per_node):
-            azimuth = spec.azimuth_offset_deg + cell_index * 360.0 / spec.cells_per_node
-            cells.append(
-                Cell(
-                    name=f"n{node_index}c{cell_index}",
+        for sector_index in range(spec.sectors_per_node):
+            azimuth = spec.azimuth_offset_deg + sector_index * 360.0 / spec.sectors_per_node
+            sectors.append(
+                Sector(
+                    name=f"n{node_index}s{sector_index}",
                     node=f"n{node_index}",
                     x=x,
                     y=y,
@@ -202,7 +202,7 @@ def generate_layout(
                     max_prb=dict(max_prb),
                 )
             )
-    return cells_to_frame(cells)
+    return sectors_to_frame(sectors)
 
 
 def _mount(

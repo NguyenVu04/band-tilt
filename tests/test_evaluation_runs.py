@@ -86,7 +86,7 @@ def make_run(
     history.to_parquet(directory / "history.parquet", index=False)
     pd.DataFrame(
         {
-            "cell": ["n0c0", "n0c0"],
+            "sector": ["n0s0", "n0s0"],
             "band": ["b700", "b2600"],
             "current_tilt_deg": [4.0, 8.0],
             "optimized_tilt_deg": [6.0, 8.0],
@@ -104,7 +104,7 @@ def make_run(
                 "best_kpi": KPI,
                 "incumbent_kpi": KPI,
                 "scenario_id": str(radio.get("scenario_id", "scn_test")),
-                "max_prb": {"n0c0": {"b700": 106}},
+                "max_prb": {"n0s0": {"b700": 106}},
                 "wall_clock_seconds": 120.0,
                 # Deliberately a Windows-style path: it must never be resolved.
                 "best_radio_map": r"C:\somewhere\else\best_radio_map.npz",

@@ -8,19 +8,19 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.cell import Cell, Tilt, read_cells
+from src.core.sector import Sector, Tilt, read_sectors
 
 
 @dataclass(frozen=True)
 class TiltSpace:
-    """The box of absolute tilts, one dimension per cell-band pair.
+    """The box of absolute tilts, one dimension per sector-band pair.
 
-    Dimensions are ordered cell-major, band-minor: cells in
-    ``simulation.input.cells_file`` order, bands in ``simulation.radio_map.bands``
+    Dimensions are ordered sector-major, band-minor: sectors in
+    ``simulation.input.sectors_file`` order, bands in ``simulation.radio_map.bands``
     order.
 
     Attributes:
-        cells: The layout in the config's order. Position and azimuth are
+        sectors: The layout in the config's order. Position and azimuth are
             fixed; only tilt moves.
         band_names: Band names in the order ``simulation.radio_map.bands``
             declares them, which is also the radio map's band-axis order.
@@ -30,7 +30,7 @@ class TiltSpace:
             against.
     """
 
-    cells: tuple[Cell, ...]
+    sectors: tuple[Sector, ...]
     band_names: tuple[str, ...]
     lower: np.ndarray
     upper: np.ndarray
@@ -38,29 +38,33 @@ class TiltSpace:
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> TiltSpace:
-        """Read the cell table and the band list.
+        """Read the sector table and the band list.
 
         Raises:
-            ValueError: When a cell carries no tilt for a configured band, so
+            ValueError: When a sector carries no tilt for a configured band, so
                 the space would hold a dimension with no bounds to move in.
         """
-        cells = read_cells(cfg.simulation.input.cells_file)
+        sectors = read_sectors(cfg.simulation.input.sectors_file)
         band_names = tuple(str(entry.name) for entry in cfg.simulation.radio_map.bands)
 
         missing = [
-            f"{cell.name}/{band}" for cell in cells for band in band_names if band not in cell.tilt
+            f"{sector.name}/{band}"
+            for sector in sectors
+            for band in band_names
+            if band not in sector.tilt
         ]
         if missing:
             raise ValueError(
-                f"{len(missing)} cell-band pairs have no tilt: {', '.join(missing[:8])}"
-                f"{' ...' if len(missing) > 8 else ''}. Every cell in "
-                f"{cfg.simulation.input.cells_file} needs one row per band in "
-                "simulation.radio_map.bands; regenerate or fix the cell table if the bands changed."
+                f"{len(missing)} sector-band pairs have no tilt: {', '.join(missing[:8])}"
+                f"{' ...' if len(missing) > 8 else ''}. Every sector in "
+                f"{cfg.simulation.input.sectors_file} needs one row per band in "
+                "simulation.radio_map.bands; regenerate or fix the sector table if the bands "
+                "changed."
             )
 
-        tilts = [cell.tilt_for(band) for cell in cells for band in band_names]
+        tilts = [sector.tilt_for(band) for sector in sectors for band in band_names]
         return cls(
-            cells=cells,
+            sectors=sectors,
             band_names=band_names,
             lower=np.array([tilt.bounds_deg[0] for tilt in tilts], dtype=float),
             upper=np.array([tilt.bounds_deg[1] for tilt in tilts], dtype=float),
@@ -69,30 +73,30 @@ class TiltSpace:
 
     @property
     def n_dim(self) -> int:
-        """Number of decision variables: one per cell-band pair."""
-        return len(self.cells) * len(self.band_names)
+        """Number of decision variables: one per sector-band pair."""
+        return len(self.sectors) * len(self.band_names)
 
     @property
     def pairs(self) -> tuple[tuple[str, str], ...]:
-        """The ``(cell, band)`` behind each dimension, in dimension order."""
-        return tuple((cell.name, band) for cell in self.cells for band in self.band_names)
+        """The ``(sector, band)`` behind each dimension, in dimension order."""
+        return tuple((sector.name, band) for sector in self.sectors for band in self.band_names)
 
     @property
     def parameter_names(self) -> tuple[str, ...]:
         """History column name for each dimension, in dimension order."""
-        return tuple(f"tilt_{cell}_{band}" for cell, band in self.pairs)
+        return tuple(f"tilt_{sector}_{band}" for sector, band in self.pairs)
 
-    def to_cells(self, tilt_deg: np.ndarray) -> tuple[Cell, ...]:
-        """The layout with every cell-band tilt set to this vector.
+    def to_sectors(self, tilt_deg: np.ndarray) -> tuple[Sector, ...]:
+        """The layout with every sector-band tilt set to this vector.
 
-        Bands the space does not cover keep the tilt the cell already carried,
+        Bands the space does not cover keep the tilt the sector already carried,
         so a vector never silently drops a carrier the config declared.
 
         Raises:
             ValueError: When the vector is the wrong length, holds a
                 non-finite value, or leaves the box. The last is checked here,
-                naming the cell and band, rather than left to
-                :class:`src.core.cell.Tilt`, whose message cannot say which
+                naming the sector and band, rather than left to
+                :class:`src.core.sector.Tilt`, whose message cannot say which
                 dimension was at fault.
         """
         values = np.asarray(tilt_deg, dtype=float).reshape(-1)
@@ -104,9 +108,9 @@ class TiltSpace:
         outside = np.flatnonzero((values < self.lower) | (values > self.upper))
         if outside.size:
             first = int(outside[0])
-            cell, band = self.pairs[first]
+            sector, band = self.pairs[first]
             raise ValueError(
-                f"{outside.size} tilts lie outside their bounds, first {cell}/{band} at "
+                f"{outside.size} tilts lie outside their bounds, first {sector}/{band} at "
                 f"{values[first]:.3f} deg, bounds [{self.lower[first]}, {self.upper[first]}]. "
                 "Clip a proposal to the box before evaluating it."
             )
@@ -114,19 +118,19 @@ class TiltSpace:
         n_band = len(self.band_names)
         return tuple(
             replace(
-                cell,
+                sector,
                 tilt={
-                    **cell.tilt,
+                    **sector.tilt,
                     **{
                         band: Tilt(
                             baseline_deg=float(values[index * n_band + offset]),
-                            bounds_deg=cell.tilt_for(band).bounds_deg,
+                            bounds_deg=sector.tilt_for(band).bounds_deg,
                         )
                         for offset, band in enumerate(self.band_names)
                     },
                 },
             )
-            for index, cell in enumerate(self.cells)
+            for index, sector in enumerate(self.sectors)
         )
 
     @property
@@ -151,12 +155,12 @@ class TiltSpace:
         return np.clip(np.asarray(tilt_deg, dtype=float).reshape(-1), self.lower, self.upper)
 
     def as_frame(self, tilt_deg: np.ndarray) -> pd.DataFrame:
-        """One row per cell-band pair, carrying the tilt and its bounds."""
+        """One row per sector-band pair, carrying the tilt and its bounds."""
         values = np.asarray(tilt_deg, dtype=float).reshape(-1)
-        cell_names, band_names = zip(*self.pairs, strict=True)
+        sector_names, band_names = zip(*self.pairs, strict=True)
         return pd.DataFrame(
             {
-                "cell": list(cell_names),
+                "sector": list(sector_names),
                 "band": list(band_names),
                 "tilt_deg": values,
                 "tilt_min_deg": self.lower,

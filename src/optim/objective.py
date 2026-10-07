@@ -8,12 +8,12 @@ the objective:
     J = mean_g effective_coverage(g)
 
 :func:`src.kpi.overlap.effective_coverage` scores every band and takes the
-contraharmonic mean over the tile's layers: a band is worth its strongest cell's
-share of the band's received power, scaled by that cell's strength between
-``kpi.hole_dbm`` and ``kpi.weak_dbm``. One cell alone at or above
+contraharmonic mean over the tile's layers: a band is worth its strongest sector's
+share of the band's received power, scaled by that sector's strength between
+``kpi.hole_dbm`` and ``kpi.weak_dbm``. One sector alone at or above
 ``kpi.weak_dbm`` is worth 1, an equal co-band rival halves it, and a server
 barely above ``kpi.hole_dbm`` is worth near nothing. So J is the share of the
-grid served cleanly and strongly by one cell, bounded in ``[0, 1]``.
+grid served cleanly and strongly by one sector, bounded in ``[0, 1]``.
 
 The mean is bounded by the best layer but, unlike a maximum over bands, it is not
 monotone in the layers present: a weak extra layer lowers a tile's score. The
@@ -102,7 +102,7 @@ class KpiVector:
         rsrp_p05_dbm: Cell-edge (5th percentile) best-server RSRP.
         sinr_p50_db: Median best-server SINR.
         sinr_p05_db: Cell-edge best-server SINR.
-        ue_service_failure_rate: Share of UE reports with no cell-band above
+        ue_service_failure_rate: Share of UE reports with no sector-band above
             ``kpi.hole_dbm``.
         estimated_throughput_p05_mbps: Cell-edge (5th percentile) estimated
             throughput of the served UE reports.
@@ -147,12 +147,12 @@ class KpiVector:
 
 
 def objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
-    """Share of the grid served cleanly and strongly by exactly one cell.
+    """Share of the grid served cleanly and strongly by exactly one sector.
 
     The mean of :func:`src.kpi.overlap.effective_coverage` over every tile of the
-    grid. A band scores its full 1 only when one cell reaches ``kpi.weak_dbm`` on
-    it with no other cell on that band above ``kpi.hole_dbm``. Each such rival
-    costs in proportion to its power relative to the strongest cell, so an equal
+    grid. A band scores its full 1 only when one sector reaches ``kpi.weak_dbm`` on
+    it with no other sector on that band above ``kpi.hole_dbm``. Each such rival
+    costs in proportion to its power relative to the strongest sector, so an equal
     one halves the band; a server just above ``kpi.hole_dbm`` keeps almost none
     of it. The tile takes the contraharmonic mean over bands. A hole scores 0, and
     so does a tile the ray tracer found no path to.

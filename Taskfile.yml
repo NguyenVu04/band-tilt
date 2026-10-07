@@ -100,7 +100,7 @@ tasks:
       - uv run jupyter lab
 
   simulation:scenario:
-    desc: 'Stage 1 - raster the scene, draw the UEs and lay out the cells (needs a CUDA GPU)'
+    desc: 'Stage 1 - raster the scene, draw the UEs and lay out the sectors (needs a CUDA GPU)'
     cmds:
       - uv run python -m {{.PKG}}.scenario.run {{.CLI_ARGS}}
 

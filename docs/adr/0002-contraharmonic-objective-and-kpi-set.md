@@ -1,4 +1,4 @@
-# 2. A contraharmonic, strength-aware objective, max-throughput cell selection, and the reported KPI set
+# 2. A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
@@ -9,13 +9,13 @@
   runs under the nine KPIs of section 3 and 10 Mbps per UE. The comparison
   with the best-band maximum is kept as recorded.
 - **Rewritten:** 2026-09-30 — sections 2 to 4 rewritten in place: the band
-  preference and the admission gate are replaced by max-throughput cell
+  preference and the admission gate are replaced by max-throughput sector
   selection over an equal PRB share, and three estimated-throughput KPIs join
   the set. *Measured outcome* predates this and is kept as recorded.
 - **Rewritten:** 2026-09-30 — section 1 rewritten in place: the per-band
   utility `lambda e^(1 - lambda)` over the neighbours within
-  `kpi.overlap_margin_db` is replaced by the strongest cell's share of the
-  band's received power, over every co-band cell above `kpi.hole_dbm`.
+  `kpi.overlap_margin_db` is replaced by the strongest sector's share of the
+  band's received power, over every co-band sector above `kpi.hole_dbm`.
   *Measured outcome* predates this and is kept as recorded.
 - **Revised:** 2026-10-03 — *Measured outcome* gains a subsection measured on
   the 2026-10-02 runs: the current form, the twelve KPIs of section 3 and tilt
@@ -63,8 +63,8 @@ J     = mean_g  sum_b u_bg^2 / sum_b u_bg            (0 where sum_b u_bg = 0)
 own.** It reads no band order, no capacity setting and no demand map, so every
 tile counts equally.
 
-`p_bg` is the strongest cell's share of the power band `b` delivers to the tile
-from cells above `T_cov`; the strongest cell's own term is `10^0 = 1`. It is 1
+`p_bg` is the strongest sector's share of the power band `b` delivers to the tile
+from sectors above `T_cov`; the strongest sector's own term is `10^0 = 1`. It is 1
 for a lone server and 1/2 for two equal ones, and every rival costs in
 proportion to its linear power, so there is no margin and no step. It is
 **co-band**: it sums transmitters within band `b` only, never across bands.
@@ -78,10 +78,10 @@ equal bands, the result equals the maximum.
 Implementation: `src/kpi/overlap.py::effective_coverage`, averaged over the
 grid by `src/optim/objective.py::objective`.
 
-### 2. Max-throughput cell selection over an equal PRB share
+### 2. Max-throughput sector selection over an equal PRB share
 
 Within an interval UEs connect one at a time, in report-time order, simultaneous
-reports strongest RSRP first. A UE's candidates are the cell-bands with
+reports strongest RSRP first. A UE's candidates are the sector-bands with
 `R > kpi.hole_dbm`. It joins
 
 ```
@@ -92,18 +92,18 @@ P_ib = max_admission_utilisation * max_prb_ib
 where `n_ib` is the UEs already connected there. **Nobody is refused**: the only
 UE left unserved is one with no candidate. Once the interval's last UE has
 connected, each UE's **estimated throughput** is `P_ib / N_ib` times its per-PRB
-rate, `N_ib` the cell-band's final UE count, so a UE's figure falls as later UEs
-join its cell-band.
+rate, `N_ib` the sector-band's final UE count, so a UE's figure falls as later UEs
+join its sector-band.
 
 `kpi.capacity.max_admission_utilisation` is **0.8**: the share of `max_prb` a
-cell-band shares among its UEs. There is no band order, no serving threshold
-above the hole threshold and no per-UE demand. Every cell-band with a UE uses its
+sector-band shares among its UEs. There is no band order, no serving threshold
+above the hole threshold and no per-UE demand. Every sector-band with a UE uses its
 whole pool, so PRB load carries no information and is not reported.
 
 ### 3. The reported KPIs
 
 Twelve measures, stored beside `objective`, in this order, for every evaluated
-candidate. The best server is the strongest layer over every band and cell,
+candidate. The best server is the strongest layer over every band and sector,
 `R_max`; covered tiles are those with `R_max > kpi.hole_dbm`. The last column
 says where the evaluation (`src.evaluation.compare`) reports each one.
 
@@ -117,7 +117,7 @@ says where the evaluation (`src.evaluation.compare`) reports each one.
 | `rsrp_p05_dbm` | 5th percentile of the same | **maximise** | per band |
 | `sinr_p50_db` | median of the best server's SINR over covered tiles | **maximise** | per band |
 | `sinr_p05_db` | 5th percentile of the same | **maximise** | per band |
-| `ue_service_failure_rate` | share of UE reports with no cell-band above `kpi.hole_dbm`, `1 - served share` | minimise | network |
+| `ue_service_failure_rate` | share of UE reports with no sector-band above `kpi.hole_dbm`, `1 - served share` | minimise | network |
 | `estimated_throughput_p05_mbps` | 5th percentile of the served UE reports' estimated throughput | **maximise** | network |
 | `estimated_throughput_p50_mbps` | median of the same | **maximise** | network |
 | `estimated_throughput_mean_mbps` | mean of the same | **maximise** | network |
@@ -143,7 +143,7 @@ says where the evaluation (`src.evaluation.compare`) reports each one.
   pinning at zero wherever a hotspot sits in a hole.
 - **Load is not a KPI.** The former `load_imbalance` and `prb_utilisation_max`
   are removed, and PRB load is no longer reported (section 2). The evaluation
-  reports UEs and median estimated throughput per cell-band instead.
+  reports UEs and median estimated throughput per sector-band instead.
 - **Spectral efficiency is not a KPI.** The former `se_p50_bps_hz`,
   `se_mean_bps_hz` and `se_p05_bps_hz` are removed. The Shannon rate
   `log2(1 + SINR)` stays inside the throughput estimate (section 4).
@@ -160,7 +160,7 @@ and summarised here:
   So a high-SINR UE is credited more than the top MCS carries, and a UE below
   the lowest schedulable rate is credited a small positive rate rather than
   none.
-- **An equal share, not a scheduler.** Every UE on a cell-band gets the same
+- **An equal share, not a scheduler.** Every UE on a sector-band gets the same
   PRBs for the whole interval, whatever its SINR or demand.
 - **The rate basis is the nominal RB bandwidth.** The UE data rate of
   TS 38.306 4.1.2 uses the symbol rate `12 / T_s^mu`, with
@@ -173,10 +173,10 @@ and summarised here:
   average.
 
 What *is* 3GPP: `12` subcarriers per resource block (TS 38.211 4.4.4.1), and the
-`max_prb` limits per cell-band, which are `N_RB` from TS 38.101-1 Table 5.3.2-1
+`max_prb` limits per sector-band, which are `N_RB` from TS 38.101-1 Table 5.3.2-1
 for each band's bandwidth at 15 kHz SCS.
 
-The objective does not read the capacity model. It sets which cell-band serves
+The objective does not read the capacity model. It sets which sector-band serves
 each UE and the three throughput KPIs; `ue_service_failure_rate` depends on the
 radio map alone.
 
@@ -210,7 +210,7 @@ radio map alone.
   in a hotspot costs. The UE-weighted coverage view in `reports/` is the only
   place demand appears, and nothing optimises it.
 - **`u` does not separate a hole from heavy contention.** A hole scores 0 and a
-  band shared by `n` equal cells `1/n` (0.25 at four). Reading `hole_rate`
+  band shared by `n` equal sectors `1/n` (0.25 at four). Reading `hole_rate`
   beside `overlap_rate` is what separates them.
 - **The objective and the overlap KPIs count contention differently.**
   `overlap_rate` and `overlap_neighbor_mean` count neighbours within `Delta_R`;
@@ -406,7 +406,7 @@ sectors.
 crowding unpriced (Context).
 
 **`lambda e^(1 - lambda)` over the neighbours within `Delta_R`** (in force until
-2026-09-30), with `lambda = 1 + m_bg`. It counted a rival as a whole cell
+2026-09-30), with `lambda = 1 + m_bg`. It counted a rival as a whole sector
 whatever its power, and stepped at the margin: a rival 6 dB down cost 0.264 at
 full strength and one 6.01 dB down cost nothing.
 
@@ -437,7 +437,7 @@ rate mix coverage with a configured capacity.
 
 **Estimated throughput at connect time.** The rate a UE computed when it chose,
 before later UEs diluted it. Rejected: it is an upper bound on what the UE gets,
-and it would credit the first UE of an interval with a whole cell-band.
+and it would credit the first UE of an interval with a whole sector-band.
 
 **Hole UEs as zero throughput.** Rejected: with a hotspot in a hole, the 5th
 percentile would sit at zero in every configuration. The failure rate already
