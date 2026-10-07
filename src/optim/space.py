@@ -28,6 +28,8 @@ class TiltSpace:
         upper: Per-dimension upper bound, degrees.
         baseline: The committed tilt, the incumbent every result is measured
             against.
+        resolution_deg: The tilt step an antenna can be set to; every point a
+            search proposes is snapped to ``lower + k * resolution_deg``.
     """
 
     sectors: tuple[Sector, ...]
@@ -35,10 +37,11 @@ class TiltSpace:
     lower: np.ndarray
     upper: np.ndarray
     baseline: np.ndarray
+    resolution_deg: float
 
     @classmethod
     def from_config(cls, cfg: DictConfig) -> TiltSpace:
-        """Read the sector table and the band list.
+        """Read the sector table, the band list and ``optim.tilt_resolution_deg``.
 
         Raises:
             ValueError: When a sector carries no tilt for a configured band, so
@@ -69,6 +72,7 @@ class TiltSpace:
             lower=np.array([tilt.bounds_deg[0] for tilt in tilts], dtype=float),
             upper=np.array([tilt.bounds_deg[1] for tilt in tilts], dtype=float),
             baseline=np.array([tilt.baseline_deg for tilt in tilts], dtype=float),
+            resolution_deg=float(cfg.optim.tilt_resolution_deg),
         )
 
     @property
@@ -143,8 +147,9 @@ class TiltSpace:
         return np.where(self.upper > self.lower, self.upper - self.lower, 1.0)
 
     def from_unit(self, point: np.ndarray) -> np.ndarray:
-        """The tilt vector for a point of the unit cube, clipped to the box."""
-        return self.clip(self.lower + np.asarray(point, dtype=float) * self.unit_span)
+        """The tilt vector for a point of the unit cube, on the resolution lattice, in the box."""
+        offset = np.asarray(point, dtype=float) * self.unit_span
+        return self.clip(self.lower + np.round(offset / self.resolution_deg) * self.resolution_deg)
 
     def to_unit(self, tilt_deg: np.ndarray) -> np.ndarray:
         """The unit-cube point of a tilt vector; the inverse of :meth:`from_unit` inside the box."""

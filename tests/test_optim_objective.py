@@ -1,11 +1,13 @@
-"""The KPI vector, the sign convention, and the objective that picks a winner."""
+"""The KPI vector, the sign convention, the objectives and the hypervolume pick."""
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
@@ -14,16 +16,24 @@ from src.optim.objective import (
     KPI_NAMES,
     MAXIMISED,
     MEASURE_NAMES,
+    OBJECTIVE_NAMES,
     KpiVector,
-    best_by_objective,
-    objective,
+    best_by_hvc,
+    coverage_objective,
+    hypervolume,
+    hypervolume_contributions,
+    pareto_mask,
+    separation_objective,
+    throughput_objective,
 )
 
 
 @pytest.fixture
 def cfg():
-    """The two thresholds the objective reads. It reads nothing else."""
-    return OmegaConf.create({"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0}})
+    """The three settings the map objectives read. They read nothing else."""
+    return OmegaConf.create(
+        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
+    )
 
 
 def _kpi(**overrides: float) -> KpiVector:
@@ -37,28 +47,19 @@ def _kpi(**overrides: float) -> KpiVector:
         "rsrp_p50_dbm": -95.0,
         "sinr_p05_db": -3.0,
         "sinr_p50_db": 8.0,
-        "ue_service_failure_rate": 0.20,
-        "estimated_throughput_p05_mbps": 1.0,
+        "estimated_throughput_p05_mbps": 0.0,
         "estimated_throughput_p50_mbps": 5.0,
         "estimated_throughput_mean_mbps": 6.0,
-        "objective": 0.50,
+        "coverage_objective": 0.9,
+        "separation_objective": 0.5,
+        "throughput_objective": 100.0,
     }
     return KpiVector(**{**values, **overrides})
-
-
-def _share(*relative_db: float) -> float:
-    """The strongest sector's power share, rivals given in dB relative to it."""
-    return 1.0 / (1.0 + sum(10.0 ** (db / 10.0) for db in relative_db))
 
 
 def _map(values: list[list[float]]) -> np.ndarray:
     """A one-tile radio map from nested ``[band][tx]`` RSRP lists."""
     return np.array(values, dtype=float)[:, :, None, None]
-
-
-def _score(rsrp: np.ndarray, cfg) -> float:
-    """Score a map built by :func:`_map`."""
-    return objective(rsrp, cfg)
 
 
 def test_reporting_order() -> None:
@@ -72,12 +73,12 @@ def test_reporting_order() -> None:
         "rsrp_p05_dbm",
         "sinr_p50_db",
         "sinr_p05_db",
-        "ue_service_failure_rate",
         "estimated_throughput_p05_mbps",
         "estimated_throughput_p50_mbps",
         "estimated_throughput_mean_mbps",
     )
-    assert MEASURE_NAMES == (*KPI_NAMES, "objective")
+    assert OBJECTIVE_NAMES == ("coverage_objective", "separation_objective")
+    assert MEASURE_NAMES == (*KPI_NAMES, *OBJECTIVE_NAMES, "throughput_objective")
 
 
 def test_only_the_signal_quality_throughput_and_objective_measures_are_maximised() -> None:
@@ -90,7 +91,8 @@ def test_only_the_signal_quality_throughput_and_objective_measures_are_maximised
         "estimated_throughput_p05_mbps",
         "estimated_throughput_p50_mbps",
         "estimated_throughput_mean_mbps",
-        "objective",
+        *OBJECTIVE_NAMES,
+        "throughput_objective",
     }
 
 
@@ -101,152 +103,176 @@ def test_as_dict_round_trips_through_from_mapping() -> None:
 
 
 def test_from_mapping_names_a_missing_measure() -> None:
-    """An incomplete measurement must not become a silent zero."""
+    """An incomplete measurement, or a record from the single-objective era, is refused."""
     values = _kpi().as_dict()
-    del values["objective"]
-    with pytest.raises(KeyError, match="objective"):
+    del values["separation_objective"]
+    with pytest.raises(KeyError, match="separation_objective"):
         KpiVector.from_mapping(values)
 
 
-# --- the power share the objective scores -------------------------------------
-#
-# Every RSRP below is at or above kpi.weak_dbm, so the strength factor is 1 and
-# these fixtures isolate the share. Strength has its own tests further on.
+# --- coverage ---------------------------------------------------------------
 
 
-def test_one_dominant_sector_scores_the_maximum(cfg) -> None:
-    """The whole point of the objective: exactly one strong server is worth 1.0."""
-    assert _score(_map([[-90.0, -130.0]]), cfg) == pytest.approx(1.0)
+def test_a_band_at_the_weak_threshold_covers_half(cfg) -> None:
+    """The logistic is centred on kpi.weak_dbm, one decade of odds per 10 dB."""
+    assert coverage_objective(_map([[-90.0]]), cfg) == pytest.approx(0.5)
+    assert coverage_objective(_map([[-80.0]]), cfg) == pytest.approx(10.0 / 11.0, abs=5e-7)
 
 
-def test_an_equal_rival_halves_the_band(cfg) -> None:
-    """Two sectors at the same power each hold half of it."""
-    assert _score(_map([[-80.0, -80.0]]), cfg) == pytest.approx(0.5)
+def test_coverage_is_the_chance_that_any_band_covers(cfg) -> None:
+    """Two bands at the threshold: 1 - (1/2)(1/2)."""
+    assert coverage_objective(_map([[-90.0], [-90.0]]), cfg) == pytest.approx(0.75)
 
 
-def test_a_rival_costs_in_proportion_to_its_power(cfg) -> None:
-    """No margin: a rival 20 dB down still costs its 1 %, and a nearer one costs more."""
-    near = _score(_map([[-80.0, -84.0]]), cfg)
-    far = _score(_map([[-80.0, -100.0]]), cfg)
-    assert near == pytest.approx(_share(-4.0), abs=5e-7)
-    assert far == pytest.approx(_share(-20.0), abs=5e-7)
-    assert near < far < 1.0
+def test_coverage_reads_only_the_strongest_sector_of_each_band(cfg) -> None:
+    """A rival neither adds nor removes coverage; crowding is separation's business."""
+    crowded = coverage_objective(_map([[-110.0, -110.0]]), cfg)
+    assert crowded == coverage_objective(_map([[-110.0, np.nan]]), cfg)
 
 
-def test_a_third_sector_costs_more_than_the_second(cfg) -> None:
-    """The utility keeps falling, so the search never trades one crowd for a worse one."""
-    two = _score(_map([[-80.0, -84.0, -130.0]]), cfg)
-    three = _score(_map([[-80.0, -84.0, -85.0]]), cfg)
-    assert three == pytest.approx(_share(-4.0, -5.0), abs=5e-7)
-    assert three < two < 1.0
+def test_a_no_path_tile_is_not_covered(cfg) -> None:
+    """No path is -inf, which no logistic lifts off zero."""
+    assert coverage_objective(_map([[np.nan, np.nan], [np.nan, np.nan]]), cfg) == 0.0
 
 
-def test_a_neighbour_below_the_hole_threshold_does_not_count(cfg) -> None:
-    """-122 dBm serves nobody, so it crowds nobody."""
-    marginal = _map([[-118.0, -122.0]])
-    assert _score(marginal, cfg) == pytest.approx((120.0 - 118.0) / 30.0, abs=5e-7)
+# --- separation -------------------------------------------------------------
 
 
-def test_bands_are_weighted_by_utility_not_preference(cfg) -> None:
-    """Strength and cleanliness weight the layers, not a band order.
-
-    'hi' is barely covered and alone; 'lo' is 49 dB stronger and crowded. The
-    contraharmonic mean leans on 'lo', and the marginal 'hi' still pulls it down.
-    """
-    rsrp = _map([[-119.0, -130.0], [-70.0, -71.0]])
-    hi, lo = 1.0 / 30.0, _share(-1.0)
-    assert _score(rsrp, cfg) == pytest.approx((hi**2 + lo**2) / (hi + lo), abs=5e-7)
+def test_a_lone_server_is_perfectly_separated(cfg) -> None:
+    """No co-band rival above the hole threshold, nothing to price."""
+    assert separation_objective(_map([[-90.0, -125.0]]), cfg) == pytest.approx(1.0)
 
 
-def test_a_band_that_goes_dark_leaves_the_other_untouched(cfg) -> None:
-    """With 'hi' below the threshold the tile still has 'lo', crowding and all."""
-    assert _score(_map([[-130.0, -130.0], [-70.0, -71.0]]), cfg) == pytest.approx(
-        _share(-1.0), abs=5e-7
-    )
+def test_a_rival_one_margin_down_halves_the_band(cfg) -> None:
+    """10^((6 - 6) / 10) = 1, so the factor is 1 / 2."""
+    assert separation_objective(_map([[-90.0, -96.0]]), cfg) == pytest.approx(0.5)
 
 
-def test_a_tile_no_band_covers_scores_zero(cfg) -> None:
-    """A hole is worth nothing, however close to the threshold it comes."""
-    assert _score(_map([[-130.0], [-121.0]]), cfg) == pytest.approx(0.0)
+def test_an_equal_rival_costs_more_than_half(cfg) -> None:
+    """At 0 dB apart the term is 10^0.6."""
+    expected = 1.0 / (1.0 + 10.0**0.6)
+    assert separation_objective(_map([[-90.0, -90.0]]), cfg) == pytest.approx(expected, abs=5e-7)
 
 
-def test_a_no_path_tile_scores_zero(cfg) -> None:
-    """No path is -inf, which is a hole on its own."""
-    assert _score(_map([[np.nan, np.nan]]), cfg) == pytest.approx(0.0)
+def test_separation_multiplies_over_bands_and_compares_within_each(cfg) -> None:
+    """Each band halved by its own rival; a strong other-band layer is no rival."""
+    rsrp = _map([[-90.0, -96.0], [-70.0, -76.0]])
+    assert separation_objective(rsrp, cfg) == pytest.approx(0.25)
 
 
-def test_the_objective_is_bounded_by_one(cfg) -> None:
-    """Every tile served strongly by exactly one sector is the best a map can do."""
-    rsrp = np.array([[[[-90.0, -85.0], [-88.0, -80.0]]]], dtype=float)
-    rsrp = np.concatenate([rsrp, np.full_like(rsrp, -130.0)], axis=1)
-    assert _score(rsrp, cfg) == pytest.approx(1.0)
+def test_a_band_with_no_server_above_the_hole_threshold_counts_one(cfg) -> None:
+    """Holes are coverage's business; an uncovered band has no rival to price."""
+    half = separation_objective(_map([[-125.0, -125.0], [-90.0, -96.0]]), cfg)
+    assert half == pytest.approx(0.5)
+    assert separation_objective(_map([[np.nan, np.nan]]), cfg) == pytest.approx(1.0)
 
 
-# --- losing a layer ----------------------------------------------------------
+def test_a_rival_at_or_below_the_hole_threshold_is_not_priced(cfg) -> None:
+    """-120 dBm serves nobody, so it crowds nobody."""
+    assert separation_objective(_map([[-118.0, -120.0]]), cfg) == pytest.approx(1.0)
 
 
-def test_losing_a_band_never_raises_the_objective(cfg) -> None:
-    """Losing a band that scores at or above the tile's score never raises it.
-
-    Scoring the preferred band alone would have moved this tile onto a clean 'lo'
-    and paid for stripping the crowded 'hi'. The general property does not hold
-    under the contraharmonic mean: shedding a band that scores below the tile's
-    score raises it.
-    """
-    crowded = _map([[-80.0, -82.0, -84.0], [-118.0, -130.0, -130.0]])
-    stripped = crowded.copy()
-    stripped[0] = -130.0
-    assert _score(stripped, cfg) <= _score(crowded, cfg)
+def test_solver_round_off_does_not_reach_the_objectives(cfg) -> None:
+    """A sub-nano-dB change in RSRP leaves both map objectives bit-identical."""
+    for objective in (coverage_objective, separation_objective):
+        moved = objective(_map([[-105.0 + 1e-9, -108.0]]), cfg)
+        assert moved == objective(_map([[-105.0, -108.0]]), cfg)
 
 
-def test_a_marginal_server_scores_far_below_a_strong_one(cfg) -> None:
-    """Strength between the hole and weak thresholds counts, which it did not before."""
-    assert _score(_map([[-119.7]]), cfg) == pytest.approx(0.01)
-    assert _score(_map([[-105.0]]), cfg) == pytest.approx(0.5)
-    assert _score(_map([[-90.0]]), cfg) == pytest.approx(1.0)
+# --- throughput -------------------------------------------------------------
 
 
-def test_solver_round_off_does_not_reach_the_objective(cfg) -> None:
-    """A sub-nano-dB change in RSRP leaves J bit-identical."""
-    assert _score(_map([[-105.0 + 1e-9]]), cfg) == _score(_map([[-105.0]]), cfg)
+def test_throughput_is_the_mean_log_with_an_unserved_ue_at_zero() -> None:
+    """ln(1 + 9) twice and ln(1 + 0) for the UE on a hole, over three reports."""
+    served = pd.DataFrame({"band": [0, 0, -1], "estimated_throughput_mbps": [9.0, 9.0, 0.0]})
+    assert throughput_objective(served) == pytest.approx(2.0 * math.log(10.0) / 3.0, abs=5e-6)
+    assert throughput_objective(served.iloc[:0]) == 0.0
 
 
-# --- selection -------------------------------------------------------------
+# --- hypervolume ------------------------------------------------------------
+
+
+def test_one_point_spans_its_box_to_the_origin() -> None:
+    """The reference point is the origin."""
+    assert hypervolume(np.array([[1.0, 2.0, 3.0]])) == pytest.approx(6.0)
+
+
+def test_overlapping_boxes_are_counted_once() -> None:
+    """2x1x1 and 1x2x1 share a 1x1x1 cube."""
+    assert hypervolume(np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0]])) == pytest.approx(3.0)
+    assert hypervolume(np.array([[2.0, 1.0], [1.0, 2.0]])) == pytest.approx(3.0)
+
+
+def test_a_point_not_above_the_origin_adds_nothing() -> None:
+    """A zero objective spans no volume."""
+    assert hypervolume(np.array([[0.0, 5.0, 5.0], [1.0, 1.0, 1.0]])) == pytest.approx(1.0)
+    assert hypervolume(np.empty((0, 3))) == 0.0
+
+
+def test_hypervolume_matches_a_brute_force_count() -> None:
+    """Integer points against a count of the unit cells they dominate."""
+    rng = np.random.default_rng(0)
+    points = rng.integers(1, 6, size=(7, 3)).astype(float)
+    centres = np.stack(np.meshgrid(*[np.arange(5) + 0.5] * 3, indexing="ij"), axis=-1)
+    centres = centres.reshape(-1, 3)
+    dominated = (centres[:, None, :] < points[None, :, :]).all(axis=2).any(axis=1)
+    assert hypervolume(points) == pytest.approx(float(dominated.sum()))
+
+
+def test_a_dominated_point_contributes_nothing() -> None:
+    """Removing it loses no volume."""
+    points = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 1.0, 1.0]])
+    assert hypervolume_contributions(points).tolist() == pytest.approx([1.0, 1.0, 0.0])
+
+
+def test_of_identical_points_the_first_carries_the_contribution() -> None:
+    """A repeated evaluation neither doubles a point's weight nor cancels it."""
+    points = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [2.0, 1.0, 1.0]])
+    assert hypervolume_contributions(points).tolist() == pytest.approx([1.0, 1.0, 0.0])
+
+
+def test_identical_rows_do_not_dominate_each_other() -> None:
+    """Domination needs a strict gain somewhere."""
+    mask = pareto_mask(np.array([[1.0, 1.0], [1.0, 1.0], [0.5, 1.0]]))
+    assert mask.tolist() == [True, True, False]
+
+
+# --- selection --------------------------------------------------------------
+
+
+def test_the_pick_is_the_largest_hypervolume_contribution() -> None:
+    """The far-reaching separation point holds the largest exclusive slab here."""
+    kpis = [
+        _kpi(),
+        _kpi(coverage_objective=0.95, separation_objective=0.51),
+        _kpi(separation_objective=1.0),
+    ]
+    assert best_by_hvc(kpis) == 2
 
 
 def test_the_pick_ignores_every_reported_kpi() -> None:
-    """A better rate with a lower objective does not win."""
-    moved = _kpi(hole_rate=0.0, overlap_rate=0.0, ue_service_failure_rate=0.0, objective=0.49)
-    assert best_by_objective([_kpi(), moved]) == 0
+    """Better rates, or throughput, on a dominated objective vector do not win."""
+    moved = _kpi(
+        hole_rate=0.0, overlap_rate=0.0, separation_objective=0.49, throughput_objective=200.0
+    )
+    assert best_by_hvc([_kpi(), moved]) == 0
 
 
-def test_the_highest_objective_wins() -> None:
-    """A higher objective is picked."""
-    assert best_by_objective([_kpi(), _kpi(objective=0.60)]) == 1
-
-
-def test_an_equal_objective_keeps_the_earlier_configuration() -> None:
-    """The incumbent holds unless a candidate actually scores higher."""
-    assert best_by_objective([_kpi(), _kpi()]) == 0
+def test_an_equal_contribution_keeps_the_earlier_configuration() -> None:
+    """The incumbent holds unless a candidate actually contributes more."""
+    assert best_by_hvc([_kpi(), _kpi()]) == 0
 
 
 def test_choosing_from_nothing_raises() -> None:
     """An empty run has no winner to report."""
     with pytest.raises(ValueError, match="no candidates"):
-        best_by_objective([])
+        best_by_hvc([])
 
 
 def test_a_nan_objective_is_refused_rather_than_picked() -> None:
-    """``np.argmax`` would rank a NaN first; the pick must not."""
+    """A NaN would poison every comparison it enters."""
     with pytest.raises(ValueError, match="non-finite"):
-        best_by_objective([_kpi(), _kpi(objective=float("nan"))])
-
-
-def test_a_weak_threshold_at_the_hole_threshold_is_refused(cfg) -> None:
-    """The strength factor divides by their gap."""
-    cfg.kpi.weak_dbm = cfg.kpi.hole_dbm
-    with pytest.raises(ValueError, match="weak_dbm"):
-        _score(_map([[-90.0]]), cfg)
+        best_by_hvc([_kpi(), _kpi(coverage_objective=float("nan"))])
 
 
 def test_map_kpis_shares_reductions_without_changing_any_kpi() -> None:

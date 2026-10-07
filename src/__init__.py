@@ -6,7 +6,7 @@ Layout:
 - ``src.simulation``  Sionna-RT scenes and ray-traced radio maps
 - ``src.data``        verify the inputs and radio map, write the typed UE table
 - ``src.kpi``         the reported KPIs and the serving rule
-- ``src.optim``       the objective, TuRBO and random search, and the run it publishes
+- ``src.optim``       the objectives, MORBO and random search, and the run it publishes
 - ``src.evaluation``  compare finished runs, write tables and figures
 - ``src.utils``       seeding and plotting
 - ``src.config``      compose the Hydra config outside an entry point

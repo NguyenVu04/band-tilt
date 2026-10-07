@@ -11,7 +11,10 @@ from tests.conftest import write_sectors
 
 # Two sectors, two bands, with deliberately different boxes per band so a test
 # that silently transposed the dimension order could not still pass.
-_BANDS = {"simulation": {"radio_map": {"bands": [{"name": "high"}, {"name": "low"}]}}}
+_BANDS = {
+    "simulation": {"radio_map": {"bands": [{"name": "high"}, {"name": "low"}]}},
+    "optim": {"tilt_resolution_deg": 0.1},
+}
 _SECTORS = [
     {
         "name": "c0",
@@ -134,8 +137,22 @@ def test_unit_cube_mapping_round_trips_and_pins_a_zero_width_dimension() -> None
         lower=np.array([0.0, 5.0]),
         upper=np.array([10.0, 5.0]),
         baseline=np.array([2.0, 5.0]),
+        resolution_deg=0.1,
     )
     assert space.from_unit(np.array([0.25, 0.9])).tolist() == [2.5, 5.0]
     assert space.to_unit(space.baseline).tolist() == [0.2, 0.0]
     assert space.from_unit(space.to_unit(space.baseline)).tolist() == space.baseline.tolist()
     assert space.from_unit(np.array([2.0, 0.0])).tolist() == [10.0, 5.0]
+
+
+def test_from_unit_snaps_to_the_resolution_lattice_from_the_lower_bound() -> None:
+    """0.123 of a 10-degree span sets as 1.2; a 2-degree floor shifts the lattice."""
+    space = TiltSpace(
+        sectors=(),
+        band_names=(),
+        lower=np.array([0.0, 2.0]),
+        upper=np.array([10.0, 12.0]),
+        baseline=np.array([1.0, 3.0]),
+        resolution_deg=0.1,
+    )
+    assert space.from_unit(np.array([0.123, 0.987])).tolist() == pytest.approx([1.2, 11.9])

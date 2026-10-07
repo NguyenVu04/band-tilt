@@ -115,12 +115,12 @@ def test_the_earlier_ue_connects_first_and_simultaneous_ones_strongest_first(cfg
 
 
 def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
-    """-120 dBm is a hole and no path is no candidate."""
+    """-120 dBm is a hole and no path is no candidate; an unserved UE gets 0 Mbit/s."""
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-120.0], [np.nan]], [[np.nan], [-121.0]], [[-119.0], [np.nan]]])
     layer, throughput = capacity._select_serving(rsrp, np.zeros(rsrp.shape), np.zeros(3), spec)
     assert layer.tolist() == [-1, -1, 0]
-    assert np.isnan(throughput[:2]).all()
+    assert throughput[:2].tolist() == [0.0, 0.0]
     assert throughput[2] / 1e6 == pytest.approx(1.8)
 
 

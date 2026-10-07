@@ -33,7 +33,7 @@ def sobol(dim: int, n: int, seed: int) -> np.ndarray:
     """``n`` scrambled Sobol points in the unit cube, ``[n, dim]``.
 
     Deterministic in ``seed``, and a shorter draw is a prefix of a longer one,
-    so random search and TuRBO's initial design share their first points.
+    so random search and MORBO's initial design share their first points.
     """
     import torch
     from torch.quasirandom import SobolEngine

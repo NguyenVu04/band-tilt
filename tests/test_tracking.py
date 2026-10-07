@@ -38,14 +38,14 @@ def test_logs_params_metrics_and_artifacts(tmp_path, monkeypatch) -> None:
         metrics={"hole_rate": 0.25},
         artifacts=[tmp_path / "table.csv", tmp_path / "missing.csv"],
         outputs=["data/interim/radio_map.npz"],
-        tags={"method": "turbo"},
+        tags={"method": "morbo"},
     )
 
     run = mlflow.MlflowClient(str(cfg.mlflow.tracking_uri)).get_run(run_id)
     assert run.data.params == {"seed": "3", "kpi.hole_dbm": "-110.0"}
     assert run.data.metrics == {"hole_rate": 0.25}
     assert run.data.tags["stage"] == "unit"
-    assert run.data.tags["method"] == "turbo"
+    assert run.data.tags["method"] == "morbo"
     assert run.data.tags["output.radio_map.npz"] == "data/interim/radio_map.npz"
     artifacts = {
         f.path for f in mlflow.MlflowClient(str(cfg.mlflow.tracking_uri)).list_artifacts(run_id)

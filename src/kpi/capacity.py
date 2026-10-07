@@ -5,7 +5,8 @@ tables. Within an interval UEs connect one at a time. A UE's candidates are the
 sector-bands above ``kpi.hole_dbm``; it joins the one where its equal share of the
 usable PRBs, ``kpi.capacity.max_admission_utilisation`` of ``max_prb`` split over
 the UEs already there plus itself, carries the most throughput. Nobody is
-refused: a UE with no candidate is the only one not served.
+refused: a UE with no candidate is the only one not served, and it is credited
+0 Mbit/s.
 
 Its estimated throughput is read after the interval's last UE has connected,
 at the equal share of its sector-band's final UE count, so a UE's figure falls as
@@ -244,7 +245,7 @@ def _select_serving(
     Returns:
         ``(layer, throughput_bps)`` per UE: the flat ``band * n_tx + tx``
         index, ``-1`` where no layer is above ``min_rsrp_dbm``, and the
-        throughput at the interval's final UE count, NaN where not served.
+        throughput at the interval's final UE count, 0 where not served.
     """
     n_ue = rsrp.shape[0]
     rate = _prb_rate_bps(sinr, spec.prb_bandwidth_hz[None, :, None]).reshape(n_ue, -1)
@@ -265,7 +266,7 @@ def _select_serving(
         layer[ue] = int(np.argmax(offer))
         count[layer[ue]] += 1.0
 
-    throughput = np.full(n_ue, np.nan)
+    throughput = np.zeros(n_ue)
     served = np.flatnonzero(layer >= 0)
     chosen = layer[served]
     throughput[served] = pool[chosen] / count[chosen] * rate[served, chosen]
@@ -290,11 +291,11 @@ def serve_rows(
 
     Returns:
         ``(band, tx, throughput_bps)`` per UE, in input order; band and tx are
-        ``-1`` and throughput NaN where no layer is above ``min_rsrp_dbm``.
+        ``-1`` and throughput 0 where no layer is above ``min_rsrp_dbm``.
     """
     n_tx = rsrp.shape[2]
     layer = np.full(len(t_index), -1)
-    throughput = np.full(len(t_index), np.nan)
+    throughput = np.zeros(len(t_index))
     # One stable sort groups the intervals, keeping row order inside each,
     # rather than a full scan of t_index per interval.
     order = np.argsort(t_index, kind="stable")
@@ -330,8 +331,8 @@ def serve_intervals(
     Returns:
         One row per UE row, index aligned: ``t_index``, ``tile_row``,
         ``tile_col``, ``band``, ``tx`` (``-1`` when not served), ``sinr_db``
-        and ``estimated_throughput_mbps`` at the serving sector-band, NaN when
-        not served.
+        at the serving sector-band (NaN when not served) and
+        ``estimated_throughput_mbps`` (0 when not served).
 
     Raises:
         ValueError: When the UE table is off the map's grid or the config does not

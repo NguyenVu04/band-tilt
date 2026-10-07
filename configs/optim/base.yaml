@@ -11,13 +11,18 @@ output:
 
 seed: ${seed}
 
+# Tilt step an antenna can be set to [deg]; every method's proposals are
+# snapped to lower bound + k * this.
+tilt_resolution_deg: 0.1
+
 # Evaluation budget every method shares, so a comparison between methods is at
 # equal cost. The method files read it as optim.method.budget.
 budget:
   # Initial design points, labelled `init`.
-  n_init: 16
+  n_init: 8
   # Evaluations after the initial design.
-  n_iter: 128
+  n_iter: 64
 
-# Number of published solutions: the incumbent, the winner, then by objective.
+# Number of published solutions: the incumbent, the winner, then the rest of
+# the Pareto front by hypervolume contribution.
 n_solutions: 4

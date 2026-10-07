@@ -14,13 +14,15 @@ from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, covered, covered_best, finite, serve_intervals
 from src.kpi.overlap import overlap_neighbors
-from src.optim.methods.base import INIT
+from src.optim.methods.base import SEARCH
 from src.optim.objective import (
     MAXIMISED,
+    OBJECTIVE_NAMES,
     KpiVector,
-    best_by_objective,
     evaluate_kpis,
+    hypervolume,
     map_kpis,
+    pareto_mask,
     ue_kpis,
 )
 from src.utils.plotting import label as display_name
@@ -37,7 +39,6 @@ NETWORK_KPIS = (
     "weak_rate",
     "overlap_rate",
     "overlap_neighbor_mean",
-    "ue_service_failure_rate",
     "estimated_throughput_p05_mbps",
     "estimated_throughput_p50_mbps",
     "estimated_throughput_mean_mbps",
@@ -54,8 +55,11 @@ BAND_KPIS = (
     "sinr_p05_db",
 )
 
-# The search traces: the network KPIs and the objective every method ranked by.
-SEARCH_MEASURES = (*NETWORK_KPIS, "objective")
+# The search traces: the network KPIs and the objectives every method ranked by.
+SEARCH_MEASURES = (*NETWORK_KPIS, *OBJECTIVE_NAMES)
+
+# The convergence trace of a whole history rather than of one measure.
+HYPERVOLUME = "hypervolume"
 
 
 def direction(name: str) -> str:
@@ -119,19 +123,6 @@ def delta_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def improvement_table(before: KpiVector, after: KpiVector) -> pd.DataFrame:
-    """:func:`delta_table` plus ``improvement_pct``, the change relative to ``before``.
-
-    ``improvement_pct`` is positive when the measure moved in its better
-    direction, and NaN where ``before`` is zero, as in :func:`relative_improvement`.
-    """
-    table = delta_table(before, after)
-    sign = np.where(table["kpi"].isin(MAXIMISED), 1.0, -1.0)
-    base = table["before"].abs().replace(0.0, np.nan)
-    table["improvement_pct"] = 100.0 * sign * table["delta"] / base
-    return table
-
-
 def seed_summary(runs: list[Run]) -> pd.DataFrame:
     """Each method's winners, summarised over its seeds, against the incumbent.
 
@@ -141,7 +132,7 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
 
     Returns:
         One row per method and :data:`SEARCH_MEASURES` entry (the network KPIs,
-        then the objective): ``method``, ``kpi``,
+        then the objectives): ``method``, ``kpi``,
         ``direction``, ``n_seeds``, ``incumbent``, ``mean``, ``std``,
         ``ci95_low``, ``ci95_high``, ``mean_delta``, ``verdict``.
 
@@ -178,43 +169,51 @@ def seed_summary(runs: list[Run]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def winner_vs_candidates(runs: list[Run]) -> pd.DataFrame:
-    """How far each winner stands above what its own search measured.
+def objective_values(history: pd.DataFrame) -> np.ndarray:
+    """``[n, len(OBJECTIVE_NAMES)]`` objectives of a history frame, in that order."""
+    return history[list(OBJECTIVE_NAMES)].to_numpy(float)
 
-    A search earns credit for the gap between its winner and a typical
-    candidate, not for the gap to the incumbent: when the median candidate
-    already beats the incumbent by nearly as much, the incumbent was weak.
+
+def final_hypervolume(run: Run) -> float:
+    """Hypervolume of everything a run evaluated, the incumbent included."""
+    return hypervolume(objective_values(run.history))
+
+
+def hypervolume_table(runs: list[Run]) -> pd.DataFrame:
+    """How much of the objective space each run's search added beyond its starting point.
+
+    A search earns credit for the hypervolume its model-driven rounds add to
+    the shared initial design, not for the design itself.
 
     Returns:
-        One row per run, all objectives: ``method``, ``seed``,
-        ``incumbent``, ``init_median`` (every Sobol design point, so for TuRBO
-        it includes the designs its restarts draw; NaN when the run has none),
-        ``candidate_median``, ``candidate_p90``
-        and ``winner``, row 0 excluded from the candidates.
+        One row per run: ``method``, ``seed``, ``incumbent_hv`` (the incumbent
+        alone), ``initial_design_hv`` (every row before the first ``search``
+        row), ``final_hv``, ``pareto_points`` and ``best_iteration``, the
+        recommended row.
     """
     rows = []
     for run in runs:
-        scores = run.history["objective"].to_numpy()
-        candidates = scores[1:] if scores.size > 1 else scores
-        init = scores[(run.history["phase"] == INIT).to_numpy()]
+        history = run.history
+        values = objective_values(history)
+        design = ~(history["phase"] == SEARCH).cummax().to_numpy()
         rows.append(
             {
                 "method": run.method,
                 "seed": run.seed,
-                "incumbent": float(scores[0]),
-                "init_median": float(np.median(init)) if init.size else np.nan,
-                "candidate_median": float(np.median(candidates)),
-                "candidate_p90": float(np.quantile(candidates, 0.9)),
-                "winner": float(scores.max()),
+                "incumbent_hv": hypervolume(values[:1]),
+                "initial_design_hv": hypervolume(values[design]),
+                "final_hv": hypervolume(values),
+                "pareto_points": int(pareto_mask(values).sum()),
+                "best_iteration": run.best_index,
             }
         )
     return pd.DataFrame(rows)
 
 
 def paired_method_gain(
-    runs: list[Run], method: str = "turbo", reference: str = "random"
+    runs: list[Run], method: str = "morbo", reference: str = "random"
 ) -> pd.DataFrame:
-    """Winner objective of ``method`` minus ``reference``, paired by seed.
+    """Final hypervolume of ``method`` minus ``reference``, paired by seed.
 
     Paired because both methods share each seed's Sobol design. The Wilcoxon
     signed-rank test (``scipy.stats.wilcoxon``) assumes no normality; with few
@@ -225,7 +224,7 @@ def paired_method_gain(
         One row: ``method``, ``reference``, ``n_pairs``, ``mean_gain``,
         ``ci95_low``, ``ci95_high``, ``method_better``, ``wilcoxon_p``.
     """
-    best = {(run.method, run.seed): run.best_kpi.objective for run in runs}
+    best = {(run.method, run.seed): final_hypervolume(run) for run in runs}
     paired = sorted(seed for name, seed in best if name == method and (reference, seed) in best)
     gains = np.array([best[(method, seed)] - best[(reference, seed)] for seed in paired])
     mean, _, low, high = _interval(gains)
@@ -278,18 +277,18 @@ def method_table(runs: list[Run]) -> pd.DataFrame:
 
 
 def best_method(runs: list[Run]) -> Run:
-    """The run whose winner has the highest objective; a tie keeps the earlier run.
+    """The run with the largest :func:`final_hypervolume`; a tie keeps the earlier run.
 
     Raises:
         ValueError: When there are no runs.
     """
     if not runs:
         raise ValueError("no runs to choose between")
-    return runs[best_by_objective([run.best_kpi for run in runs])]
+    return runs[int(np.argmax([final_hypervolume(run) for run in runs]))]
 
 
 def best_run_per_method(runs: list[Run]) -> dict[str, Run]:
-    """Each method's highest-scoring run over its seeds, keyed by method."""
+    """Each method's :func:`best_method` over its seeds, keyed by method."""
     methods = dict.fromkeys(run.method for run in runs)
     return {
         method: best_method([run for run in runs if run.method == method]) for method in methods
@@ -297,14 +296,27 @@ def best_run_per_method(runs: list[Run]) -> dict[str, Run]:
 
 
 def convergence(runs: list[Run]) -> pd.DataFrame:
-    """Best value seen so far, per :data:`SEARCH_MEASURES` entry, per evaluation and run.
+    """Best value seen so far per evaluation and run, and the hypervolume so far.
 
     Long form: ``method``, ``seed``, ``iteration``, ``kpi``, ``value``. Each
-    measure accumulates in its own direction.
+    :data:`SEARCH_MEASURES` entry accumulates in its own direction; the
+    :data:`HYPERVOLUME` rows are the hypervolume of every evaluation up to that one.
     """
     frames = []
     for run in runs:
         history = run.history
+        values = objective_values(history)
+        frames.append(
+            pd.DataFrame(
+                {
+                    "method": run.method,
+                    "seed": run.seed,
+                    "iteration": history["iteration"].to_numpy(),
+                    "kpi": HYPERVOLUME,
+                    "value": [hypervolume(values[: k + 1]) for k in range(len(values))],
+                }
+            )
+        )
         for name in SEARCH_MEASURES:
             values = history[name]
             running = values.cummax() if direction(name) == "maximise" else values.cummin()
@@ -325,7 +337,7 @@ def convergence(runs: list[Run]) -> pd.DataFrame:
 def tilt_movement(run: Run) -> pd.DataFrame:
     """How far the antennas moved, summarised per band.
 
-    Reported only: nothing in the objective has seen these numbers.
+    Reported only: no objective has seen these numbers.
 
     Returns:
         Columns ``band``, ``n_sectors``, ``n_moved``, ``mean_abs_delta_deg``,
@@ -393,14 +405,14 @@ def reproducibility(
     far beyond that means the archive is not the configuration that was scored.
 
     Returns:
-        One row per configuration and :data:`NETWORK_KPIS` entry:
+        One row per configuration and :data:`SEARCH_MEASURES` entry:
         ``configuration``, ``kpi``, ``recorded``, ``recomputed``, ``abs_gap``.
     """
     rows = []
     for name, kpi in recorded.items():
         config = configurations[name]
         again = evaluate_kpis(config.rsrp, config.sinr, band_labels, ue, cfg, served=config.served)
-        for kpi_name in NETWORK_KPIS:
+        for kpi_name in SEARCH_MEASURES:
             gap = abs(getattr(again, kpi_name) - getattr(kpi, kpi_name))
             rows.append(
                 {
@@ -491,15 +503,11 @@ def service_summary(served: pd.DataFrame, band_labels: Sequence[str]) -> dict[st
         band_labels: Band names, the ``band`` index order.
 
     Returns:
-        ``reports`` (how many rows the shares are taken over),
-        ``not_served_share`` (no layer above ``kpi.hole_dbm``), and
+        ``reports`` (how many rows the shares are taken over) and
         ``share_<band>`` of all reports served on each band.
     """
     band = served["band"].to_numpy()
-    summary = {
-        "reports": float(len(served)),
-        "not_served_share": float((band < 0).mean()),
-    }
+    summary = {"reports": float(len(served))}
     for index, label in enumerate(band_labels):
         summary[f"share_{label}"] = float((band == index).mean())
     return summary
@@ -510,7 +518,7 @@ def coverage_comparison(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
     Args:
         tables: Label to the frame :func:`src.evaluation.maps.coverage_table`
-            returns, e.g. ``{"incumbent": ..., "turbo": ...}``.
+            returns, e.g. ``{"incumbent": ..., "morbo": ...}``.
 
     Returns:
         One row per coverage class, with a ``tile_share`` and a
@@ -559,6 +567,7 @@ def experiment_setup(
     tile = float(baseline["tile_size_m"])
     tilt = runs[0].best_tilt
     current = sorted(tilt["current_tilt_deg"].unique())
+    resolution = runs[0].meta["config"]["optim"]["tilt_resolution_deg"]
     rows = [
         ("Scenario", baseline["scenario_id"]),
         ("Sectors", len(baseline["tx_name"])),
@@ -571,6 +580,7 @@ def experiment_setup(
         ("Measurement intervals", ue["t_index"].nunique()),
         ("Tilt bounds [°]", f"{tilt['tilt_min_deg'].min():g} to {tilt['tilt_max_deg'].max():g}"),
         ("Current tilts [°]", ", ".join(f"{value:g}" for value in current)),
+        ("Tilt resolution [°]", f"{float(resolution):g}"),
         ("Hole threshold [dBm]", f"{float(cfg.kpi.hole_dbm):g}"),
         ("Weak coverage upper bound [dBm]", f"{float(cfg.kpi.weak_dbm):g}"),
         ("Overlap margin [dB]", f"{float(cfg.kpi.overlap_margin_db):g}"),
@@ -592,31 +602,9 @@ def experiment_setup(
     )
 
 
-def relative_improvement(summary: pd.DataFrame) -> pd.DataFrame:
-    """Percentage change of each method's mean winner against the incumbent, positive is better.
-
-    Args:
-        summary: :func:`seed_summary` output.
-
-    Returns:
-        One row per method, one column per KPI in :data:`NETWORK_KPIS`. NaN
-        where the incumbent is zero.
-    """
-    summary = summary[summary["kpi"].isin(NETWORK_KPIS)]
-    sign = np.where(summary["direction"] == "maximise", 1.0, -1.0)
-    base = summary["incumbent"].abs().replace(0.0, np.nan)
-    frame = summary.assign(improvement=sign * (summary["mean"] - summary["incumbent"]) / base * 100)
-    wide = frame.pivot(index="method", columns="kpi", values="improvement")
-    wide = wide.reindex(
-        index=list(dict.fromkeys(summary["method"])), columns=list(dict.fromkeys(summary["kpi"]))
-    )
-    wide.columns.name = None
-    return wide.reset_index()
-
-
 def sample_efficiency(
     trace: pd.DataFrame,
-    kpis: Sequence[str] = ("objective", "hole_rate", "overlap_rate"),
+    kpis: Sequence[str] = (HYPERVOLUME, "hole_rate", "overlap_rate"),
     budgets: Sequence[int] = (10, 25, 50, 100),
 ) -> pd.DataFrame:
     """Best value each method had reached after a fixed number of evaluations, mean over seeds.
@@ -666,27 +654,28 @@ def pareto_front(frame: pd.DataFrame, columns: Sequence[str]) -> np.ndarray:
     Returns:
         Boolean mask over the rows.
     """
-    # ponytail: O(n^2) pairwise comparison; fine for a few thousand candidates, sort-based if more.
-    values = np.column_stack(
-        [
-            frame[column].to_numpy(float) * (-1.0 if direction(column) == "maximise" else 1.0)
-            for column in columns
-        ]
+    return pareto_mask(
+        np.column_stack(
+            [
+                frame[column].to_numpy(float) * (1.0 if direction(column) == "maximise" else -1.0)
+                for column in columns
+            ]
+        )
     )
-    no_worse = (values[:, None, :] <= values[None, :, :]).all(axis=2)
-    better = (values[:, None, :] < values[None, :, :]).any(axis=2)
-    return ~(no_worse & better).any(axis=0)
 
 
 def candidates(runs: list[Run]) -> pd.DataFrame:
     """Every configuration each run evaluated.
 
     Returns:
-        Columns ``method``, ``seed``, ``iteration``, ``phase`` and :data:`SEARCH_MEASURES`.
+        Columns ``method``, ``seed``, ``iteration``, ``phase``, ``recommended``
+        (the run's recommended row) and :data:`SEARCH_MEASURES`.
     """
     frames = [
         run.history[["iteration", "phase", *SEARCH_MEASURES]].assign(
-            method=run.method, seed=run.seed
+            method=run.method,
+            seed=run.seed,
+            recommended=run.history["iteration"] == run.best_index,
         )
         for run in runs
     ]
@@ -798,9 +787,9 @@ def band_kpis(
     layers do. The rates over tiles do not sum across bands, because a tile can
     be a hole on two bands at once.
 
-    The UE KPIs are NaN on band rows: a UE fails when no band reaches it and
-    takes its throughput from whichever band it chose, so both belong to the
-    network, not to one band. RSRP and SINR are NaN on the ``all`` row, as
+    The UE KPIs are NaN on band rows: a UE takes its throughput from
+    whichever band it chose, or none, so they belong to the network, not to
+    one band. RSRP and SINR are NaN on the ``all`` row, as
     :data:`NETWORK_KPIS` says why.
 
     Returns:

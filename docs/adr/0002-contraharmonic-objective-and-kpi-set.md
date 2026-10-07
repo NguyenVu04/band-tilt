@@ -1,6 +1,6 @@
 # 2. A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set
 
-- **Status:** Proposed
+- **Status:** Proposed; sections 1 and 3 superseded by [0003](0003-three-objectives-and-morbo.md)
 - **Date:** 2026-09-22
 - **Rewritten:** 2026-09-28 — the reported KPI set is replaced (section 3),
   `objective_version` is removed, and the former four-KPI record is deleted;

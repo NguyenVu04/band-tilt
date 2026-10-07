@@ -20,7 +20,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import MEASURE_NAMES, KpiVector, best_by_objective
+from src.optim.objective import MEASURE_NAMES, KpiVector, best_by_hvc
 from src.optim.space import TiltSpace
 
 # The packages whose version can change a measured number or a proposal.
@@ -129,8 +129,8 @@ def write_solution_options(
 ) -> tuple[Path, Path]:
     """Republish the shortlist as the two tables an operator chooses from.
 
-    The highest objective marks one row ``recommended``; the
-    runners-up are published beside it rather than discarded.
+    The largest hypervolume contribution marks one row ``recommended``; the
+    rest of the Pareto front is published beside it rather than discarded.
 
     Two tables because they answer two questions. ``solutions_<method>.csv`` is
     one row per solution and says what each one costs and buys.
@@ -178,7 +178,7 @@ class History:
                 or ``search``. What separates the exploration budget
                 from the model-driven one in a plot.
             generation_node: The generator's name, e.g. ``Sobol`` or
-                ``TuRBO``: the record of whether a point came from the
+                ``MORBO``: the record of whether a point came from the
                 design or from the model.
         """
         self.results.append(result)
@@ -219,18 +219,17 @@ class History:
         return frame
 
     def best_index(self) -> int:
-        """Index of the highest ``objective`` over every evaluation.
+        """Index of the largest hypervolume contribution over every evaluation.
 
         A tie keeps the earlier row, so the incumbent holds unless beaten.
         """
-        return best_by_objective(self.kpis)
+        return best_by_hvc(self.kpis)
 
     def tilt_table(self, tilt_deg: np.ndarray) -> pd.DataFrame:
         """The deliverable: current, optimized and delta tilt per sector-band.
 
         ``delta_tilt_deg`` is reported, never optimized. A penalty on antenna
-        movement is an explicit non-goal, so nothing in the objective has seen
-        this column.
+        movement is an explicit non-goal, so no objective has seen this column.
         """
         table = self.space.as_frame(tilt_deg).rename(columns={"tilt_deg": "optimized_tilt_deg"})
         table.insert(2, "current_tilt_deg", self.space.baseline)

@@ -24,6 +24,7 @@ from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import max_rsrp
 from src.kpi.overlap import overlap_neighbors
+from src.optim.objective import OBJECTIVE_NAMES
 from src.tracking import log_stage
 from src.utils.plotting import label, save_fig, setup_plotting
 
@@ -103,17 +104,30 @@ def _evaluate(
 
     summary = compare.seed_summary(runs)
     add("kpi_scoreboard", summary)
-    add("kpi_relative_improvement", compare.relative_improvement(summary))
-    add("kpi_improvement", plots.kpi_comparison(summary))
-    add("winner_vs_candidates", compare.winner_vs_candidates(runs))
-    add("paired_gain_turbo_vs_random", compare.paired_method_gain(runs))
+    add(
+        "kpi_comparison",
+        plots.kpi_comparison(
+            summary,
+            compare.NETWORK_KPIS,
+            "KPIs: current configuration against each method's pick",
+        ),
+    )
+    add(
+        "objective_comparison",
+        plots.kpi_comparison(
+            summary,
+            OBJECTIVE_NAMES,
+            "Objectives: current configuration against each method's pick",
+        ),
+    )
+    add("hypervolume", compare.hypervolume_table(runs))
+    add("paired_gain_morbo_vs_random", compare.paired_method_gain(runs))
 
     searched = compare.candidates(runs)
     add("candidates", searched)
     for x, y in (
+        ("coverage_objective", "separation_objective"),
         ("hole_rate", "overlap_rate"),
-        ("hole_rate", "ue_service_failure_rate"),
-        ("overlap_rate", "ue_service_failure_rate"),
     ):
         add(f"tradeoff_{x}_vs_{y}", plots.tradeoff_scatter(searched, x, y))
 

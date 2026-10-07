@@ -1,9 +1,9 @@
-"""The UE KPIs: who the network did not serve, and what the rest can expect to receive.
+"""The UE KPIs: the throughput every UE report can expect to receive.
 
 The only KPIs counted over UE reports rather than grid tiles, so the hotspot
-tiles carrying most of the traffic dominate them. The failure rate and the
-throughput statistics split the reports along one mask: a report is either not
-served and counted as a failure, or served and inside the throughput statistics.
+tiles carrying most of the traffic dominate them. Every report counts: one the
+serving rule leaves without a sector is credited 0 Mbit/s rather than left out,
+so closing a hole under a UE raises these measures instead of hiding it.
 """
 
 from __future__ import annotations
@@ -12,48 +12,31 @@ import numpy as np
 import pandas as pd
 
 
-def ue_service_failure_rate(served: pd.DataFrame) -> float:
-    """Fraction of UE reports the serving rule left without a sector, ``1 - served share``.
+def ue_throughput_mbps(served: pd.DataFrame) -> np.ndarray:
+    """Estimated throughput of every UE report, in Mbit/s, 0 where not served.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output, one row per UE
             report.
-
-    Returns:
-        ``|not served| / |reports|`` in ``[0, 1]``. Minimised. The rule refuses
-        nobody, so a failure is a UE with no layer above ``kpi.hole_dbm``.
-
-    Raises:
-        ValueError: When ``served`` holds no report, so the rate has no
-            denominator.
     """
-    if served.empty:
-        raise ValueError("The UE table holds no UE, so the failure rate has no denominator.")
-    return float(np.mean(served["band"].to_numpy() < 0))
-
-
-def _served_throughput(served: pd.DataFrame) -> np.ndarray:
-    """Estimated throughput of the served reports, in Mbit/s."""
-    return served.loc[served["band"].to_numpy() >= 0, "estimated_throughput_mbps"].to_numpy(float)
+    return served["estimated_throughput_mbps"].to_numpy(float)
 
 
 def throughput_percentile_mbps(served: pd.DataFrame, percentile: float) -> float:
-    """Percentile of the estimated throughput over served UE reports, in Mbit/s.
+    """Percentile of the estimated throughput over every UE report, in Mbit/s.
 
     Returns:
-        ``0.0`` when no report is served, which keeps a total outage ordered
-        below every configuration that serves someone. Maximised.
+        ``0.0`` when there is no report. Maximised.
     """
-    values = _served_throughput(served)
+    values = ue_throughput_mbps(served)
     return float(np.percentile(values, float(percentile))) if values.size else 0.0
 
 
 def throughput_mean_mbps(served: pd.DataFrame) -> float:
-    """Mean estimated throughput over served UE reports, in Mbit/s.
+    """Mean estimated throughput over every UE report, in Mbit/s.
 
     Returns:
-        ``0.0`` when no report is served, as :func:`throughput_percentile_mbps`.
-        Maximised.
+        ``0.0`` when there is no report. Maximised.
     """
-    values = _served_throughput(served)
+    values = ue_throughput_mbps(served)
     return float(values.mean()) if values.size else 0.0

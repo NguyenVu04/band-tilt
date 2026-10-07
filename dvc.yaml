@@ -111,11 +111,14 @@ stages:
     params:
       - configs/optim/base.yaml:
           - seed
+          - budget
+          - tilt_resolution_deg
           - n_solutions
       # Every method file: DVC cannot know which one the defaults pick.
-      - configs/optim/method/turbo.yaml:
+      - configs/optim/method/morbo.yaml:
           - name
           - budget
+          - n_candidates
           - trust_region
       - configs/optim/method/random.yaml:
           - name

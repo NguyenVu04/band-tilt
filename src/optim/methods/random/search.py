@@ -1,9 +1,9 @@
 """Sobol random search over the tilt space: the control the methods are read against.
 
-Matched to :mod:`src.optim.methods.turbo` on evaluations and on what is recorded
-per evaluation, and drawn from the same seeded Sobol sequence as TuRBO's initial
+Matched to :mod:`src.optim.methods.morbo` on evaluations and on what is recorded
+per evaluation, and drawn from the same seeded Sobol sequence as MORBO's initial
 design, so a difference between the two runs is a difference in where they
-looked.
+looked. Points are snapped to the tilt lattice exactly as MORBO's are.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def search(evaluator: ObjectiveEvaluator, cfg: DictConfig) -> History:
     Returns:
         The history, whose first row is always the committed incumbent. The
         first ``n_init`` Sobol rows are labelled ``init``, the rest ``search``,
-        matching TuRBO's phase boundary.
+        matching MORBO's phase boundary.
     """
     space = evaluator.space
     budget = cfg.optim.method.budget

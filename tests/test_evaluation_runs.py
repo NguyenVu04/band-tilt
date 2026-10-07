@@ -21,11 +21,12 @@ KPI = {
     "rsrp_p05_dbm": -108.0,
     "sinr_p50_db": 8.0,
     "sinr_p05_db": -3.0,
-    "ue_service_failure_rate": 0.009,
     "estimated_throughput_p05_mbps": 1.0,
     "estimated_throughput_p50_mbps": 5.0,
     "estimated_throughput_mean_mbps": 6.0,
-    "objective": 0.40,
+    "coverage_objective": 0.9,
+    "separation_objective": 0.4,
+    "throughput_objective": 3.0,
 }
 
 
@@ -132,12 +133,12 @@ def make_run(
 
 def test_load_reads_tables_and_metadata(tmp_path) -> None:
     """Every field a comparison reads comes back off disk."""
-    directory = make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
+    directory = make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
     run = run_store.load(directory)
 
-    assert run.method == "turbo"
+    assert run.method == "morbo"
     assert run.n_evaluations == 3
-    assert run.label == "turbo/2026-01-01_00-00-00"
+    assert run.label == "morbo/2026-01-01_00-00-00"
     assert run.incumbent_kpi.hole_rate == pytest.approx(KPI["hole_rate"])
     assert run.ray_tracing_seconds == pytest.approx(90.0)
     assert run.wall_clock_seconds == pytest.approx(120.0)
@@ -145,7 +146,7 @@ def test_load_reads_tables_and_metadata(tmp_path) -> None:
 
 def test_radio_map_comes_from_the_directory_not_the_recorded_path(tmp_path) -> None:
     """run.json's path was written on whatever platform produced it."""
-    run = run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00"))
+    run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))
     assert run.radio_map["rsrp_dbm"].shape == (1, 1, 2, 3)
 
 
@@ -158,7 +159,7 @@ def test_load_rejects_a_directory_that_is_not_a_run(tmp_path) -> None:
 
 def test_load_rejects_an_unfinished_run(tmp_path) -> None:
     """A half-written run must not read as a result."""
-    directory = make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
+    directory = make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
     (directory / "best_tilt.parquet").unlink()
     with pytest.raises(run_store.RunError, match="did not finish"):
         run_store.load(directory)
@@ -166,9 +167,9 @@ def test_load_rejects_an_unfinished_run(tmp_path) -> None:
 
 def test_discover_skips_strays_and_orders_by_id(tmp_path) -> None:
     """One stray folder must not stop a comparison."""
-    make_run(tmp_path, "turbo", "2026-01-02_00-00-00")
-    make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
-    (tmp_path / "turbo" / "not-a-run").mkdir()
+    make_run(tmp_path, "morbo", "2026-01-02_00-00-00")
+    make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
+    (tmp_path / "morbo" / "not-a-run").mkdir()
 
     found = run_store.discover(tmp_path)
     assert [run.run_id for run in found] == ["2026-01-01_00-00-00", "2026-01-02_00-00-00"]
@@ -176,22 +177,22 @@ def test_discover_skips_strays_and_orders_by_id(tmp_path) -> None:
 
 def test_latest_per_method_and_seed_keeps_one_run_per_seed(tmp_path) -> None:
     """A rerun replaces its seed's earlier run; another seed is kept beside it."""
-    make_run(tmp_path, "turbo", "2026-01-01_00-00-00", seed=0)
-    make_run(tmp_path, "turbo", "2026-01-09_00-00-00", seed=0)
-    make_run(tmp_path, "turbo", "2026-01-02_00-00-00", seed=1)
+    make_run(tmp_path, "morbo", "2026-01-01_00-00-00", seed=0)
+    make_run(tmp_path, "morbo", "2026-01-09_00-00-00", seed=0)
+    make_run(tmp_path, "morbo", "2026-01-02_00-00-00", seed=1)
     make_run(tmp_path, "random", "2026-01-05_00-00-00", seed=0)
 
     latest = run_store.latest_per_method_and_seed(run_store.discover(tmp_path))
     assert [(run.method, run.seed, run.run_id) for run in latest] == [
+        ("morbo", 0, "2026-01-09_00-00-00"),
+        ("morbo", 1, "2026-01-02_00-00-00"),
         ("random", 0, "2026-01-05_00-00-00"),
-        ("turbo", 0, "2026-01-09_00-00-00"),
-        ("turbo", 1, "2026-01-02_00-00-00"),
     ]
 
 
 def test_verify_passes_when_everything_matches(tmp_path) -> None:
     """The happy path must not raise."""
-    runs = [run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00"))]
+    runs = [run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))]
     checks = run_store.verify(runs, radio_archive())
     assert checks["holds"].all()
     run_store.require(checks)  # must not raise
@@ -199,7 +200,7 @@ def test_verify_passes_when_everything_matches(tmp_path) -> None:
 
 def test_verify_names_a_run_saved_without_its_radio_map(tmp_path) -> None:
     """``save_radio_map=false`` is a failed check, not an exception from inside verify."""
-    directory = make_run(tmp_path, "turbo", "2026-01-01_00-00-00")
+    directory = make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
     (directory / "best_radio_map.npz").unlink()
     checks = run_store.verify([run_store.load(directory)], radio_archive())
     failed = checks.loc[~checks["holds"], "check"].tolist()
@@ -209,7 +210,7 @@ def test_verify_names_a_run_saved_without_its_radio_map(tmp_path) -> None:
 def test_verify_catches_a_different_scenario(tmp_path) -> None:
     """Two scenarios are two experiments, not two results."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
     ]
     checks = run_store.verify(runs, radio_archive())
     failed = checks[~checks["holds"]]["check"].tolist()
@@ -218,7 +219,7 @@ def test_verify_catches_a_different_scenario(tmp_path) -> None:
 
 def test_verify_catches_a_different_fidelity(tmp_path) -> None:
     """A map solved at another sample count is a different experiment."""
-    runs = [run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", samples_per_tx=99))]
+    runs = [run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", samples_per_tx=99))]
     checks = run_store.verify(runs, radio_archive())
     assert (
         "solver samples_per_tx matches the baseline" in checks[~checks["holds"]]["check"].tolist()
@@ -228,7 +229,7 @@ def test_verify_catches_a_different_fidelity(tmp_path) -> None:
 def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
     """Throughput depends on kpi.capacity, so a changed PRB share is another measurement."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
         run_store.load(
             make_run(tmp_path, "random", "2026-01-01_00-00-00", max_admission_utilisation=1.0)
         ),
@@ -242,7 +243,7 @@ def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
 def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
     """A band keeps its name when its carrier moves, so the label cannot carry this."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", band_hz=[3500000000]))
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", band_hz=[3500000000]))
     ]
     checks = run_store.verify(runs, radio_archive())
     failed = checks[~checks["holds"]]["check"].tolist()
@@ -252,7 +253,7 @@ def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
 def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
     """Bandwidth fixes max_prb, so it sets the estimated throughput."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
     ]
     checks = run_store.verify(runs, radio_archive())
@@ -262,7 +263,7 @@ def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
 def test_verify_catches_a_different_scs(tmp_path) -> None:
     """SCS sets the per-RE noise floor and the PRB bandwidth, so SINR and the throughput."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00")),
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
         run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", scs_hz=30000)),
     ]
     checks = run_store.verify(runs, radio_archive())
@@ -272,9 +273,9 @@ def test_verify_catches_a_different_scs(tmp_path) -> None:
 def test_require_names_the_offender(tmp_path) -> None:
     """An error that does not say who failed is not actionable."""
     runs = [
-        run_store.load(make_run(tmp_path, "turbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
+        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
     ]
-    with pytest.raises(run_store.RunError, match="turbo/2026-01-01_00-00-00"):
+    with pytest.raises(run_store.RunError, match="morbo/2026-01-01_00-00-00"):
         run_store.require(run_store.verify(runs, radio_archive()))
 
 

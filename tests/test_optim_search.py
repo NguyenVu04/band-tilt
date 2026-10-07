@@ -3,11 +3,12 @@
 No ray tracing and no GPU: every test here drives the real loops through the
 :class:`~src.optim.evaluator.ObjectiveEvaluator` protocol with an analytic
 stand-in. That is what the protocol seam is for, and it is what keeps the loop
-logic, the budget accounting and the artifact schema covered in milliseconds.
+logic, the budget accounting and the artifact schema covered in seconds.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,17 @@ from omegaconf import DictConfig, OmegaConf
 from src.optim.evaluator import EvaluationResult
 from src.optim.history import History, LocalRunWriter, write_run, write_tilt_change
 from src.optim.methods import run_search
+from src.optim.methods.morbo.search import (
+    _PROPOSAL,
+    _RESTART,
+    TrustRegion,
+    _derived_seed,
+    _improvement,
+    _local_rows,
+    _recentre,
+    failure_tolerance,
+    perturbation_probability,
+)
 from src.optim.objective import MEASURE_NAMES, KpiVector
 from src.optim.space import TiltSpace
 from tests.conftest import write_sectors
@@ -54,20 +66,20 @@ _CONFIG = {
             "save_radio_map": False,
         },
         "seed": 0,
+        "tilt_resolution_deg": 0.1,
     },
 }
 
 # One block per method, as the ``optim/method`` config group supplies them.
 _METHODS = {
-    "turbo": {
-        "name": "turbo",
+    "morbo": {
+        "name": "morbo",
         "budget": {"n_init": 4, "n_iter": 4, "batch_size": 2},
-        "candidates": {"min": 2000, "max": 5000, "per_dimension": 200},
+        "n_candidates": 64,
         "trust_region": {
+            "count": 2,
             "length_init": 0.8,
-            "length_min": 0.0078125,
-            "length_max": 1.6,
-            "success_tolerance": 3,
+            "length_min": 0.01,
             "improvement": 1e-3,
             "perturbed_dimensions": 20,
         },
@@ -81,14 +93,15 @@ class StubEvaluator:
     """Scores a tilt vector analytically, and records what it was asked.
 
     Satisfies :class:`~src.optim.evaluator.ObjectiveEvaluator` structurally, so
-    the search cannot tell it from the ray tracer.
+    the search cannot tell it from the ray tracer. Coverage peaks at 30 % of
+    each range and separation at 70 %, so the two conflict.
     """
 
     space: TiltSpace
     seen: list[np.ndarray] = field(default_factory=list)
 
     def evaluate(self, tilt_deg: np.ndarray) -> EvaluationResult:
-        """Score one vector. Optimal tilt falls at 30% of each band's range."""
+        """Score one vector."""
         tilt_deg = np.asarray(tilt_deg, dtype=float)
         self.seen.append(tilt_deg.copy())
         unit = (tilt_deg - self.space.lower) / (self.space.upper - self.space.lower)
@@ -103,11 +116,12 @@ class StubEvaluator:
                 rsrp_p50_dbm=float(-100.0 + 20.0 * np.mean(unit)),
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
-                ue_service_failure_rate=float(np.mean((unit - 0.8) ** 2)),
                 estimated_throughput_p05_mbps=float(np.mean(unit)),
                 estimated_throughput_p50_mbps=float(2.0 * np.mean(unit)),
                 estimated_throughput_mean_mbps=float(3.0 * np.mean(unit)),
-                objective=float(1.0 - np.mean((unit - 0.3) ** 2)),
+                coverage_objective=float(1.0 - np.mean((unit - 0.3) ** 2)),
+                separation_objective=float(1.0 - np.mean((unit - 0.7) ** 2)),
+                throughput_objective=float(10.0 * (1.0 + np.mean(unit))),
             ),
             seconds=0.0,
         )
@@ -132,8 +146,8 @@ def make_cfg(tmp_path):
 
 @pytest.fixture
 def cfg(make_cfg):
-    """A composed config carrying only what the search reads, defaulting to turbo."""
-    return make_cfg("turbo")
+    """A composed config carrying only what the search reads, defaulting to morbo."""
+    return make_cfg("morbo")
 
 
 @pytest.fixture
@@ -142,7 +156,7 @@ def evaluator(cfg) -> StubEvaluator:
     return StubEvaluator(TiltSpace.from_config(cfg))
 
 
-@pytest.mark.parametrize("method", ["turbo", "random"])
+@pytest.mark.parametrize("method", ["morbo", "random"])
 def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, method) -> None:
     """Row zero is always the deployed configuration.
 
@@ -159,7 +173,7 @@ def test_every_method_starts_from_the_committed_incumbent(make_cfg, evaluator, m
     )
 
 
-@pytest.mark.parametrize("method", ["turbo", "random"])
+@pytest.mark.parametrize("method", ["morbo", "random"])
 def test_no_method_ever_proposes_a_tilt_outside_the_box(make_cfg, evaluator, method) -> None:
     """Bounds are a hard constraint, never a relaxation the search may soften."""
     run_search(evaluator, make_cfg(method))
@@ -168,7 +182,15 @@ def test_no_method_ever_proposes_a_tilt_outside_the_box(make_cfg, evaluator, met
     assert (proposals <= evaluator.space.upper + 1e-9).all()
 
 
-@pytest.mark.parametrize("method", ["turbo", "random"])
+@pytest.mark.parametrize("method", ["morbo", "random"])
+def test_every_method_proposes_tilts_on_the_resolution_lattice(make_cfg, evaluator, method) -> None:
+    """An antenna is set in 0.1 degree steps, so every proposal must be one."""
+    run_search(evaluator, make_cfg(method))
+    steps = (np.array(evaluator.seen) - evaluator.space.lower) / 0.1
+    assert np.allclose(steps, np.round(steps))
+
+
+@pytest.mark.parametrize("method", ["morbo", "random"])
 def test_the_budgeted_methods_spend_exactly_their_budget(make_cfg, evaluator, method) -> None:
     """``n_init + n_iter`` searched evaluations, plus the incumbent."""
     cfg = make_cfg(method)
@@ -177,63 +199,80 @@ def test_the_budgeted_methods_spend_exactly_their_budget(make_cfg, evaluator, me
     assert len(history) == 1 + budget.n_init + budget.n_iter
 
 
-def test_turbo_records_which_generator_made_each_point(make_cfg, evaluator) -> None:
+def test_morbo_records_which_generator_made_each_point(make_cfg, evaluator) -> None:
     """Separating the Sobol design from the trust-region proposals needs this provenance."""
-    frame = run_search(evaluator, make_cfg("turbo")).frame()
+    frame = run_search(evaluator, make_cfg("morbo")).frame()
     assert frame.loc[0, "generation_node"] == "attached"
     assert set(frame["phase"]) == {"incumbent", "init", "search"}
     assert frame.loc[frame["phase"] == "init", "generation_node"].eq("Sobol").all()
-    assert frame.loc[frame["phase"] == "search", "generation_node"].eq("TuRBO").all()
+    assert frame.loc[frame["phase"] == "search", "generation_node"].eq("MORBO").all()
 
 
-def test_the_trust_region_doubles_on_successes_and_halves_on_failures() -> None:
-    """``success_tolerance`` good rounds double it; ``ceil(max(4, d) / q)`` bad ones halve it."""
-    from src.optim.methods.turbo.search import TrustRegion
-
-    region = TrustRegion(
-        dim=6,
-        batch_size=2,
-        length_init=0.8,
-        length_min=0.1,
-        length_max=1.6,
-        success_tolerance=2,
-        improvement=1e-3,
-        perturbed_dimensions=20.0,
-    )
-    region.best = 1.0
-    region.update(2.0)
-    region.update(3.0)
-    assert region.length == pytest.approx(1.6)
-    assert region.best == pytest.approx(3.0)
-
-    assert region.failure_tolerance == 3
+def test_a_region_halves_after_its_failure_tolerance_and_a_success_resets_it() -> None:
+    """The region only shrinks: there is no success streak that grows it."""
+    region = TrustRegion(centre=0, length=0.8)
+    region.record(improved=False, tolerance=3)
+    region.record(improved=True, tolerance=3)
+    assert (region.length, region.failures) == (0.8, 0)
     for _ in range(3):
-        region.update(0.0)
-    assert region.length == pytest.approx(0.8)
+        region.record(improved=False, tolerance=3)
+    assert (region.length, region.failures) == (pytest.approx(0.4), 0)
 
 
-def test_a_collapsed_trust_region_restarts_at_its_initial_length() -> None:
-    """Below ``length_min`` TuRBO-1 starts over, forgetting the region's best."""
-    from src.optim.methods.turbo.search import TrustRegion
+def test_the_failure_tolerance_follows_the_paper() -> None:
+    """``max(10, ceil(d / 3))`` rounds."""
+    assert failure_tolerance(6) == 10
+    assert failure_tolerance(36) == 12
 
-    region = TrustRegion(
-        dim=6,
-        batch_size=2,
-        length_init=0.8,
-        length_min=0.5,
-        length_max=1.6,
-        success_tolerance=2,
-        improvement=1e-3,
-        perturbed_dimensions=20.0,
-    )
-    region.best = 1.0
-    for _ in range(3):
-        region.update(0.0)
-    assert region.collapsed
-    region.restart()
-    assert region.length == pytest.approx(0.8)
-    assert not region.collapsed
-    assert region.best == -np.inf
+
+def test_the_perturbation_probability_halves_over_the_budget() -> None:
+    """Appendix A's schedule: ``p0`` until the design ends, ``p0 / 2`` at the last evaluation."""
+    p0 = 20.0 / 36.0
+    assert perturbation_probability(36, 20.0, 8, 8, 72) == pytest.approx(p0)
+    assert perturbation_probability(36, 20.0, 72, 8, 72) == pytest.approx(p0 / 2.0)
+    assert perturbation_probability(6, 20.0, 40, 8, 72) < 1.0
+
+
+def test_a_collapsed_region_restarts_at_a_fresh_sobol_point(make_cfg) -> None:
+    """A region born below ``length_min`` restarts every round, so nothing is model-made."""
+    cfg = make_cfg("morbo")
+    cfg.optim.method.trust_region.length_min = 0.9
+    evaluator = StubEvaluator(TiltSpace.from_config(cfg))
+    frame = run_search(evaluator, cfg).frame()
+    assert len(frame) == 1 + 4 + 4
+    assert set(frame["phase"]) == {"incumbent", "init"}
+
+
+def test_a_region_moves_to_the_largest_contribution_inside_it() -> None:
+    """Point 2 is out of reach; of the two inside, point 1 adds the most volume."""
+    x = np.array([[0.5, 0.5], [0.6, 0.5], [0.0, 0.0]])
+    y = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 9.0, 1.0]])
+    region = TrustRegion(centre=0, length=0.4)
+    _recentre([region], x, y)
+    assert region.centre == 1
+
+
+def test_a_point_centres_one_region_only() -> None:
+    """The second region keeps its centre rather than share the first one's."""
+    x = np.array([[0.5, 0.5], [0.6, 0.5]])
+    y = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0]])
+    first, second = TrustRegion(centre=0, length=0.4), TrustRegion(centre=0, length=0.4)
+    _recentre([first, second], x, y)
+    assert (first.centre, second.centre) == (1, 0)
+
+
+def test_a_local_model_is_topped_up_with_the_nearest_points() -> None:
+    """Fewer than ``min(250, 2d)`` points inside the 2L cube: the nearest ones fill in."""
+    x = np.array([[0.5, 0.5], [0.52, 0.5], [0.9, 0.9], [0.0, 0.0], [0.6, 0.6]])
+    rows = _local_rows(x, TrustRegion(centre=0, length=0.05))
+    assert sorted(rows.tolist()) == [0, 1, 2, 4]
+
+
+def test_a_sample_the_front_dominates_adds_nothing() -> None:
+    """Only a sample beyond the front scores, by the volume it would add."""
+    front = np.array([[2.0, 1.0, 1.0]])
+    samples = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 2.0, 1.0]])
+    assert _improvement(front, samples).tolist() == pytest.approx([0.0, 0.0, 1.0])
 
 
 def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
@@ -242,21 +281,19 @@ def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
     assert set(frame["generation_node"]) <= {"attached", "Sobol"}
 
 
-def test_random_search_opens_with_turbos_initial_design(make_cfg) -> None:
+def test_random_search_opens_with_morbos_initial_design(make_cfg) -> None:
     """Same seed, same Sobol prefix: the two methods diverge only after ``n_init``."""
-    cfg = make_cfg("turbo")
-    turbo_eval = StubEvaluator(TiltSpace.from_config(cfg))
-    run_search(turbo_eval, cfg)
+    cfg = make_cfg("morbo")
+    morbo_eval = StubEvaluator(TiltSpace.from_config(cfg))
+    run_search(morbo_eval, cfg)
     random_eval = StubEvaluator(TiltSpace.from_config(cfg))
     run_search(random_eval, make_cfg("random"))
     n_init = cfg.optim.method.budget.n_init
-    assert np.allclose(turbo_eval.seen[: 1 + n_init], random_eval.seen[: 1 + n_init])
+    assert np.allclose(morbo_eval.seen[: 1 + n_init], random_eval.seen[: 1 + n_init])
 
 
-def test_turbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
+def test_morbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
     """Seed 42's first restart must not redraw seed 43's initial design, as ``42 + 1`` did."""
-    from src.optim.methods.turbo.search import _PROPOSAL, _RESTART, _derived_seed
-
     assert _derived_seed(42, _RESTART, 1) == _derived_seed(42, _RESTART, 1)
     assert _derived_seed(42, _RESTART, 1) != 43
     assert _derived_seed(42, _PROPOSAL, 20) != _derived_seed(43, _PROPOSAL, 19)
@@ -267,12 +304,12 @@ def test_turbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
 def test_an_unknown_method_names_the_registered_ones(cfg, evaluator) -> None:
     """Adding a method is a registry entry, not an edit to a dispatch chain."""
     cfg.optim.method.name = "annealing"
-    with pytest.raises(KeyError, match="turbo"):
+    with pytest.raises(KeyError, match="morbo"):
         run_search(evaluator, cfg)
 
 
 def test_history_frame_carries_provenance_kpis_and_every_tilt(make_cfg, evaluator) -> None:
-    """The schema all three methods share."""
+    """The schema every method shares."""
     frame = run_search(evaluator, make_cfg("random")).frame()
     expected = {"iteration", "phase", "generation_node", "seconds"}
     assert expected <= set(frame.columns)
@@ -327,8 +364,6 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     assert set(written) == {"history", "best_tilt", "run"}
     for locator in written.values():
         assert Path(locator).is_file()
-
-    import json
 
     run = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
     assert run["scenario_id"] == "scn_test"

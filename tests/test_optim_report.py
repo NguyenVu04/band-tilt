@@ -17,7 +17,13 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.evaluator import EvaluationResult
-from src.optim.objective import MEASURE_NAMES, KpiVector
+from src.optim.objective import (
+    MEASURE_NAMES,
+    KpiVector,
+    hypervolume_contributions,
+    objective_matrix,
+    pareto_mask,
+)
 from src.optim.report import choose
 from src.optim.run import run
 from src.optim.space import TiltSpace
@@ -48,12 +54,13 @@ _CONFIG = {
         "capacity": {"max_admission_utilisation": 0.8},
     },
     "optim": {
-        # `random` rather than `turbo`: deterministic in the seed, no model, and
+        # `random` rather than `morbo`: deterministic in the seed, no model, and
         # it still exercises the whole publish path.
         "method": {"name": "random", "budget": {"n_init": 4, "n_iter": 6}},
         "output": {"dir": "", "deliverable_dir": "", "save_radio_map": False},
         "n_solutions": 4,
         "seed": 0,
+        "tilt_resolution_deg": 0.1,
     },
 }
 
@@ -92,11 +99,12 @@ class StubEvaluator:
                 rsrp_p50_dbm=float(-100.0 + 20.0 * np.mean(unit)),
                 sinr_p05_db=float(-5.0 + 10.0 * np.mean(unit)),
                 sinr_p50_db=float(5.0 + 10.0 * np.mean(unit)),
-                ue_service_failure_rate=float(np.mean((unit - 0.75) ** 2)),
                 estimated_throughput_p05_mbps=float(np.mean(unit)),
                 estimated_throughput_p50_mbps=float(2.0 * np.mean(unit)),
                 estimated_throughput_mean_mbps=float(3.0 * np.mean(unit)),
-                objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
+                coverage_objective=float(1.0 - np.mean((unit - 0.35) ** 2)),
+                separation_objective=float(1.0 - np.mean((unit - 0.75) ** 2)),
+                throughput_objective=float(1.0 + np.mean(unit)),
             ),
             seconds=1.0,
             rsrp=np.zeros((1, 1, 1, 1)) if self.keep_rsrp else None,
@@ -142,30 +150,30 @@ def stub(cfg, space, monkeypatch) -> StubEvaluator:
     return evaluator
 
 
-def _kpi(objective: float, rng: np.random.Generator | None = None) -> KpiVector:
-    """One KPI vector with the given objective; the rest is filler to rank around."""
-    draw = (lambda: 0.5) if rng is None else (lambda: float(rng.random()))
+def _kpi(objectives: np.ndarray) -> KpiVector:
+    """One KPI vector with the given objectives; the KPIs are filler the pick never reads."""
     return KpiVector(
-        hole_rate=draw(),
-        overlap_rate=draw(),
-        overlap_neighbor_mean=draw(),
-        weak_rate=draw(),
+        hole_rate=0.1,
+        overlap_rate=0.3,
+        overlap_neighbor_mean=0.5,
+        weak_rate=0.2,
         rsrp_p05_dbm=-110.0,
         rsrp_p50_dbm=-95.0,
         sinr_p05_db=-3.0,
         sinr_p50_db=8.0,
-        ue_service_failure_rate=draw(),
-        estimated_throughput_p05_mbps=draw(),
-        estimated_throughput_p50_mbps=draw(),
-        estimated_throughput_mean_mbps=draw(),
-        objective=objective,
+        estimated_throughput_p05_mbps=0.0,
+        estimated_throughput_p50_mbps=5.0,
+        estimated_throughput_mean_mbps=6.0,
+        coverage_objective=float(objectives[0]),
+        separation_objective=float(objectives[1]),
+        throughput_objective=float(objectives[2]),
     )
 
 
 def _kpis(count: int) -> list[KpiVector]:
-    """A spread of KPI vectors to rank, the first a middling incumbent."""
+    """A spread of objective vectors to rank, the first a middling incumbent."""
     rng = np.random.default_rng(0)
-    return [_kpi(0.5), *(_kpi(float(rng.random()), rng) for _ in range(count - 1))]
+    return [_kpi(np.full(3, 0.5)), *(_kpi(rng.uniform(0.1, 1.0, 3)) for _ in range(count - 1))]
 
 
 def test_choose_always_publishes_the_incumbent_first() -> None:
@@ -186,20 +194,29 @@ def test_choose_never_drops_a_required_row_to_fit_the_budget() -> None:
     assert set(picks) == {0, 3}
 
 
-def test_choose_fills_the_budget_by_objective() -> None:
-    """After the incumbent, nothing left out outscores anything offered.
+def test_choose_fills_the_budget_from_the_front_by_contribution() -> None:
+    """After the incumbent, only Pareto points, largest hypervolume contribution first.
 
-    Ranked by the objective that selects the winner, or the shortlist would
+    Ranked by the measure that selects the winner, or the shortlist would
     disagree with the recommendation printed beside it.
     """
     kpis = _kpis(24)
+    points = objective_matrix(kpis)
+    front = pareto_mask(points)
+    contribution = hypervolume_contributions(points)
     picks = choose(kpis, 6)
-    values = np.array([kpi.objective for kpi in kpis])
 
-    offered = values[picks[1:]]
-    left_out = np.delete(values, picks)
-    assert np.all(np.diff(offered) <= 0)
-    assert offered.min() >= left_out.max()
+    offered = np.array(picks[1:])
+    assert front[offered].all()
+    assert np.all(np.diff(contribution[offered]) <= 0)
+    left_out = np.setdiff1d(np.flatnonzero(front), picks)
+    assert left_out.size == 0 or contribution[offered].min() >= contribution[left_out].max()
+
+
+def test_choose_never_offers_a_dominated_configuration() -> None:
+    """A shorter front publishes fewer solutions rather than pad with dominated ones."""
+    kpis = [_kpi(np.full(3, 0.5)), _kpi(np.full(3, 0.9)), _kpi(np.full(3, 0.4))]
+    assert choose(kpis, 4, keep=(0, 1)) == [0, 1]
 
 
 def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:

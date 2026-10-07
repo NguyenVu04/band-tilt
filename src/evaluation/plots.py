@@ -28,7 +28,7 @@ from src.utils.plotting import label
 # them once.
 COLOURS = {
     "incumbent": "tab:red",
-    "turbo": "tab:blue",
+    "morbo": "tab:blue",
     "random": "tab:green",
 }
 
@@ -287,7 +287,7 @@ def sector_band_heatmaps(tables: dict[str, pd.DataFrame], value: str) -> Figure:
 
 
 def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequence[str]) -> Figure:
-    """Share of UE reports per serving band, and not served, per configuration.
+    """Share of UE reports per serving band, per configuration; the rest are unserved.
 
     Args:
         summaries: Configuration key to :func:`src.evaluation.compare.service_summary` output.
@@ -296,14 +296,9 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
     keys = list(summaries)
     figure, axis = plt.subplots(figsize=(1.8 * len(keys) + 3.0, 4.5), constrained_layout=True)
     bottom = np.zeros(len(keys))
-    parts = [(f"share_{band}", label(band)) for band in band_labels]
-    parts.append(("not_served_share", "Not served"))
-    for key, name in parts:
-        heights = np.array([summaries[config][key] for config in keys])
-        colour = "0.35" if key == "not_served_share" else None
-        axis.bar(
-            [label(config) for config in keys], heights, bottom=bottom, label=name, color=colour
-        )
+    for band in band_labels:
+        heights = np.array([summaries[config][f"share_{band}"] for config in keys])
+        axis.bar([label(config) for config in keys], heights, bottom=bottom, label=label(band))
         for x, (height, base) in enumerate(zip(heights, bottom, strict=True)):
             if height >= 0.04:
                 axis.text(
@@ -317,55 +312,52 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
     return figure
 
 
-def kpi_comparison(summary: pd.DataFrame) -> Figure:
-    """Mean relative improvement over the incumbent per KPI, one panel each.
+def kpi_comparison(summary: pd.DataFrame, names: Sequence[str], title: str) -> Figure:
+    """Each measure's value for the incumbent and each method's recommendation, one panel each.
 
-    Relative, in percent of the incumbent's value, so a rate and a throughput
-    read on a comparable scale; see
-    :func:`src.evaluation.compare.relative_improvement`. Each panel is signed so
-    positive is better whichever direction its KPI runs. No error bars: the
-    seed interval is in the scoreboard table.
+    Values, not changes: every panel is on its measure's own scale and states
+    whether it is maximised. No error bars: the seed interval is in the
+    scoreboard table.
 
     Args:
         summary: :func:`src.evaluation.compare.seed_summary` output.
+        names: The measures to draw, each a ``kpi`` of ``summary``.
+        title: The figure title.
     """
-    improvement = compare.relative_improvement(summary).set_index("method")
-    methods = list(improvement.index)
-    positions = np.arange(len(methods))
-
-    columns = 4
-    rows = -(-len(compare.NETWORK_KPIS) // columns)
+    keys = ["incumbent", *dict.fromkeys(summary["method"])]
+    positions = np.arange(len(keys))
+    columns = min(len(names), 4)
+    rows = -(-len(names) // columns)
     figure, axes = plt.subplots(
-        rows, columns, figsize=(3.5 * columns, 3.5 * rows), constrained_layout=True
+        rows,
+        columns,
+        figsize=(3.4 * columns, 3.4 * rows),
+        constrained_layout=True,
+        squeeze=False,
     )
-    for axis in axes.ravel()[len(compare.NETWORK_KPIS) :]:
+    for axis in axes.ravel()[len(names) :]:
         axis.set_visible(False)
-    for axis, name in zip(axes.ravel(), compare.NETWORK_KPIS, strict=False):
-        values = improvement[name].to_numpy()
-        axis.axhline(0, color="0.4", lw=1, zorder=1)
+    for axis, name in zip(axes.ravel(), names, strict=False):
+        part = summary[summary["kpi"] == name].set_index("method")
+        values = [part["incumbent"].iloc[0], *(part.loc[key, "mean"] for key in keys[1:])]
         bars = axis.bar(
-            positions,
-            values,
-            width=0.6,
-            color=[COLOURS.get(method) for method in methods],
-            zorder=2,
+            positions, values, width=0.6, color=[COLOURS.get(key) for key in keys], zorder=2
         )
-        axis.bar_label(bars, fmt="%+.1f%%", fontsize=7, padding=2)
+        axis.bar_label(bars, fmt="%.4g", fontsize=7, padding=2)
         axis.margins(y=0.15)
-        axis.set_xticks(positions, [label(method) for method in methods], fontsize=8)
-        axis.set_ylabel("Improvement [%]", fontsize=8)
-        axis.set_title(label(name), fontsize=9)
-    figure.suptitle("Relative KPI improvement over the current configuration (higher is better)")
+        axis.set_xticks(positions, [label(key) for key in keys], fontsize=7)
+        axis.set_title(f"{label(name)} ({compare.direction(name)})", fontsize=8)
+    figure.suptitle(title)
     return figure
 
 
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Best objective so far per evaluation: mean over seeds, with the min–max range.
+    """Hypervolume of every evaluation so far: mean over seeds, with the min–max range.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
     """
-    part = frame[frame["kpi"] == "objective"]
+    part = frame[frame["kpi"] == compare.HYPERVOLUME]
     figure, axis = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
     for method, group in part.groupby("method", sort=False):
         stats = group.groupby("iteration")["value"].agg(["mean", "min", "max"])
@@ -376,7 +368,7 @@ def convergence_plot(frame: pd.DataFrame) -> Figure:
         )
         axis.fill_between(stats.index, stats["min"], stats["max"], color=colour, alpha=0.2)
     axis.set_xlabel("Evaluations")
-    axis.set_ylabel("Best objective so far (higher is better)")
+    axis.set_ylabel("Hypervolume so far (higher is better)")
     axis.set_title("Search progress")
     axis.legend()
     return figure
@@ -428,7 +420,7 @@ def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
 
 
 def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
-    """Every evaluated configuration on two measures, with each method's pick and the Pareto front.
+    """Every evaluated configuration on two measures, each method's pick and the 2-D Pareto front.
 
     Args:
         frame: :func:`src.evaluation.compare.candidates` output.
@@ -441,7 +433,7 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
         searched = group[group["iteration"] > 0]
         axis.scatter(searched[x], searched[y], s=14, alpha=0.4, color=colour, label=label(method))
         # From every row: when the incumbent wins, it is the pick.
-        pick = group.loc[group["objective"].idxmax()]
+        pick = group[group["recommended"]]
         axis.scatter(pick[x], pick[y], marker="*", s=260, color=colour, edgecolor="black", zorder=4)
     axis.scatter(
         [],
@@ -450,7 +442,7 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
         s=260,
         color="white",
         edgecolor="black",
-        label="Best objective per method",
+        label="Recommended per method",
     )
     incumbent = frame[frame["iteration"] == 0].iloc[0]
     axis.scatter(

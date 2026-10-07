@@ -1,0 +1,29 @@
+# @package optim.method
+# MORBO (Daulton et al., 2022) on the three objectives, budget from optim.budget.
+# Defaults follow the paper's Appendix D; docs/MORBO.pdf.
+
+name: morbo
+
+budget:
+  # Sobol points before the trust regions start.
+  n_init: ${optim.budget.n_init}
+  # Trust-region evaluations, restarts included.
+  n_iter: ${optim.budget.n_iter}
+  # Candidates per round of model fits.
+  batch_size: 3
+
+# Discrete Thompson-sampling candidates per trust region and round.
+n_candidates: 2048
+
+# Trust regions in the unit cube. A region only shrinks; it halves after
+# max(10, ceil(d / 3)) failed rounds and restarts below length_min.
+trust_region:
+  # Regions searched in parallel.
+  count: 1
+  length_init: 0.8
+  length_min: 0.01
+  # Relative hypervolume gain a round needs to count as a success.
+  improvement: 1.0e-3
+  # Expected dimensions perturbed per candidate at the start, min(k / d, 1);
+  # the probability decays to half of that by the end of the budget.
+  perturbed_dimensions: 20

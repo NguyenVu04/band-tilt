@@ -31,10 +31,10 @@ actually stand, alongside the tile-weighted rates. The two can disagree sharply,
 because a hole need not fall where anyone stands, and that difference is why both
 are printed.
 
-Neither is the objective. The search maximises the tile-uniform effective
-coverage (:mod:`src.optim.objective`), which reads no
-demand at all, so the UE-weighted view here answers a question no score asks -
-which is why it is printed rather than optimised. The thresholds
+Neither is an objective. The coverage and separation objectives
+(:mod:`src.optim.objective`) are tile-uniform and read no demand at all, so the
+UE-weighted view here answers a question they do not ask - which is why it is
+printed rather than optimised. The thresholds
 separating hole, weak and good are read from ``cfg.kpi``, never restated here,
 so a diagnostic and its KPI always cut the map at the same dBm.
 """

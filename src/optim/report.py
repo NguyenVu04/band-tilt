@@ -5,9 +5,10 @@ these to publish. Nothing here re-solves anything: the run already holds the
 measurements, so this selects from them, shapes the two tables an operator
 reads, and prints the result.
 
-The shortlist is the highest objectives beside the incumbent, so the
-recommended row is published with the runners-up it beat rather than alone.
-Every measure here is the search's own, over every UE.
+The shortlist is the Pareto front beside the incumbent, ranked by hypervolume
+contribution, so the recommended row is published with the trade-offs it was
+chosen from rather than alone. Every measure here is the search's own, over
+every UE.
 
 This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:
 :mod:`src.evaluation` states that it re-solves nothing and imports neither
@@ -31,15 +32,22 @@ from src.optim.history import (
     write_solution_options,
     write_tilt_change,
 )
-from src.optim.objective import MEASURE_NAMES, KpiVector
+from src.optim.objective import (
+    MEASURE_NAMES,
+    KpiVector,
+    hypervolume_contributions,
+    objective_matrix,
+    pareto_mask,
+)
 
 
 def choose(kpis: list[KpiVector], n_solutions: int, keep: Sequence[int] = (0,)) -> list[int]:
     """Which rows to publish, ``keep`` rows first, as indices into ``kpis``.
 
-    ``keep`` rows come first, then the rest by ``objective``, highest first, up
-    to the budget. A tie keeps the earlier row, as
-    :func:`src.optim.objective.best_by_objective` does.
+    ``keep`` rows come first, then the other Pareto points by hypervolume
+    contribution, largest first, up to the budget. A dominated row is never
+    offered. A tie keeps the earlier row, as
+    :func:`src.optim.objective.best_by_hvc` does.
 
     Args:
         kpis: Every evaluation's measured KPI vector.
@@ -49,10 +57,12 @@ def choose(kpis: list[KpiVector], n_solutions: int, keep: Sequence[int] = (0,)) 
             incumbent, which every published delta is measured against, and the
             winner, so the run cannot recommend a solution it did not offer.
     """
-    ranked = np.argsort(-np.array([kpi.objective for kpi in kpis]), kind="stable")
+    points = objective_matrix(kpis)
+    front = np.flatnonzero(pareto_mask(points))
+    ranked = front[np.argsort(-hypervolume_contributions(points)[front], kind="stable")]
 
     # dict.fromkeys keeps this order while dropping the repeats it can make: the
-    # winner always ranks first, and the incumbent can rank anywhere.
+    # winner always ranks first, and the incumbent can be on the front.
     required = dict.fromkeys(int(index) for index in keep)
     picks = dict.fromkeys([*required, *(int(index) for index in ranked)])
     return list(picks)[: max(n_solutions, len(required))]
@@ -73,10 +83,10 @@ def solutions(frame: pd.DataFrame, picks: list[int], best_index: int) -> pd.Data
 
 
 def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
-    """The shortlist an operator reads: each solution's KPIs, objective and what it moves.
+    """The shortlist an operator reads: each solution's KPIs, objectives and what it moves.
 
-    ``objective`` ranked the shortlist and picked the recommendation. The KPIs
-    sit beside it, so the result can be read against the thresholds a
+    The objectives ranked the shortlist and picked the recommendation. The KPIs
+    sit beside them, so the result can be read against the thresholds a
     deployment would apply without the shortlist being ordered by them.
     """
     columns = ["solution", "is_incumbent", "recommended", *MEASURE_NAMES]

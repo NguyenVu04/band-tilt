@@ -1,10 +1,10 @@
 # @package optim.method
-# Sobol random search, matched to turbo on budget and seed.
+# Sobol random search, matched to morbo on budget and seed.
 
 name: random
 
 # Both from optim.budget; the first n_init Sobol draws are labelled `init`,
-# same as turbo's initial design.
+# same as morbo's initial design.
 budget:
   n_init: ${optim.budget.n_init}
   n_iter: ${optim.budget.n_iter}

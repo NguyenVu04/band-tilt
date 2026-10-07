@@ -1,6 +1,6 @@
 # 1. TuRBO on a weighted KPI score
 
-- **Status:** Accepted
+- **Status:** Superseded by [0003](0003-three-objectives-and-morbo.md)
 - **Date:** 2026-09-13
 - **Rewritten:** 2026-09-14 — amendments folded in; the superseded record on
   multi-objective BO on Ax is removed and lives in Git history.

@@ -118,8 +118,9 @@ is the thing these records exist to preserve.
 | # | Title | Status | Date | Rewritten |
 |---|---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
-| [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Accepted, partly superseded by 0002 | 2026-09-13 | 2026-09-14 |
-| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set | Proposed | 2026-09-22 | 2026-10-03 |
+| [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Superseded by 0003 | 2026-09-13 | 2026-09-14 |
+| [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set | Proposed; sections 1 and 3 superseded by 0003 | 2026-09-22 | 2026-10-03 |
+| [0003](0003-three-objectives-and-morbo.md) | Three objectives, searched by MORBO, recommended by hypervolume contribution | Proposed | 2026-10-07 | — |
 
 Every other record is deleted and lives in Git history. Numbers were reused
 on 2026-09-22 and 2026-09-28; see above.

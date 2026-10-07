@@ -1,7 +1,7 @@
 # MULTI-BAND TILT COORDINATION FOR COVERAGE EFFICIENT 5G/6G RAN
 
-Research code applying trust-region Bayesian Optimization (TuRBO) to
-multi-band antenna tilt coordination in 5G/6G radio access networks.
+Research code applying multi-objective trust-region Bayesian Optimization
+(MORBO) to multi-band antenna tilt coordination in 5G/6G radio access networks.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](pyproject.toml)
@@ -66,40 +66,40 @@ scene file, and `src/simulation/` ray-traces per-band radio maps from those
 files, which real data could replace. The search and evaluation both count every UE
 position. The implemented
 optimizer searches legal **absolute tilt** settings and reports their offsets
-from the incumbent configuration. Twelve reported KPIs - the hole, weak and
+from the incumbent configuration, in steps of `optim.tilt_resolution_deg` (0.1°).
+Eleven reported KPIs - the hole, weak and
 overlap rates, overlapping neighbours per covered tile, the median and
-5th-percentile best-server RSRP and SINR, the UE service failure rate, and the
-5th-percentile, median and mean estimated UE throughput - are
-measured for every
-candidate through [`src/kpi/`](src/kpi/). The evaluation reports eight of them
+5th-percentile best-server RSRP and SINR, and the 5th-percentile, median and mean
+estimated UE throughput - are measured for every
+candidate through [`src/kpi/`](src/kpi/). The evaluation reports seven of them
 over all bands and the coverage, overlap, RSRP and SINR measures per band; best-server
 RSRP and SINR are per band only, since the strongest layer across bands is not
-one a UE is measured on
-([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The search maximises
-one objective,
-`J = mean_g sum_b u_bg^2 / sum_b u_bg` with
-`u_bg = s_bg / (1 + sum_i 10^((R_bi - R_bs) / 10))`
-([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)): the share of
-band `b`'s received power at tile `g` held by its strongest sector `s`, over every
-other co-band sector `i` above `kpi.hole_dbm`. It is exactly 1 when one sector is
-alone on the band, 1/2 with an equal rival, and 0 where nothing covers the tile.
-`s_bg` scales that by how
-far the band's strongest sits between `kpi.hole_dbm` and `kpi.weak_dbm`, clipped
-to `[0, 1]`, so a server barely out of a hole scores near nothing. Each tile takes
-the contraharmonic mean of its bands' `u_bg`, which is bounded by its best band
-but, unlike a maximum over bands, is not monotone in the layers present: a weak extra layer lowers it. `J`
-is the share of the grid *effectively covered*, in `[0, 1]`. The objective has no parameters of its own.
+one a UE is measured on. The search maximises three objectives jointly
+([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)), with `R_bs` band `b`'s
+strongest sector at tile `g` and `i` the other co-band sectors above `kpi.hole_dbm`:
+
+- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - hole_dbm))]`,
+  `sigma(x) = 1 / (1 + 10^(-x / 10))`: the soft chance that at least one band is
+  not a hole.
+- **Separation** `mean_g prod_b 1 / (1 + sum_i 10^((m - (R_bs - R_bi)) / 10))`,
+  `m = kpi.overlap_margin_db`: a rival `m` dB down halves a band; an uncovered band
+  counts 1.
+- **Throughput** `mean_u ln(1 + R_u)` over every UE report, `R_u` in Mbit/s and 0
+  for a UE no layer reaches.
+
+A run is ranked by hypervolume against the origin, and its recommended
+configuration is the evaluated point with the largest hypervolume contribution.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) connects each interval's UEs in
 report-time order, each to the sector-band above `kpi.hole_dbm` where an equal
 share of `kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit,
 split over the UEs already there and itself, carries the most Shannon
-throughput. Nobody is refused: the UE service failure rate counts the UEs with no
-sector-band above the hole threshold, and every other UE's estimated throughput is
-its sector-band's equal share at the end of the interval.
+throughput. Nobody is refused: a UE with no sector-band above the hole threshold
+is credited 0 Mbit/s, and every other UE's estimated throughput is its
+sector-band's equal share at the end of the interval.
 
 Sionna-RT scores every candidate the search proposes, and
 `src/optim/report.py` selects from what was measured and publishes the shortlist.
-TuRBO-1 Bayesian Optimization on that objective and a Sobol random-search
+MORBO (Daulton et al., 2022) on those objectives and a Sobol random-search
 baseline are implemented; held-out scenario validation remains planned.
 
 The practical goal is to replace repeated manual tilt tuning with network-wide
@@ -119,7 +119,7 @@ flowchart TB
     sim["src/simulation<br/>radio map"]
     prep["src/data<br/>schema verification · typed tables"]
     kpi["src/kpi<br/>reported KPIs · serving rule · UE throughput"]
-    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>TuRBO · random search"]
+    opt["src/optim/run<br/>search · Sionna-RT scores every candidate<br/>MORBO · random search"]
     ver["src/optim/report<br/>select · publish the shortlist"]
     rep["src/evaluation<br/>compare runs · tables · figures"]
     mlf["src/tracking<br/>MLflow · one run per stage"]
@@ -159,11 +159,11 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Scenario | UE population, traffic, node/sector layout | [`src/scenario/`](src/scenario/) |
 | Simulation | Scene loading, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
-| KPI | The twelve reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
+| KPI | The eleven reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
 | Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and the coverage objective, the Sionna-RT evaluator, two searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and the three objectives, the Sionna-RT evaluator, two searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -175,7 +175,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the sector table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
 | Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the radio map against it but copies nothing — no external data needed |
-| [BoTorch](https://botorch.org/) + GPyTorch | The GP model and Thompson sampling TuRBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/turbo/search.py`](src/optim/methods/turbo/search.py) |
+| [BoTorch](https://botorch.org/) + GPyTorch | The GP models, Thompson sampling and box decompositions MORBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/morbo/search.py`](src/optim/methods/morbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
 | [MLflow](https://mlflow.org/) | Experiment tracking, one run per stage | In use | `--extra tracking`; imported lazily by [`src/tracking.py`](src/tracking.py) — without it, or with `mlflow.enabled=false`, stages run untracked |
@@ -256,7 +256,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
 |---|---|---|
 | `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/sector layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule, the UE service failure rate and the estimated throughput. The objective has no block of its own: it reads `hole_dbm` and `weak_dbm` ([ADR 0002](docs/adr/0002-contraharmonic-objective-and-kpi-set.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: they read `hole_dbm`, `overlap_margin_db` and the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
@@ -302,7 +302,7 @@ same functions in `src/`, so they cannot diverge on what they compute. Notebook
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the UE table | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baseline: random search | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` |
-| 5 — TuRBO | [`03b_turbo`](notebooks/03b_turbo.ipynb) | `task bo` |
+| 5 — MORBO | [`03b_morbo`](notebooks/03b_morbo.ipynb) | `task bo` |
 | 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, writes `reports/`) |
 
 ```bash
@@ -357,8 +357,8 @@ One command, `task bo`. Sionna-RT scores every candidate at the configured
 fidelity, so every KPI a run writes is a measurement and the run it leaves is
 complete. It needs a GPU.
 
-The default TuRBO and random-search budget is the incumbent plus 16 + 128
-evaluations, 145 in all. A run records its ray-tracing and wall-clock seconds in `run.json`, beside the
+The default MORBO and random-search budget is the incumbent plus 8 + 64
+evaluations, 73 in all. A run records its ray-tracing and wall-clock seconds in `run.json`, beside the
 Git commit and the numpy, scipy, torch, botorch, gpytorch and sionna-rt versions
 (`provenance`); `task evaluate` tabulates the seconds in
 `reports/tables/04_evaluation/method_cost.csv`.
@@ -368,15 +368,16 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`
 (the solutions offered for choice). `src/evaluation/` compares those.
 
-The solutions offered are the incumbent plus the highest objectives
-(ADR 0001). `optim.n_solutions` sets how many, 4 by default,
-always including the incumbent and the winner.
+The solutions offered are the incumbent plus the Pareto front, largest
+hypervolume contribution first, never a dominated configuration
+([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). `optim.n_solutions`
+sets how many, 4 by default, always including the incumbent and the winner.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
-per offered solution, every KPI and the objective, and each one's delta against
+per offered solution, every KPI and objective, and each one's delta against
 the incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
-becomes. The highest objective marks one row `recommended` and
-`tilt_change_<method>.csv` carries it. A comparison has TuRBO and random
+becomes. The largest hypervolume contribution marks one row `recommended` and
+`tilt_change_<method>.csv` carries it. A comparison has MORBO and random
 search in it and nothing else.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
@@ -410,7 +411,7 @@ band-tilt/
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
-| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, TuRBO-1 on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
+| `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, MORBO on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
 | `task pipeline` | Chains every stage. Its stages have been run in order end to end against one scenario, including `task evaluate` on real runs |
@@ -421,7 +422,7 @@ band-tilt/
 | Gap | Consequence |
 |---|---|
 | Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world, under one solver seed |
-| The capacity model is a simplification | The serving rule and estimated throughput in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, an equal PRB share with no scheduler, and full-load co-band SINR. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. Every throughput figure inherits these. The objective does not: it reads the radio map alone |
+| The capacity model is a simplification | The serving rule and estimated throughput in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, an equal PRB share with no scheduler, and full-load co-band SINR. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. Every throughput figure inherits these, the throughput objective included |
 | No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards

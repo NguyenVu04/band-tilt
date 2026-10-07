@@ -6,7 +6,7 @@ comparison between methods is a comparison of search strategies and nothing
 else. Adding one is a folder and a registry entry, not an edit to a dispatch
 chain.
 
-``turbo`` and ``random`` are kept matched on budget and on what they record, so
+``morbo`` and ``random`` are kept matched on budget and on what they record, so
 where they looked is the only difference between them.
 """
 
@@ -18,11 +18,11 @@ from omegaconf import DictConfig
 
 from src.optim.evaluator import ObjectiveEvaluator
 from src.optim.history import History
-from src.optim.methods import random, turbo
+from src.optim.methods import morbo, random
 from src.optim.methods.base import SearchMethod
 
 SEARCHES: Mapping[str, SearchMethod] = {
-    "turbo": turbo.search,
+    "morbo": morbo.search,
     "random": random.search,
 }
 

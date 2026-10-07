@@ -21,7 +21,7 @@ from src.evaluation import runs as run_store
 from src.evaluation.export import readable
 from src.kpi.capacity import max_rsrp
 from src.optim.evaluator import Evaluator
-from src.optim.objective import KpiVector
+from src.optim.objective import OBJECTIVE_NAMES, KpiVector
 from src.utils.plotting import label
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,12 +107,10 @@ before_kpi, before_rsrp, _ = solve(tuple(space.baseline.round(4)))
 after_kpi, after_rsrp, seconds = solve(tilt)
 
 st.subheader("Result")
-left, middle, right = st.columns(3)
-left.metric(
-    "Objective J (maximise)",
-    f"{after_kpi.objective:.4f}",
-    f"{after_kpi.objective - before_kpi.objective:+.4f}",
-)
+*objective_columns, middle, right = st.columns(len(OBJECTIVE_NAMES) + 2)
+for column, name in zip(objective_columns, OBJECTIVE_NAMES, strict=True):
+    after, before = getattr(after_kpi, name), getattr(before_kpi, name)
+    column.metric(f"{label(name)} (maximise)", f"{after:.4g}", f"{after - before:+.4g}")
 moved = np.abs(np.array(tilt) - space.baseline) > 1e-9
 middle.metric("Sector-bands moved", f"{int(moved.sum())} of {space.n_dim}")
 right.metric("Ray tracing", f"{seconds:.1f} s")

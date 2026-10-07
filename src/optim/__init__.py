@@ -1,7 +1,7 @@
 """Optimization over the absolute-tilt space.
 
-One decision vector, one objective, two ways of searching it. Every method
-here proposes a tilt for each sector-band pair, has it measured by
+One decision vector, two objectives, two ways of searching them. Every
+method here proposes a tilt for each sector-band pair, has it measured by
 :mod:`src.kpi` and scored by :mod:`src.optim.objective`, and writes the same
 artifacts, so a comparison between methods is a comparison of search
 strategies and nothing else.
@@ -12,8 +12,9 @@ Modules, each with one reason to change:
     The box an optimizer may move in, and the only place a vector becomes
     :class:`src.core.sector.Sector` objects.
 ``objective``
-    The KPI vector, the sign convention, and the effective-coverage objective
-    that picks one configuration.
+    The KPI vector, the sign convention, the coverage and separation objectives
+    (throughput recorded, not searched), and the hypervolume that picks one
+    configuration.
 ``evaluator``
     The expensive path: a tilt vector ray-traced into a radio map. The only
     module here that touches Sionna-RT.
@@ -21,7 +22,7 @@ Modules, each with one reason to change:
     The evaluation log, the artifacts a run leaves behind, and the deliverable
     the tilt change is republished as.
 ``methods``
-    One folder per method — TuRBO-1 on BoTorch and Sobol random search —
+    One folder per method — MORBO on BoTorch and Sobol random search —
     behind the ``SearchMethod`` interface in
     ``methods/base.py``, with the registry that dispatches on the selected
     ``optim/method`` config group.
