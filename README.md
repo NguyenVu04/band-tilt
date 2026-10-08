@@ -16,7 +16,7 @@ Research code applying multi-objective trust-region Bayesian Optimization
 | **Contact** | via [GitHub issues](https://github.com/NguyenVu04/band-tilt/issues) |
 | **Source of record** | <https://github.com/NguyenVu04/band-tilt> |
 | **Issue tracker** | <https://github.com/NguyenVu04/band-tilt/issues> |
-| **Description of record** | this README, plus [CLAUDE.md](CLAUDE.md) |
+| **Description of record** | this README |
 | **Results** | [docs/report.md](docs/report.md) |
 | **Decisions** | [docs/adr/](docs/adr/) |
 
@@ -74,18 +74,20 @@ estimated UE throughput - are measured for every
 candidate through [`src/kpi/`](src/kpi/). The evaluation reports seven of them
 over all bands and the coverage, overlap, RSRP and SINR measures per band; best-server
 RSRP and SINR are per band only, since the strongest layer across bands is not
-one a UE is measured on. The search maximises three objectives jointly
-([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)), with `R_bs` band `b`'s
-strongest sector at tile `g` and `i` the other co-band sectors above `kpi.hole_dbm`:
+one a UE is measured on. The search maximises two objectives jointly, coverage
+and separation; throughput is measured and recorded with every candidate but not
+searched ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
+band `b`'s strongest sector at tile `g` and `i` the other co-band sectors above
+`kpi.hole_dbm`:
 
-- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - hole_dbm))]`,
+- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - weak_dbm))]`,
   `sigma(x) = 1 / (1 + 10^(-x / 10))`: the soft chance that at least one band is
-  not a hole.
+  above the weak threshold.
 - **Separation** `mean_g prod_b 1 / (1 + sum_i 10^((m - (R_bs - R_bi)) / 10))`,
   `m = kpi.overlap_margin_db`: a rival `m` dB down halves a band; an uncovered band
   counts 1.
-- **Throughput** `mean_u ln(1 + R_u)` over every UE report, `R_u` in Mbit/s and 0
-  for a UE no layer reaches.
+- **Throughput** (recorded, not searched) `mean_u ln(1 + R_u)` over every UE
+  report, `R_u` in Mbit/s and 0 for a UE no layer reaches.
 
 A run is ranked by hypervolume against the origin, and its recommended
 configuration is the evaluated point with the largest hypervolume contribution.
@@ -160,10 +162,10 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Simulation | Scene loading, radio-map ray tracing | [`src/simulation/`](src/simulation/) |
 | Data | Load the simulation output, verify it against its contract and write the typed UE table | [`src/data/`](src/data/) |
 | KPI | The eleven reported KPI definitions, the reductions they share, and the serving-cell / throughput model | [`src/kpi/`](src/kpi/) |
-| Utils | Seeding and plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
+| Utils | Plotting helpers shared by every notebook | [`src/utils/`](src/utils/) |
 | Config | Composes the Hydra config outside an entry point, for the notebooks | [`src/config.py`](src/config.py) |
 | Tracking | Logs one stage as one MLflow run: scalar params of the stage's config groups, the whole config, metrics, small artifacts; large data paths as tags | [`src/tracking.py`](src/tracking.py) |
-| Optimization | The shared search space, the KPI vector and the three objectives, the Sionna-RT evaluator, two searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
+| Optimization | The shared search space, the KPI vector and the objectives, the Sionna-RT evaluator, two searches, and the run that publishes the shortlist | [`src/optim/`](src/optim/) |
 | Evaluation | Load finished runs, compare methods, write tables and figures to `reports/`; `run.py` is notebook 04 as a script. Re-solves nothing — the Sionna-RT held-out validation is still missing | [`src/evaluation/`](src/evaluation/) |
 | Notebooks | The pipeline, one notebook per phase | [`notebooks/`](notebooks/) |
 | Configuration | Every tunable, in Hydra groups | [`configs/`](configs/) |
@@ -227,7 +229,6 @@ uv run ruff check .
 All checks passed!
 uv run ruff format --check .
 uv run pytest
-261 passed
 ```
 
 `tests/` covers `src/scenario/`'s density, region, traffic, node-layout and grid
@@ -249,20 +250,21 @@ This must succeed silently.
 
 Results-affecting settings live in [`configs/`](configs/) as Hydra groups,
 composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
-`cfg.simulation`, `cfg.kpi` and `cfg.data`, per [`configs/config.yaml`](configs/config.yaml)'s
+`cfg.simulation`, `cfg.kpi`, `cfg.data` and `cfg.optim`, per [`configs/config.yaml`](configs/config.yaml)'s
 `defaults` list.
 
 | Group | File | Holds |
 |---|---|---|
 | `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/sector layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: they read `hole_dbm`, `overlap_margin_db` and the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: they read `weak_dbm`, `hole_dbm`, `overlap_margin_db` and the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every
-optimization run shares — the output directories and the seed — and the
-`optim/method` group ([`configs/optim/method/`](configs/optim/method)) holds one
-file per method with that method's own budget settings. Select one with
+optimization run shares — the output directories, the seed, the evaluation
+budget and the tilt resolution — and the `optim/method` group
+([`configs/optim/method/`](configs/optim/method)) holds one file per method with
+that method's own settings. Select one with
 `optim/method=random`; note the slash, it is a config group and not a key.
 
 [`configs/config.yaml`](configs/config.yaml)'s `reports` block sets where the notebooks and
@@ -368,17 +370,16 @@ A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
 `best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`
 (the solutions offered for choice). `src/evaluation/` compares those.
 
-The solutions offered are the incumbent plus the Pareto front, largest
-hypervolume contribution first, never a dominated configuration
-([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). `optim.n_solutions`
-sets how many, 4 by default, always including the incumbent and the winner.
+The solutions offered are the whole Pareto front, largest hypervolume
+contribution first, never a dominated configuration
+([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The incumbent is
+offered only when it is on the front.
 
 **The deliverable.** `reports/outputs/` gets `solutions_<method>.csv` — one row
 per offered solution, every KPI and objective, and each one's delta against
 the incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
-becomes. The largest hypervolume contribution marks one row `recommended` and
-`tilt_change_<method>.csv` carries it. A comparison has MORBO and random
-search in it and nothing else.
+becomes. The largest hypervolume contribution marks the first row
+`recommended`. A comparison has MORBO and random search in it and nothing else.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
 cell clones the repository and installs what Colab does not ship.
@@ -409,7 +410,7 @@ band-tilt/
 | `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
-| `src/utils/` — seeding, plotting; `src/config.py` — config loading | Implemented |
+| `src/utils/` — plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, MORBO on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
 | `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
@@ -445,7 +446,7 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/simulation/`'s density, region, traffic, node-layout, seed-stream, grid and radio-map-archive logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/scenario/`'s density, region, traffic, node-layout and grid logic; `src/simulation/`'s seed-stream and radio-map-archive logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from omegaconf import OmegaConf
 
 from src.core.sector import Sector
 from src.simulation import radio, seeds
 from src.simulation.radio import Band, SolverSpec, baseline_tilts, write_radio_map
+from tests.conftest import sector_from_mapping
 
 
 def test_the_seed_streams_do_not_move() -> None:
@@ -21,21 +21,19 @@ def test_the_seed_streams_do_not_move() -> None:
 
 
 def _sector(name: str, tilts: dict[str, float], max_prb: int = 50) -> Sector:
-    return Sector.from_config(
-        OmegaConf.create(
-            {
-                "name": name,
-                "x": 0.0,
-                "y": 0.0,
-                "z": 25.0,
-                "azimuth_deg": 0.0,
-                "tilt": {
-                    band: {"baseline_deg": tilt, "bounds_deg": [0.0, 15.0]}
-                    for band, tilt in tilts.items()
-                },
-                "max_prb": {band: max_prb for band in tilts},
-            }
-        )
+    return sector_from_mapping(
+        {
+            "name": name,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 25.0,
+            "azimuth_deg": 0.0,
+            "tilt": {
+                band: {"baseline_deg": tilt, "bounds_deg": [0.0, 15.0]}
+                for band, tilt in tilts.items()
+            },
+            "max_prb": {band: max_prb for band in tilts},
+        }
     )
 
 

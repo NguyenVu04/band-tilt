@@ -5,10 +5,11 @@ these to publish. Nothing here re-solves anything: the run already holds the
 measurements, so this selects from them, shapes the two tables an operator
 reads, and prints the result.
 
-The shortlist is the Pareto front beside the incumbent, ranked by hypervolume
-contribution, so the recommended row is published with the trade-offs it was
-chosen from rather than alone. Every measure here is the search's own, over
-every UE.
+The shortlist is the whole Pareto front, ranked by hypervolume contribution,
+so the recommended row is published with the trade-offs it was chosen from
+rather than alone. The incumbent is listed only when it is on the front; every
+delta is still measured against it. Every measure here is the search's own,
+over every UE.
 
 This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:
 :mod:`src.evaluation` states that it re-solves nothing and imports neither
@@ -18,20 +19,13 @@ comparison run on a machine with no GPU.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.optim.history import (
-    History,
-    LocalRunWriter,
-    write_run,
-    write_solution_options,
-    write_tilt_change,
-)
+from src.optim.history import History, LocalRunWriter, write_run, write_solution_options
 from src.optim.objective import (
     MEASURE_NAMES,
     KpiVector,
@@ -41,31 +35,17 @@ from src.optim.objective import (
 )
 
 
-def choose(kpis: list[KpiVector], n_solutions: int, keep: Sequence[int] = (0,)) -> list[int]:
-    """Which rows to publish, ``keep`` rows first, as indices into ``kpis``.
+def choose(kpis: list[KpiVector]) -> list[int]:
+    """Which rows to publish, as indices into ``kpis``: the Pareto front.
 
-    ``keep`` rows come first, then the other Pareto points by hypervolume
-    contribution, largest first, up to the budget. A dominated row is never
-    offered. A tie keeps the earlier row, as
-    :func:`src.optim.objective.best_by_hvc` does.
-
-    Args:
-        kpis: Every evaluation's measured KPI vector.
-        n_solutions: How many to offer. Raised to fit ``keep``, which is a
-            floor and not a preference.
-        keep: Rows that must be in the shortlist. The caller passes the
-            incumbent, which every published delta is measured against, and the
-            winner, so the run cannot recommend a solution it did not offer.
+    Largest hypervolume contribution first, so the recommendation
+    (:func:`src.optim.objective.best_by_hvc`) leads; a tie keeps the earlier
+    row, as that function does. A dominated row is never offered.
     """
     points = objective_matrix(kpis)
     front = np.flatnonzero(pareto_mask(points))
     ranked = front[np.argsort(-hypervolume_contributions(points)[front], kind="stable")]
-
-    # dict.fromkeys keeps this order while dropping the repeats it can make: the
-    # winner always ranks first, and the incumbent can be on the front.
-    required = dict.fromkeys(int(index) for index in keep)
-    picks = dict.fromkeys([*required, *(int(index) for index in ranked)])
-    return list(picks)[: max(n_solutions, len(required))]
+    return [int(index) for index in ranked]
 
 
 def solutions(frame: pd.DataFrame, picks: list[int], best_index: int) -> pd.DataFrame:
@@ -96,7 +76,7 @@ def choice_table(published: pd.DataFrame, incumbent: KpiVector) -> pd.DataFrame:
         values = table[name]
         # The percentile measures are -inf when nothing is covered
         # (src/kpi/quality.py), so a total-outage pair would subtract to NaN and
-        # print as a blank sector. Two configurations that both cover nothing have
+        # print as a blank cell. Two configurations that both cover nothing have
         # not moved the measure.
         delta = np.where(
             (values == reference) & np.isinf(values), 0.0, values.to_numpy() - reference
@@ -133,13 +113,11 @@ def publish(
     name.
     """
     best_index = history.best_index()
-    best = history.results[best_index]
-    picks = choose(history.kpis, int(cfg.optim.n_solutions), keep=(0, best_index))
+    picks = choose(history.kpis)
     published = solutions(history.frame(), picks, best_index)
 
     writer = LocalRunWriter(directory)
     writer.write_frame("solutions", published)
-    tilt_change = write_tilt_change(history.tilt_table(best.tilt_deg), cfg, method)
     shortlist, options = write_solution_options(
         choice_table(published, history.results[0].kpi),
         tilt_options(published, history, picks),
@@ -155,7 +133,6 @@ def publish(
         best_index=best_index,
         extra={
             "n_solutions_offered": len(picks),
-            "tilt_change": str(tilt_change),
             "solutions": str(shortlist),
             "tilt_options": str(options),
             **(extra or {}),

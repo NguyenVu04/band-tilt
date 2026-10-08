@@ -7,17 +7,10 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.kpi import (
-    hole_rate,
-    overlap_neighbor_mean,
-    rsrp_percentile_dbm,
-    sinr_percentile_db,
-    throughput_mean_mbps,
-    throughput_percentile_mbps,
-    weak_rate,
-)
+from src.kpi import throughput_mean_mbps, throughput_percentile_mbps
 from src.kpi.capacity import _tile_index, finite, max_rsrp, serve_intervals
 from src.kpi.overlap import overlap_neighbors
+from src.optim.objective import map_kpis
 from tests.conftest import write_sectors
 
 
@@ -79,48 +72,43 @@ def _served(rsrp: np.ndarray, ue: pd.DataFrame, cfg) -> pd.DataFrame:
     return serve_intervals(rsrp, _sinr(rsrp), ["hi", "lo"], ue, cfg)
 
 
-# --- thresholds ------------------------------------------------------------
-
-
 def test_hole_and_weak_thresholds_are_inclusive_upper_bounds(cfg) -> None:
     """A tile exactly on a threshold falls in the class below it."""
     rsrp = _map([[[-120.0, -119.9, -90.0, -89.9]]])
-    assert hole_rate(rsrp, cfg) == pytest.approx(0.25)
+    kpis = map_kpis(rsrp, _sinr(rsrp), cfg)
+    assert kpis["hole_rate"] == pytest.approx(0.25)
     # -119.9 and -90.0 are weak; -89.9 is strong and -120.0 is a hole.
-    assert weak_rate(rsrp, cfg) == pytest.approx(0.5)
+    assert kpis["weak_rate"] == pytest.approx(0.5)
 
 
 def test_a_tile_no_transmitter_reaches_is_a_hole(cfg) -> None:
     """NaN is the ray tracer's no-path marker, not a missing value to skip."""
     rsrp = _map([[[np.nan, -80.0]]])
-    assert hole_rate(rsrp, cfg) == pytest.approx(0.5)
-    assert weak_rate(rsrp, cfg) == pytest.approx(0.0)
+    kpis = map_kpis(rsrp, _sinr(rsrp), cfg)
+    assert kpis["hole_rate"] == pytest.approx(0.5)
+    assert kpis["weak_rate"] == pytest.approx(0.0)
 
 
 def test_a_map_reaching_nothing_is_entirely_holes(cfg) -> None:
     """The soft hole term rests on this: no path must never read as coverage."""
-    assert hole_rate(_map([[[np.nan, np.nan]]]), cfg) == pytest.approx(1.0)
-
-
-# --- RSRP and SINR percentiles ---------------------------------------------
+    rsrp = _map([[[np.nan, np.nan]]])
+    assert map_kpis(rsrp, _sinr(rsrp), cfg)["hole_rate"] == pytest.approx(1.0)
 
 
 def test_rsrp_percentile_ignores_the_locations_with_no_coverage(cfg) -> None:
-    """Conditional on coverage by design: a hole has no serving RSRP to report.
-
-    Taken at the 0th percentile so the assertion is the weakest covered tile
-    itself, with no interpolation between order statistics to read past.
-    """
+    """Conditional on coverage by design: a hole has no serving RSRP to report."""
     # No path, exactly on the hole threshold, then three covered tiles. The
-    # first two are excluded, so the weakest reported is -100 and not -inf.
+    # first two are excluded, so the samples are -100, -90 and -80 only.
     rsrp = _map([[[np.nan, -120.0, -100.0, -90.0, -80.0]]])
-    assert rsrp_percentile_dbm(rsrp, cfg, 0.0) == pytest.approx(-100.0)
-    assert rsrp_percentile_dbm(rsrp, cfg, 50.0) == pytest.approx(-90.0)
+    kpis = map_kpis(rsrp, _sinr(rsrp), cfg)
+    assert kpis["rsrp_p05_dbm"] == pytest.approx(-99.0)
+    assert kpis["rsrp_p50_dbm"] == pytest.approx(-90.0)
 
 
 def test_rsrp_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
     """Total outage has to order below every configuration that covers something."""
-    assert rsrp_percentile_dbm(_map([[[np.nan, np.nan]]]), cfg, 5.0) == -np.inf
+    rsrp = _map([[[np.nan, np.nan]]])
+    assert map_kpis(rsrp, _sinr(rsrp), cfg)["rsrp_p05_dbm"] == -np.inf
 
 
 def test_sinr_percentile_reads_the_layer_the_rsrp_percentile_reads(cfg) -> None:
@@ -128,17 +116,13 @@ def test_sinr_percentile_reads_the_layer_the_rsrp_percentile_reads(cfg) -> None:
     rsrp = _map([[[-100.0, -95.0]], [[-80.0, -130.0]]])
     sinr = _map([[[3.0, 9.0]], [[12.0, -5.0]]])
     # Tile 0: 'lo' at -80 serves, SINR 12. Tile 1: 'hi' at -95 serves, SINR 9.
-    assert sinr_percentile_db(rsrp, sinr, cfg, 0.0) == pytest.approx(9.0)
-    assert sinr_percentile_db(rsrp, sinr, cfg, 100.0) == pytest.approx(12.0)
+    assert map_kpis(rsrp, sinr, cfg)["sinr_p50_db"] == pytest.approx(10.5)
 
 
 def test_sinr_percentile_of_a_dead_map_is_minus_infinity(cfg) -> None:
     """Nothing covered, nothing to take a percentile of."""
     rsrp = _map([[[np.nan, np.nan]]])
-    assert sinr_percentile_db(rsrp, _sinr(rsrp), cfg, 50.0) == -np.inf
-
-
-# --- overlap ---------------------------------------------------------------
+    assert map_kpis(rsrp, _sinr(rsrp), cfg)["sinr_p50_db"] == -np.inf
 
 
 def test_overlap_counts_within_each_band_and_sums_across_them(cfg) -> None:
@@ -174,12 +158,13 @@ def test_overlap_neighbor_mean_averages_over_covered_tiles_only(cfg) -> None:
         ]
     )
     assert overlap_neighbors(rsrp, cfg).tolist() == [[2, 0]]
-    assert overlap_neighbor_mean(rsrp, cfg) == pytest.approx(2.0)
+    assert map_kpis(rsrp, _sinr(rsrp), cfg)["overlap_neighbor_mean"] == pytest.approx(2.0)
 
 
 def test_overlap_neighbor_mean_of_a_dead_map_is_nan(cfg) -> None:
     """No coverage is not the same statement as no crowding."""
-    assert np.isnan(overlap_neighbor_mean(_map([[[np.nan, np.nan]]]), cfg))
+    rsrp = _map([[[np.nan, np.nan]]])
+    assert np.isnan(map_kpis(rsrp, _sinr(rsrp), cfg)["overlap_neighbor_mean"])
 
 
 def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
@@ -195,16 +180,10 @@ def test_the_per_band_counts_are_what_the_total_sums(cfg) -> None:
     assert per_band.sum(axis=0).tolist() == overlap_neighbors(rsrp, cfg).tolist()
 
 
-# --- tiles -----------------------------------------------------------------
-
-
 def test_tile_index_rejects_a_ue_off_the_map() -> None:
     """A UE outside the grid means the UE table and the map are different scenarios."""
     with pytest.raises(ValueError, match="different grids"):
         _tile_index(_ue([{"tile_row": 0, "tile_col": 5}]), (1, 4))
-
-
-# --- UE KPIs ---------------------------------------------------------------
 
 
 def test_every_covered_ue_is_served(cfg) -> None:

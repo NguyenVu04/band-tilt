@@ -234,8 +234,8 @@ def map_kpis(rsrp: np.ndarray, sinr: np.ndarray, cfg: DictConfig) -> dict[str, f
         cfg: Composed config; the measures read ``cfg.kpi``.
 
     Each reduction of the full map (best server, covered mask, overlap counts,
-    serving SINR) is taken once and shared, through the same definitions the
-    single-KPI functions of :mod:`src.kpi` wrap.
+    serving SINR) is taken once and shared, through the definitions in
+    :mod:`src.kpi`.
     """
     r_max = max_rsrp(rsrp)
     is_covered = covered_best(r_max, cfg)

@@ -60,14 +60,13 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
         # throughput was measured under are recorded with the run.
         max_prb = {sector.name: sector.max_prb for sector in evaluator.space.sectors}
         history = run_search(evaluator, cfg)
-        radio_map = None
         if bool(cfg.optim.output.save_radio_map):
             # Re-solved, not kept during the search: a long run's maps do not fit
             # in memory. Same solver seed as the search, but GPU ray tracing is not
             # bit-reproducible, so a tile can differ. Not appended to the history.
             evaluator.keep_rsrp = True
             result = evaluator.evaluate(history.results[history.best_index()].tilt_deg)
-            radio_map = str(evaluator.write_radio_map(directory / "best_radio_map.npz", result))
+            evaluator.write_radio_map(directory / "best_radio_map.npz", result)
 
     publish(
         history,
@@ -78,7 +77,6 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
             "scenario_id": scenario_id,
             "max_prb": max_prb,
             "wall_clock_seconds": time.time() - started,
-            "best_radio_map": radio_map,
         },
     )
     return history, directory
@@ -90,9 +88,6 @@ def main(cfg: DictConfig) -> None:
 
     Entry point for ``task bo``, ``task baseline`` and each method ``task optim``
     loops over.
-
-    Example:
-        $ task bo -- optim/method=random optim.method.budget.n_iter=0
     """
     history, directory = run(cfg)
     best = history.results[history.best_index()].kpi

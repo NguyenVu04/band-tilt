@@ -19,6 +19,7 @@ from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
 from src.core.sector import read_sectors, site_frame
+from src.data.load import grid_shape
 from src.evaluation import compare, maps, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
@@ -233,7 +234,7 @@ def _evaluate(
                 label(key): maps.tile_median(
                     configurations[key].served,
                     "estimated_throughput_mbps",
-                    maps.grid_shape(baseline),
+                    grid_shape(baseline),
                 )
                 for key in ("incumbent", winner.method)
             },

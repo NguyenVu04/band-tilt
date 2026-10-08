@@ -7,8 +7,6 @@ only builds frames; :class:`LocalRunWriter` puts them on disk.
 
 from __future__ import annotations
 
-import json
-import math
 import subprocess
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
@@ -19,6 +17,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from src.data.load import save, write_json
 from src.optim.evaluator import EvaluationResult
 from src.optim.objective import MEASURE_NAMES, KpiVector, best_by_hvc
 from src.optim.space import TiltSpace
@@ -74,54 +73,11 @@ class LocalRunWriter:
 
     def write_frame(self, name: str, frame: pd.DataFrame) -> str:
         """Write one table as ``<name>.parquet``."""
-        path = self.directory / f"{name}.parquet"
-        frame.to_parquet(path, index=False)
-        return str(path)
+        return str(save(frame, self.directory / f"{name}.parquet"))
 
     def write_json(self, name: str, payload: dict[str, Any]) -> str:
-        """Write one document as ``<name>.json``, strict JSON.
-
-        A non-finite float is written as the string ``"inf"``, ``"-inf"`` or
-        ``"nan"``, which ``float`` reads back: ``null`` would not say which, and
-        the percentile KPIs are ``-inf`` where nothing is covered.
-        """
-        path = self.directory / f"{name}.json"
-        path.write_text(
-            json.dumps(_finite_or_text(payload), indent=2, default=str, allow_nan=False),
-            encoding="utf-8",
-        )
-        return str(path)
-
-
-def _finite_or_text(value: Any) -> Any:
-    """``value`` with every non-finite float, at any depth, replaced by its text."""
-    if isinstance(value, float) and not math.isfinite(value):
-        return str(value)
-    if isinstance(value, dict):
-        return {key: _finite_or_text(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_finite_or_text(item) for item in value]
-    return value
-
-
-def write_tilt_change(table: pd.DataFrame, cfg: DictConfig, method: str) -> Path:
-    """Republish the tilt table as the current deliverable for ``method``.
-
-    One file per method under ``cfg.optim.output.deliverable_dir``, overwritten
-    every run: the run directory keeps the history, and this answers what the
-    current answer is without globbing timestamps. CSV rather than parquet
-    because the reader is an operator, not this codebase.
-
-    Returns:
-        The path written.
-    """
-    directory = Path(cfg.optim.output.deliverable_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"tilt_change_{method}.csv"
-    # Index dropped for the same reason as src.data.load.save: every column
-    # this table needs is already a column.
-    table.to_csv(path, index=False)
-    return path
+        """Write one document as ``<name>.json``, strict JSON (:func:`src.data.load.write_json`)."""
+        return str(write_json(payload, self.directory / f"{name}.json"))
 
 
 def write_solution_options(

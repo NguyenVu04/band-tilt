@@ -10,10 +10,12 @@ import pandas as pd
 from omegaconf import DictConfig
 from scipy import stats
 
+from src.data.load import grid_shape
 from src.evaluation import maps
 from src.evaluation.runs import Run
 from src.kpi.capacity import CapacitySpec, covered, covered_best, finite, serve_intervals
-from src.kpi.overlap import overlap_neighbors
+from src.kpi.hole import hole_rate_of
+from src.kpi.overlap import overlap_neighbor_mean_of, overlap_neighbors
 from src.optim.methods.base import SEARCH
 from src.optim.objective import (
     MAXIMISED,
@@ -258,7 +260,6 @@ def method_table(runs: list[Run]) -> pd.DataFrame:
     rows = []
     for run in runs:
         deltas = delta_table(run.incumbent_kpi, run.best_kpi)
-        wall = run.wall_clock_seconds
         rows.append(
             {
                 "method": run.method,
@@ -267,7 +268,7 @@ def method_table(runs: list[Run]) -> pd.DataFrame:
                 "evaluations": run.n_evaluations,
                 "best_iteration": run.best_index,
                 "ray_tracing_min": run.ray_tracing_seconds / 60.0,
-                "wall_clock_min": wall / 60.0 if wall is not None else np.nan,
+                "wall_clock_min": run.wall_clock_seconds / 60.0,
                 **{name: getattr(run.best_kpi, name) for name in NETWORK_KPIS},
                 "kpis_improved": int((deltas["verdict"] == BETTER).sum()),
                 "kpis_worsened": int((deltas["verdict"] == WORSE).sum()),
@@ -563,7 +564,7 @@ def experiment_setup(
     Returns:
         Columns ``parameter`` and ``setting``, the setting as text.
     """
-    n_rows, n_cols = maps.grid_shape(baseline)
+    n_rows, n_cols = grid_shape(baseline)
     tile = float(baseline["tile_size_m"])
     tilt = runs[0].best_tilt
     current = sorted(tilt["current_tilt_deg"].unique())
@@ -701,13 +702,12 @@ def overlap_neighbour_summary(
     rows = []
     for name, config in configurations.items():
         counts = overlap_neighbors(config.rsrp, cfg)
-        on_covered = counts[covered(config.rsrp, cfg)]
-        if on_covered.size == 0:
-            on_covered = np.array([np.nan])
+        is_covered = covered(config.rsrp, cfg)
+        on_covered = counts[is_covered] if is_covered.any() else np.array([np.nan])
         rows.append(
             {
                 "configuration": name,
-                "mean_neighbours_covered": float(on_covered.mean()),
+                "mean_neighbours_covered": overlap_neighbor_mean_of(counts, is_covered),
                 "mean_neighbours_all": float(counts.mean()),
                 "share_0_neighbours": float((on_covered == 0).mean()),
                 "share_1_neighbours": float((on_covered == 1).mean()),
@@ -744,7 +744,7 @@ def band_layer_summary(
                 {
                     "configuration": name,
                     "band": band,
-                    "coverage_share": float(is_covered.mean()),
+                    "coverage_share": 1.0 - hole_rate_of(strongest[index], cfg),
                     "mean_band_rsrp_dbm": float(strongest[index][is_covered].mean())
                     if is_covered.any()
                     else np.nan,

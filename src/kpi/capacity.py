@@ -221,7 +221,7 @@ def _prb_bandwidth_hz(scs_hz: float | Sequence[float] | np.ndarray) -> np.ndarra
     return _SUBCARRIERS_PER_PRB * np.asarray(scs_hz, dtype=float)
 
 
-def _prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndarray:
+def prb_rate_bps(sinr: np.ndarray, bandwidth_hz: float | np.ndarray) -> np.ndarray:
     """Throughput of one PRB, ``B_PRB * log2(1 + SINR)``, in bit/s."""
     return np.asarray(bandwidth_hz, dtype=float) * spectral_efficiency(sinr)
 
@@ -248,7 +248,7 @@ def _select_serving(
         throughput at the interval's final UE count, 0 where not served.
     """
     n_ue = rsrp.shape[0]
-    rate = _prb_rate_bps(sinr, spec.prb_bandwidth_hz[None, :, None]).reshape(n_ue, -1)
+    rate = prb_rate_bps(sinr, spec.prb_bandwidth_hz[None, :, None]).reshape(n_ue, -1)
     pool = spec.pool_prb.ravel()
     # NaN compares False, so no-path layers drop out here too.
     candidate = (rsrp.reshape(n_ue, -1) > spec.min_rsrp_dbm) & np.isfinite(rate)

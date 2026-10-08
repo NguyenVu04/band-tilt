@@ -1,4 +1,3 @@
-# --- Python ---------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,16 +5,11 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# --- Environments ----------------------------------------------------------
 .venv/
 .env
-# uv.lock is deliberately NOT ignored: a project generated from this template
-# should commit its lock file. Only the template itself ships without one.
 
-# --- Notebooks -------------------------------------------------------------
 .ipynb_checkpoints/
 
-# --- Data (DVC-tracked, never committed) -----------------------------------
 # The directory negation must come first: git will not re-include a file whose
 # parent directory is excluded.
 data/**/*
@@ -23,12 +17,6 @@ data/**/*
 !data/**/.gitkeep
 !data/**/*.dvc
 
-# --- Artifacts (DVC-tracked) -----------------------------------------------
-models/*
-!models/.gitkeep
-!models/*.dvc
-
-# --- Reports ---------------------------------------------------------------
 reports/figures/*
 !reports/figures/.gitkeep
 reports/tables/*
@@ -36,14 +24,12 @@ reports/tables/*
 reports/outputs/*
 !reports/outputs/.gitkeep
 
-# --- Experiment tracking / Hydra -------------------------------------------
 mlruns/
 mlartifacts/
 mlflow.db
 # Anchored: an unanchored `outputs/` also swallows reports/outputs/.
 /outputs/
 
-# --- IDE and editor --------------------------------------------------------
 # Per-developer tool state, not project configuration. A committed editor
 # directory becomes one contributor's settings imposed on everyone else.
 .vscode/
@@ -52,7 +38,6 @@ mlflow.db
 *.code-workspace
 *.sw[op]
 
-# --- AI agent artifacts ----------------------------------------------------
 # Generated locally per agent session; not part of the source of record. The
 # committed equivalents are README.md and docs/adr/ (the
 # decisions) — an agent instruction file restates those for one tool and

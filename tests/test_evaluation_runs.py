@@ -107,8 +107,6 @@ def make_run(
                 "scenario_id": str(radio.get("scenario_id", "scn_test")),
                 "max_prb": {"n0s0": {"b700": 106}},
                 "wall_clock_seconds": 120.0,
-                # Deliberately a Windows-style path: it must never be resolved.
-                "best_radio_map": r"C:\somewhere\else\best_radio_map.npz",
                 "config": {
                     "optim": {"seed": seed},
                     "kpi": {
@@ -144,8 +142,8 @@ def test_load_reads_tables_and_metadata(tmp_path) -> None:
     assert run.wall_clock_seconds == pytest.approx(120.0)
 
 
-def test_radio_map_comes_from_the_directory_not_the_recorded_path(tmp_path) -> None:
-    """run.json's path was written on whatever platform produced it."""
+def test_radio_map_comes_from_the_run_directory(tmp_path) -> None:
+    """The winner's map is the archive beside run.json."""
     run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))
     assert run.radio_map["rsrp_dbm"].shape == (1, 1, 2, 3)
 

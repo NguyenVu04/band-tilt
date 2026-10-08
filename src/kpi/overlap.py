@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import covered, finite
+from src.kpi.capacity import finite
 
 
 def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
@@ -43,48 +43,35 @@ def overlap_neighbors(rsrp: np.ndarray, cfg: DictConfig) -> np.ndarray:
     return np.where(is_covered[:, 0], counted.sum(axis=1) - 1, 0).sum(axis=0)
 
 
-def overlap_neighbor_mean(rsrp: np.ndarray, cfg: DictConfig) -> float:
+def overlap_neighbor_mean_of(n_ov: np.ndarray, covered_mask: np.ndarray) -> float:
     """Average number of overlapping co-band neighbours over covered locations.
 
-    The severity behind :func:`overlap_rate`'s incidence: the rate says how much
-    of the map is crowded, this says how badly. Taken over covered locations
-    only, because an uncovered one has no neighbours by definition and would
-    otherwise pull the average down for having no coverage at all.
+    The severity behind :func:`overlap_rate_of`'s incidence: the rate says how
+    much of the map is crowded, this says how badly. Taken over covered
+    locations only, because an uncovered one has no neighbours by definition and
+    would otherwise pull the average down for having no coverage at all.
 
     Args:
-        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.hole_dbm`` and
-            ``cfg.kpi.overlap_margin_db``.
+        n_ov: :func:`overlap_neighbors` of the map.
+        covered_mask: :func:`~src.kpi.capacity.covered` of the map.
 
     Returns:
         ``mean{ N_ov(g) : R_max(g) > hole_dbm }``. Minimised. NaN when nothing
         is covered, which keeps a total outage out of the average rather than
         scoring it a perfect zero.
     """
-    return overlap_neighbor_mean_of(overlap_neighbors(rsrp, cfg), covered(rsrp, cfg))
-
-
-def overlap_neighbor_mean_of(n_ov: np.ndarray, covered_mask: np.ndarray) -> float:
-    """:func:`overlap_neighbor_mean` from :func:`overlap_neighbors` and the covered mask."""
     if not covered_mask.any():
         return float("nan")
     return float(n_ov[covered_mask].mean())
 
 
-def overlap_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
+def overlap_rate_of(n_ov: np.ndarray) -> float:
     """Fraction of the grid where any neighbour crowds the serving transmitter.
 
     Args:
-        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.hole_dbm`` and
-            ``cfg.kpi.overlap_margin_db``.
+        n_ov: :func:`overlap_neighbors` of the map.
 
     Returns:
         ``|{g : N_ov(g) > 0}| / |G|``, in ``[0, 1]``. Minimised.
     """
-    return overlap_rate_of(overlap_neighbors(rsrp, cfg))
-
-
-def overlap_rate_of(n_ov: np.ndarray) -> float:
-    """:func:`overlap_rate` from :func:`overlap_neighbors` already counted."""
     return float((n_ov > 0).mean())

@@ -103,14 +103,11 @@ def test_as_dict_round_trips_through_from_mapping() -> None:
 
 
 def test_from_mapping_names_a_missing_measure() -> None:
-    """An incomplete measurement, or a record from the single-objective era, is refused."""
+    """An incomplete measurement, or a record from an older measure set, is refused."""
     values = _kpi().as_dict()
     del values["separation_objective"]
     with pytest.raises(KeyError, match="separation_objective"):
         KpiVector.from_mapping(values)
-
-
-# --- coverage ---------------------------------------------------------------
 
 
 def test_a_band_at_the_weak_threshold_covers_half(cfg) -> None:
@@ -133,9 +130,6 @@ def test_coverage_reads_only_the_strongest_sector_of_each_band(cfg) -> None:
 def test_a_no_path_tile_is_not_covered(cfg) -> None:
     """No path is -inf, which no logistic lifts off zero."""
     assert coverage_objective(_map([[np.nan, np.nan], [np.nan, np.nan]]), cfg) == 0.0
-
-
-# --- separation -------------------------------------------------------------
 
 
 def test_a_lone_server_is_perfectly_separated(cfg) -> None:
@@ -179,17 +173,11 @@ def test_solver_round_off_does_not_reach_the_objectives(cfg) -> None:
         assert moved == objective(_map([[-105.0, -108.0]]), cfg)
 
 
-# --- throughput -------------------------------------------------------------
-
-
 def test_throughput_is_the_mean_log_with_an_unserved_ue_at_zero() -> None:
     """ln(1 + 9) twice and ln(1 + 0) for the UE on a hole, over three reports."""
     served = pd.DataFrame({"band": [0, 0, -1], "estimated_throughput_mbps": [9.0, 9.0, 0.0]})
     assert throughput_objective(served) == pytest.approx(2.0 * math.log(10.0) / 3.0, abs=5e-6)
     assert throughput_objective(served.iloc[:0]) == 0.0
-
-
-# --- hypervolume ------------------------------------------------------------
 
 
 def test_one_point_spans_its_box_to_the_origin() -> None:
@@ -237,9 +225,6 @@ def test_identical_rows_do_not_dominate_each_other() -> None:
     assert mask.tolist() == [True, True, False]
 
 
-# --- selection --------------------------------------------------------------
-
-
 def test_the_pick_is_the_largest_hypervolume_contribution() -> None:
     """The far-reaching separation point holds the largest exclusive slab here."""
     kpis = [
@@ -273,38 +258,6 @@ def test_a_nan_objective_is_refused_rather_than_picked() -> None:
     """A NaN would poison every comparison it enters."""
     with pytest.raises(ValueError, match="non-finite"):
         best_by_hvc([_kpi(), _kpi(coverage_objective=float("nan"))])
-
-
-def test_map_kpis_shares_reductions_without_changing_any_kpi() -> None:
-    """The shared-reduction path equals each KPI measured on its own, NaN tiles included."""
-    from src.kpi import (
-        hole_rate,
-        overlap_neighbor_mean,
-        overlap_rate,
-        rsrp_percentile_dbm,
-        sinr_percentile_db,
-        weak_rate,
-    )
-    from src.kpi.quality import LOW_PERCENTILE, MEDIAN_PERCENTILE
-    from src.optim.objective import map_kpis
-
-    rng = np.random.default_rng(0)
-    rsrp = rng.uniform(-150.0, -60.0, (3, 4, 9, 11))
-    rsrp[rng.random(rsrp.shape) < 0.2] = np.nan
-    sinr = np.where(np.isfinite(rsrp), rng.normal(5.0, 10.0, rsrp.shape), np.nan)
-    cfg = OmegaConf.create(
-        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
-    )
-    assert map_kpis(rsrp, sinr, cfg) == {
-        "hole_rate": hole_rate(rsrp, cfg),
-        "weak_rate": weak_rate(rsrp, cfg),
-        "overlap_rate": overlap_rate(rsrp, cfg),
-        "overlap_neighbor_mean": overlap_neighbor_mean(rsrp, cfg),
-        "rsrp_p50_dbm": rsrp_percentile_dbm(rsrp, cfg, MEDIAN_PERCENTILE),
-        "rsrp_p05_dbm": rsrp_percentile_dbm(rsrp, cfg, LOW_PERCENTILE),
-        "sinr_p50_db": sinr_percentile_db(rsrp, sinr, cfg, MEDIAN_PERCENTILE),
-        "sinr_p05_db": sinr_percentile_db(rsrp, sinr, cfg, LOW_PERCENTILE),
-    }
 
 
 def test_run_json_is_strict_and_non_finite_kpis_round_trip(tmp_path) -> None:

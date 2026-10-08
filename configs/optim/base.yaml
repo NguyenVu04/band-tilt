@@ -22,7 +22,3 @@ budget:
   n_init: 8
   # Evaluations after the initial design.
   n_iter: 64
-
-# Number of published solutions: the incumbent, the winner, then the rest of
-# the Pareto front by hypervolume contribution.
-n_solutions: 4

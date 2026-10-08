@@ -28,8 +28,6 @@ tasks:
       - task --list
     silent: true
 
-  # --- environment ---------------------------------------------------------
-
   setup:
     desc: Create the environment with every extra and install git hooks
     cmds:
@@ -67,8 +65,6 @@ tasks:
     cmds:
       - uv add --optional dev {{.CLI_ARGS}}
 
-  # --- quality -------------------------------------------------------------
-
   lint:
     desc: Lint with ruff (includes docstring rules)
     cmds:
@@ -91,8 +87,6 @@ tasks:
     cmds:
       - task: lint
       - task: test
-
-  # --- pipeline ------------------------------------------------------------
 
   lab:
     desc: Start JupyterLab
@@ -154,8 +148,6 @@ tasks:
     cmds:
       - uv run streamlit run demo/app.py --browser.gatherUsageStats false {{.CLI_ARGS}}
 
-  # --- versioning and tracking ---------------------------------------------
-
   dvc:init:
     desc: Initialise DVC in this repository
     cmds:
@@ -185,8 +177,6 @@ tasks:
     desc: Serve the MLflow UI on MLFLOW_TRACKING_URI (default sqlite:///mlflow.db)
     cmds:
       - uv run mlflow ui --backend-store-uri ${MLFLOW_TRACKING_URI:-sqlite:///mlflow.db}
-
-  # --- housekeeping --------------------------------------------------------
 
   clean:
     desc: Remove caches and compiled files

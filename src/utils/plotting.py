@@ -156,7 +156,7 @@ def save_fig(
     figure: matplotlib.figure.Figure,
     name: str,
     in_colab: bool,
-    directory: str | Path = "reports/figures",
+    directory: str | Path,
 ) -> None:
     """Write ``figure`` to ``directory/name.png`` so it can be viewed without rerunning it.
 

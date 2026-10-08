@@ -20,7 +20,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
-from src.core.sector import Sector, read_sectors
+from src.core.sector import Sector, read_sectors, require_bands
 from src.simulation import materials, seeds, transmitter
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneSpec
@@ -388,7 +388,7 @@ def solve_band(
         ),
         orientation=mi.Point3f(0.0, 0.0, 0.0),
         size=mi.Point2f(size_x, size_y),
-        # sionna-rt calls a map square a "sector"; it is our tile.
+        # sionna-rt calls a tile a "cell".
         cell_size=mi.Point2f(grid_meta["tile_size_m"], grid_meta["tile_size_m"]),
         samples_per_tx=spec.samples_per_tx,
         max_depth=spec.max_depth,
@@ -439,18 +439,7 @@ def _check_tilt_table(sectors: tuple[Sector, ...], bands: tuple[Band, ...]) -> N
             band's ``scs_hz`` and ``bandwidth`` have no N_RB in TS 38.101-1
             Table 5.3.2-1, or a ``max_prb`` differs from that N_RB.
     """
-    missing = [
-        f"{sector.name}/{band.name}"
-        for sector in sectors
-        for band in bands
-        if band.name not in sector.tilt or band.name not in sector.max_prb
-    ]
-    if missing:
-        raise ValueError(
-            f"{len(missing)} sector-band pairs have no tilt or max_prb: {', '.join(missing[:8])}"
-            f"{' ...' if len(missing) > 8 else ''}. Every sector needs one entry per band in "
-            "simulation.radio_map.bands; regenerate or fix the sector table if the bands changed."
-        )
+    require_bands(sectors, [band.name for band in bands], with_max_prb=True)
     n_rb = {band.name: _N_RB.get(band.scs_hz, {}).get(band.bandwidth_hz) for band in bands}
     unknown = [
         f"{band.name} ({band.bandwidth_hz:g} Hz at {band.scs_hz:g} Hz SCS)"
@@ -518,11 +507,7 @@ def read_manifest(cfg: DictConfig) -> dict[str, Any]:
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Solve the radio maps. Entry point for ``task simulation:radio``.
-
-    Example:
-        $ task simulation:radio -- simulation.radio_map.samples_per_tx=100000
-    """
+    """Solve the radio maps. Entry point for ``task simulation:radio``."""
     log_stage(cfg, "simulation_radio", groups=["simulation"], outputs=[solve(cfg)])
 
 

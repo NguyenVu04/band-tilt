@@ -5,14 +5,12 @@ from __future__ import annotations
 import numpy as np
 from omegaconf import DictConfig
 
-from src.kpi.capacity import max_rsrp
 
-
-def weak_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
+def weak_rate_of(r_max: np.ndarray, cfg: DictConfig) -> float:
     """Fraction of the grid that is covered, but only just.
 
     Args:
-        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
+        r_max: :func:`~src.kpi.capacity.max_rsrp` of the map.
         cfg: Composed config; reads ``cfg.kpi.hole_dbm`` and ``cfg.kpi.weak_dbm``.
 
     Returns:
@@ -20,9 +18,4 @@ def weak_rate(rsrp: np.ndarray, cfg: DictConfig) -> float:
         Minimised. The interval is open at ``hole_dbm``, which is where the hole
         rate is closed, so hole and weak cannot both hold at one location.
     """
-    return weak_rate_of(max_rsrp(rsrp), cfg)
-
-
-def weak_rate_of(r_max: np.ndarray, cfg: DictConfig) -> float:
-    """:func:`weak_rate` from a :func:`~src.kpi.capacity.max_rsrp` already taken."""
     return float(((r_max > float(cfg.kpi.hole_dbm)) & (r_max <= float(cfg.kpi.weak_dbm))).mean())

@@ -114,11 +114,6 @@ class Schedule:
         """Index of each interval, ``0 .. n_intervals - 1``."""
         return np.arange(self.n_intervals, dtype=np.int64)
 
-    @property
-    def n_ue(self) -> int:
-        """Total UEs across every interval."""
-        return int(self.count.sum())
-
 
 def build(
     spec: TrafficSpec,
@@ -166,7 +161,6 @@ def build(
     )
     intensity = profile * _ar1_unit_mean(n_t, n_hotspots, spec, rng)
 
-    # Set background intensity to the requested mean hotspot share.
     background = n_hotspots * (1.0 - hotspot_mass_fraction) / hotspot_mass_fraction
     unnormalised = np.concatenate([np.full((n_t, 1), background), intensity], axis=1)
 

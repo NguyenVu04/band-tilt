@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -95,9 +95,7 @@ class Sector:
     z: float
     azimuth_deg: float
     tilt: dict[str, Tilt]
-    # Defaulted so tilt-only callers need not invent limits;
-    # max_prb_for raises for a band that was never given one.
-    max_prb: dict[str, int] = field(default_factory=dict)
+    max_prb: dict[str, int]
 
     def __post_init__(self) -> None:
         """Reject a PRB limit no UE could be scheduled under.
@@ -135,23 +133,6 @@ class Sector:
                 f"needs one per band; this one has {sorted(self.tilt)}."
             )
         return self.tilt[band_name]
-
-    @classmethod
-    def from_config(cls, entry: DictConfig) -> Sector:
-        """Read one sector written as a mapping, the form test fixtures use.
-
-        A mapping without ``node`` stands on a mast of its own, named after it.
-        """
-        return cls(
-            name=str(entry.name),
-            node=str(entry.get("node", entry.name)),
-            x=float(entry.x),
-            y=float(entry.y),
-            z=float(entry.z),
-            azimuth_deg=float(entry.azimuth_deg),
-            tilt={str(band): Tilt.from_config(value) for band, value in entry.tilt.items()},
-            max_prb={str(band): int(value) for band, value in entry.get("max_prb", {}).items()},
-        )
 
 
 def sectors_to_frame(sectors: Sequence[Sector]) -> pd.DataFrame:
@@ -234,7 +215,7 @@ def sectors_from_frame(frame: pd.DataFrame) -> tuple[Sector, ...]:
 
 
 def read_sectors(path: str | Path) -> tuple[Sector, ...]:
-    """Read a sector table, CSV or Parquet by suffix, into sectors in table order.
+    """Read a sector table CSV into sectors in table order.
 
     Raises:
         FileNotFoundError: When the file does not exist, which means the stage
@@ -247,10 +228,33 @@ def read_sectors(path: str | Path) -> tuple[Sector, ...]:
         raise FileNotFoundError(
             f"No sector table at {path}. Run `task simulation:scenario`, or supply one."
         )
-    frame = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+    frame = pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"{path} holds no sector.")
     return sectors_from_frame(frame)
+
+
+def require_bands(
+    sectors: Sequence[Sector], band_names: Sequence[str], *, with_max_prb: bool = False
+) -> None:
+    """Check every sector carries a tilt, and a PRB limit when asked, for every band.
+
+    Raises:
+        ValueError: Naming the sector-band pairs that lack one.
+    """
+    missing = [
+        f"{sector.name}/{band}"
+        for sector in sectors
+        for band in band_names
+        if band not in sector.tilt or (with_max_prb and band not in sector.max_prb)
+    ]
+    if missing:
+        what = "tilt or max_prb" if with_max_prb else "tilt"
+        raise ValueError(
+            f"{len(missing)} sector-band pairs have no {what}: {', '.join(missing[:8])}"
+            f"{' ...' if len(missing) > 8 else ''}. Every sector needs one entry per band in "
+            "simulation.radio_map.bands; regenerate or fix the sector table if the bands changed."
+        )
 
 
 def site_frame(sectors: Sequence[Sector]) -> pd.DataFrame:

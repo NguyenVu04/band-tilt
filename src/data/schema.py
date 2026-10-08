@@ -81,7 +81,6 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     def table() -> pd.DataFrame:
         return pd.DataFrame(checks, columns=["check", "source", "holds", "violations"])
 
-    # Structure: everything below indexes into these.
     manifest = artifacts.manifest
     missing_keys = [".".join(path) for path in _MANIFEST_KEYS if not _has(manifest, path)]
     record(
@@ -131,7 +130,6 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     bands = list(cfg.simulation.radio_map.bands)
     rsrp, sinr = artifacts.radio["rsrp_dbm"], artifacts.radio.get("sinr_db")
 
-    # Do the files describe the same run?
     record(
         "npz tx_name matches the sector table",
         _SECTORS,

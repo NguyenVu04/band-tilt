@@ -13,25 +13,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
+import torch
 from omegaconf import DictConfig, OmegaConf
 
 from src.optim.evaluator import EvaluationResult
-from src.optim.history import History, LocalRunWriter, write_run, write_tilt_change
+from src.optim.history import History, LocalRunWriter, write_run
 from src.optim.methods import run_search
 from src.optim.methods.morbo.search import (
-    _PROPOSAL,
-    _RESTART,
+    RESTART,
     TrustRegion,
-    _derived_seed,
+    _hv_scalarisation,
     _improvement,
     _local_rows,
     _recentre,
+    _select,
     failure_tolerance,
     perturbation_probability,
 )
-from src.optim.objective import MEASURE_NAMES, KpiVector
+from src.optim.objective import MEASURE_NAMES, KpiVector, hypervolume_contributions
 from src.optim.space import TiltSpace
 from tests.conftest import write_sectors
 
@@ -211,12 +211,19 @@ def test_morbo_records_which_generator_made_each_point(make_cfg, evaluator) -> N
 def test_a_region_halves_after_its_failure_tolerance_and_a_success_resets_it() -> None:
     """The region only shrinks: there is no success streak that grows it."""
     region = TrustRegion(centre=0, length=0.8)
-    region.record(improved=False, tolerance=3)
-    region.record(improved=True, tolerance=3)
+    region.record(improved=False, n_new=1, tolerance=3)
+    region.record(improved=True, n_new=1, tolerance=3)
     assert (region.length, region.failures) == (0.8, 0)
     for _ in range(3):
-        region.record(improved=False, tolerance=3)
+        region.record(improved=False, n_new=1, tolerance=3)
     assert (region.length, region.failures) == (pytest.approx(0.4), 0)
+
+
+def test_failures_count_evaluations_not_rounds() -> None:
+    """One failed batch as large as the tolerance halves the region at once."""
+    region = TrustRegion(centre=0, length=0.8)
+    region.record(improved=False, n_new=3, tolerance=3)
+    assert region.length == pytest.approx(0.4)
 
 
 def test_the_failure_tolerance_follows_the_paper() -> None:
@@ -233,32 +240,69 @@ def test_the_perturbation_probability_halves_over_the_budget() -> None:
     assert perturbation_probability(6, 20.0, 40, 8, 72) < 1.0
 
 
-def test_a_collapsed_region_restarts_at_a_fresh_sobol_point(make_cfg) -> None:
-    """A region born below ``length_min`` restarts every round, so nothing is model-made."""
+def test_a_collapsed_region_restarts_at_a_restart_point(make_cfg) -> None:
+    """A region born below ``length_min`` restarts every round and never proposes."""
     cfg = make_cfg("morbo")
     cfg.optim.method.trust_region.length_min = 0.9
     evaluator = StubEvaluator(TiltSpace.from_config(cfg))
     frame = run_search(evaluator, cfg).frame()
     assert len(frame) == 1 + 4 + 4
     assert set(frame["phase"]) == {"incumbent", "init"}
+    assert frame["generation_node"].iloc[1:5].eq("Sobol").all()
+    assert frame["generation_node"].iloc[5:].eq(RESTART).all()
+
+
+def test_the_hv_scalarisation_keeps_the_best_point_of_each_set() -> None:
+    """Per point ``min_j (y_j / w_j) ** m``, below-origin values clipped, then the set's maximum."""
+    weights = torch.tensor([[0.6, 0.8]], dtype=torch.float64)
+    sets = torch.tensor([[[3.0, 4.0], [0.6, -1.0]], [[0.6, 0.8], [0.3, 0.4]]], dtype=torch.float64)
+    assert _hv_scalarisation(sets, weights).tolist() == pytest.approx([25.0, 1.0])
 
 
 def test_a_region_moves_to_the_largest_contribution_inside_it() -> None:
     """Point 2 is out of reach; of the two inside, point 1 adds the most volume."""
     x = np.array([[0.5, 0.5], [0.6, 0.5], [0.0, 0.0]])
-    y = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 9.0, 1.0]])
+    y = np.array([[1.0, 2.0, 1.0], [3.0, 1.0, 1.0], [1.0, 9.0, 1.0]])
     region = TrustRegion(centre=0, length=0.4)
-    _recentre([region], x, y)
+    _recentre(region, [], hypervolume_contributions(y), x, tabu=())
     assert region.centre == 1
 
 
-def test_a_point_centres_one_region_only() -> None:
-    """The second region keeps its centre rather than share the first one's."""
+def test_two_regions_take_two_front_points() -> None:
+    """The second region cannot share the first one's centre while another point is free."""
+    x = np.array([[0.5, 0.5], [0.6, 0.5]])
+    y = np.array([[1.0, 2.0, 1.0], [3.0, 1.0, 1.0]])
+    first, second = TrustRegion(centre=0, length=0.4), TrustRegion(centre=0, length=0.4)
+    _recentre(first, [second], hypervolume_contributions(y), x, tabu=())
+    _recentre(second, [first], hypervolume_contributions(y), x, tabu=())
+    assert (first.centre, second.centre) == (1, 0)
+
+
+def test_a_lone_front_point_is_shared() -> None:
+    """With nothing else on the front, the taken point is still better than a dominated one."""
     x = np.array([[0.5, 0.5], [0.6, 0.5]])
     y = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0]])
-    first, second = TrustRegion(centre=0, length=0.4), TrustRegion(centre=0, length=0.4)
-    _recentre([first, second], x, y)
-    assert (first.centre, second.centre) == (1, 0)
+    first, second = TrustRegion(centre=1, length=0.4), TrustRegion(centre=0, length=0.4)
+    _recentre(second, [first], hypervolume_contributions(y), x, tabu=())
+    assert second.centre == 1
+
+
+def test_a_region_with_no_front_point_inside_moves_to_one_outside() -> None:
+    """A dominated centre is never kept while a free front point exists anywhere."""
+    x = np.array([[0.1, 0.1], [0.9, 0.9]])
+    y = np.array([[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
+    region = TrustRegion(centre=0, length=0.2)
+    _recentre(region, [], hypervolume_contributions(y), x, tabu=())
+    assert region.centre == 1
+
+
+def test_a_tabu_point_is_skipped() -> None:
+    """The centre a collapsed region left behind is not picked again."""
+    x = np.array([[0.5, 0.5], [0.6, 0.5]])
+    y = np.array([[1.0, 2.0, 1.0], [3.0, 1.0, 1.0]])
+    region = TrustRegion(centre=1, length=0.4)
+    _recentre(region, [], hypervolume_contributions(y), x, tabu=[1])
+    assert region.centre == 0
 
 
 def test_a_local_model_is_topped_up_with_the_nearest_points() -> None:
@@ -273,6 +317,15 @@ def test_a_sample_the_front_dominates_adds_nothing() -> None:
     front = np.array([[2.0, 1.0, 1.0]])
     samples = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 2.0, 1.0]])
     assert _improvement(front, samples).tolist() == pytest.approx([0.0, 0.0, 1.0])
+
+
+def test_selection_prefers_improvement_and_falls_back_to_a_scalarisation() -> None:
+    """An improving sample is rule 2; with none, the sample best on every weight wins, rule 1."""
+    front = np.array([[2.0, 2.0, 2.0]])
+    improving = np.array([[1.0, 1.0, 1.0], [3.0, 1.0, 1.0]])
+    assert _select(front, improving)[:2] == (2, 1)
+    dominated = np.array([[0.5, 0.5, 0.5], [1.5, 1.5, 1.5], [1.0, 1.0, 1.0]])
+    assert _select(front, dominated)[:2] == (1, 1)
 
 
 def test_random_search_never_reaches_a_model(make_cfg, evaluator) -> None:
@@ -290,15 +343,6 @@ def test_random_search_opens_with_morbos_initial_design(make_cfg) -> None:
     run_search(random_eval, make_cfg("random"))
     n_init = cfg.optim.method.budget.n_init
     assert np.allclose(morbo_eval.seen[: 1 + n_init], random_eval.seen[: 1 + n_init])
-
-
-def test_morbo_derived_seeds_do_not_alias_across_a_seed_sweep() -> None:
-    """Seed 42's first restart must not redraw seed 43's initial design, as ``42 + 1`` did."""
-    assert _derived_seed(42, _RESTART, 1) == _derived_seed(42, _RESTART, 1)
-    assert _derived_seed(42, _RESTART, 1) != 43
-    assert _derived_seed(42, _PROPOSAL, 20) != _derived_seed(43, _PROPOSAL, 19)
-    assert _derived_seed(42, _RESTART, 1) != _derived_seed(42, _PROPOSAL, 1)
-    assert 0 <= _derived_seed(2**40, _PROPOSAL, 3) < 2**32
 
 
 def test_an_unknown_method_names_the_registered_ones(cfg, evaluator) -> None:
@@ -329,23 +373,6 @@ def test_the_tilt_table_reports_delta_against_the_incumbent(make_cfg, evaluator)
     assert np.allclose(
         table["delta_tilt_deg"], table["optimized_tilt_deg"] - table["current_tilt_deg"]
     )
-
-
-def test_the_deliverable_is_republished_per_method_and_overwritten(
-    make_cfg, evaluator, tmp_path: Path
-) -> None:
-    """One current file per method: a rerun replaces it rather than accumulating."""
-    cfg = make_cfg("random")
-    cfg.optim.output.deliverable_dir = str(tmp_path / "reports" / "outputs")
-    history = run_search(evaluator, cfg)
-    table = history.tilt_table(history.results[history.best_index()].tilt_deg)
-
-    path = write_tilt_change(table, cfg, "random")
-    assert path == Path(cfg.optim.output.deliverable_dir) / "tilt_change_random.csv"
-    pd.testing.assert_frame_equal(pd.read_csv(path), table)
-
-    write_tilt_change(table, cfg, "random")
-    assert sorted(p.name for p in path.parent.iterdir()) == ["tilt_change_random.csv"]
 
 
 def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) -> None:

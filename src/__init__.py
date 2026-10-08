@@ -8,7 +8,7 @@ Layout:
 - ``src.kpi``         the reported KPIs and the serving rule
 - ``src.optim``       the objectives, MORBO and random search, and the run it publishes
 - ``src.evaluation``  compare finished runs, write tables and figures
-- ``src.utils``       seeding and plotting
+- ``src.utils``       plotting
 - ``src.config``      compose the Hydra config outside an entry point
 - ``src.tracking``    log one stage as one MLflow run
 

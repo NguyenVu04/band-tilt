@@ -6,8 +6,11 @@ import numpy as np
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
+from src.data.load import grid_shape
 from src.evaluation import maps
-from src.kpi import hole_rate, weak_rate
+from src.kpi.capacity import max_rsrp
+from src.kpi.hole import hole_rate_of
+from src.kpi.weak import weak_rate_of
 
 
 @pytest.fixture
@@ -43,8 +46,8 @@ def test_coverage_table_tile_share_is_the_kpi(cfg: DictConfig) -> None:
     counts = rng.integers(0, 5, size=(8, 9))
 
     table = maps.coverage_table(rsrp, counts, cfg).set_index("coverage")
-    assert table.loc["hole", "tile_share"] == pytest.approx(hole_rate(rsrp, cfg))
-    assert table.loc["weak", "tile_share"] == pytest.approx(weak_rate(rsrp, cfg))
+    assert table.loc["hole", "tile_share"] == pytest.approx(hole_rate_of(max_rsrp(rsrp), cfg))
+    assert table.loc["weak", "tile_share"] == pytest.approx(weak_rate_of(max_rsrp(rsrp), cfg))
     assert table["tile_share"].sum() == pytest.approx(1.0)
     assert table["demand_share"].sum() == pytest.approx(1.0)
 
@@ -110,4 +113,4 @@ def test_extent_spans_whole_tiles() -> None:
     """The grid rounds up, so the extent overhangs the scene rather than clipping."""
     radio = {"origin_x": -100.0, "origin_y": -50.0, "tile_size_m": 20.0, "n_cols": 5, "n_rows": 3}
     assert maps.extent_of(radio) == [-100.0, 0.0, -50.0, 10.0]
-    assert maps.grid_shape(radio) == (3, 5)
+    assert grid_shape(radio) == (3, 5)

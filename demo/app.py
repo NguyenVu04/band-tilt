@@ -21,6 +21,7 @@ from src.evaluation import runs as run_store
 from src.evaluation.export import readable
 from src.kpi.capacity import max_rsrp
 from src.optim.evaluator import Evaluator
+from src.optim.history import History
 from src.optim.objective import OBJECTIVE_NAMES, KpiVector
 from src.utils.plotting import label
 
@@ -133,7 +134,6 @@ st.pyplot(
 )
 
 if moved.any():
-    change = space.as_frame(np.array(tilt)).assign(current_tilt_deg=space.baseline)
-    change["delta_tilt_deg"] = change["tilt_deg"] - change["current_tilt_deg"]
+    change = History(space).tilt_table(np.array(tilt))
     st.subheader("Tilt change against the current network")
     st.dataframe(readable(change[moved]), hide_index=True, width="stretch")

@@ -1,6 +1,6 @@
 # @package optim.method
-# MORBO (Daulton et al., 2022) on the three objectives, budget from optim.budget.
-# Defaults follow the paper's Appendix D; docs/MORBO.pdf.
+# MORBO (Daulton et al., UAI 2022) on the searched objectives, budget from
+# optim.budget. Defaults follow the paper's Appendix D.
 
 name: morbo
 
@@ -16,7 +16,7 @@ budget:
 n_candidates: 2048
 
 # Trust regions in the unit cube. A region only shrinks; it halves after
-# max(10, ceil(d / 3)) failed rounds and restarts below length_min.
+# max(10, ceil(d / 3)) failed evaluations and restarts below length_min.
 trust_region:
   # Regions searched in parallel.
   count: 1

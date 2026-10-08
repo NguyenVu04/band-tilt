@@ -65,7 +65,6 @@ def test_counts_lie_in_the_configured_range() -> None:
 
     assert schedule.count.min() >= 100
     assert schedule.count.max() <= 200
-    assert schedule.n_ue == int(schedule.count.sum())
 
 
 def test_demand_moves_between_intervals_once_it_is_noisy() -> None:

@@ -7,10 +7,8 @@ afterwards — a decision that turns out wrong gets a *new* record that supersed
 the old one.
 
 The point is not process. It is that in two years someone will ask why a
-coverage hole is defined at −120 dBm, why a hole outranks an overlap rather
-than being traded off against it, or why the split falls between scenarios
-rather than records — and the answer will otherwise have left with whoever made
-the call.
+coverage hole is defined at −120 dBm — and the answer will otherwise have left
+with whoever made the call.
 
 ## Relationship to the rest of the repository
 
@@ -120,7 +118,7 @@ is the thing these records exist to preserve.
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | 2026-08-28 | — |
 | [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Superseded by 0003 | 2026-09-13 | 2026-09-14 |
 | [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set | Proposed; sections 1 and 3 superseded by 0003 | 2026-09-22 | 2026-10-03 |
-| [0003](0003-three-objectives-and-morbo.md) | Three objectives, searched by MORBO, recommended by hypervolume contribution | Proposed | 2026-10-07 | — |
+| [0003](0003-three-objectives-and-morbo.md) | Coverage and separation searched by MORBO, recommended by hypervolume contribution | Accepted | 2026-10-07 | 2026-10-08 |
 
 Every other record is deleted and lives in Git history. Numbers were reused
 on 2026-09-22 and 2026-09-28; see above.

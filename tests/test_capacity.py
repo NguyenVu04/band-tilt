@@ -11,7 +11,6 @@ from src.evaluation import compare
 from src.kpi import capacity
 from tests.conftest import write_sectors
 
-# 12 subcarriers of 15 kHz: 180 kHz per PRB.
 _B_PRB = 180_000.0
 # The SINR at which log2(1 + SINR) = 0.6: a 'lo' PRB carries 0.6 of a 0 dB one.
 _SINR_SE_06 = 10.0 * np.log10(2.0**0.6 - 1.0)
@@ -73,7 +72,7 @@ def test_the_usable_share_is_checked_against_config(cfg) -> None:
 def test_the_prb_rate_follows_the_shannon_formula() -> None:
     """At 0 dB SINR the spectral efficiency is exactly 1 bit/s/Hz."""
     assert capacity.spectral_efficiency(0.0) == pytest.approx(1.0)
-    assert capacity._prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0)) == pytest.approx(_B_PRB)
+    assert capacity.prb_rate_bps(0.0, capacity._prb_bandwidth_hz(15000.0)) == pytest.approx(_B_PRB)
 
 
 def test_each_ue_takes_the_sector_band_with_the_largest_equal_share(cfg) -> None:

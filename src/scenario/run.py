@@ -18,6 +18,7 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
+from src.data.load import write_json
 from src.scenario import density, grid, sample, traffic
 from src.scenario.density import DensitySpec
 from src.scenario.grid import GridSpec
@@ -37,9 +38,7 @@ def scenario_id(cfg: DictConfig) -> str:
     """A short, stable id for the scenario this config describes.
 
     Derived from the settings that determine the world and its population, so
-    two runs share an id exactly when they are the same scenario. Train,
-    validation and test split between whole scenarios, and this is the key they
-    split on.
+    two runs share an id exactly when they are the same scenario.
     """
     identity = {key: _resolved(cfg.scenario[key]) for key in _IDENTITY_KEYS}
     identity["scene_file"] = str(cfg.simulation.input.scene_file)
@@ -104,12 +103,10 @@ def generate(cfg: DictConfig) -> tuple[Path, Path, Path, Path]:
     sectors_file = Path(cfg.simulation.input.sectors_file)
     sectors_file.parent.mkdir(parents=True, exist_ok=True)
     sectors.to_csv(sectors_file, index=False, float_format="%.3f")
-    record_file = _write_json(
-        Path(cfg.scenario.output.record_file), _record(cfg, bounds, field, schedule, x)
+    record_file = write_json(
+        _record(cfg, bounds, field, schedule, x), cfg.scenario.output.record_file
     )
-    manifest_file = _write_json(
-        Path(cfg.simulation.input.manifest_file), _manifest(cfg, raster, schedule)
-    )
+    manifest_file = write_json(_manifest(cfg, raster, schedule), cfg.simulation.input.manifest_file)
 
     eligible = density.eligible_tiles(raster)
     tile_col, tile_row = raster.tile_indices(x, y)
@@ -199,20 +196,9 @@ def _record(
     }
 
 
-def _write_json(path: Path, content: dict[str, Any]) -> Path:
-    """Write ``content`` as sorted, indented JSON, creating the directory. Returns ``path``."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(content, indent=2, sort_keys=True), encoding="utf-8")
-    return path
-
-
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Build the scenario. Entry point for ``task simulation:scenario``.
-
-    Example:
-        $ task simulation:scenario -- scenario.time.horizon_s=3600 seed=7
-    """
+    """Build the scenario. Entry point for ``task simulation:scenario``."""
     log_stage(cfg, "simulation_scenario", groups=["simulation"], outputs=generate(cfg))
 
 

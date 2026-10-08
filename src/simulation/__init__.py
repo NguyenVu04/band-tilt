@@ -12,11 +12,11 @@ and geometry are fixed for the whole scenario, so an interval changes only
 where the UEs stand, and every interval reads the same map. That is what makes
 a hundred snapshots cost what one costs.
 
-The two stages are separate because the radio map is a function of tilt and
-must be re-solved for every tilt configuration, while the geometry and the UE
-positions must *not* move when tilt does. Fused into one run, every tilt change
-would redraw the UEs and the KPIs would stop being a function of tilt — the
-property the whole optimization rests on.
+The scenario and radio stages are separate because the radio map is a function
+of tilt and must be re-solved for every tilt configuration, while the geometry
+and the UE positions must *not* move when tilt does. Fused into one run, every
+tilt change would redraw the UEs and the KPIs would stop being a function of
+tilt — the property the whole optimization rests on.
 
 Supporting modules, each with one reason to change:
 

@@ -1,6 +1,6 @@
-# 3. Three objectives, searched by MORBO, recommended by hypervolume contribution
+# 3. Coverage and separation searched by MORBO, recommended by hypervolume contribution
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-07
 - **Deciders:** Nguyễn Duy Vũ
 - **Supersedes:** [ADR 0001](0001-turbo-on-a-weighted-kpi-score.md) (TuRBO, highest-score
@@ -25,13 +25,13 @@ down, so closing a hole under a UE could lower the median throughput.
 
 ## Decision
 
-### 1. Three objectives, each maximised
+### 1. Two searched objectives and a recorded one, each maximised
 
 With `R_bs(g)` band `b`'s strongest sector at tile `g` and `i` the other co-band
 sectors above `kpi.hole_dbm`:
 
-- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - hole_dbm))]`,
-  `sigma(x) = 1 / (1 + 10^(-x / 10))`. The logistic is centred on `kpi.hole_dbm`:
+- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - weak_dbm))]`,
+  `sigma(x) = 1 / (1 + 10^(-x / 10))`. The logistic is centred on `kpi.weak_dbm`:
   centred on 0 dBm, as first written, it is about `10^(RSRP / 10)` and vanishes
   over the whole grid.
 - **Separation** `mean_g prod_b 1 / (1 + sum_i 10^((m - (R_bs - R_bi)) / 10))`,
@@ -40,6 +40,9 @@ sectors above `kpi.hole_dbm`:
   leaving holes to coverage.
 - **Throughput** `mean_u ln(1 + R_u)` over every UE report, `R_u` in Mbit/s. A
   proportional-fair utility: it rewards lifting slow UEs more than fast ones.
+
+Coverage and separation are searched (`OBJECTIVE_NAMES`). Throughput is measured
+and recorded with every candidate, but no search reads it until it is reviewed.
 
 Each is rounded to 6 significant digits before a search reads it, for the same
 reason `J` was rounded: GPU accumulation order varies the trailing digits.
@@ -60,9 +63,10 @@ largest hypervolume contribution, local GPs per objective (Matérn-5/2 with ARD,
 under BoTorch's dimension-scaled log-normal lengthscale prior; without a prior
 the fit failed on the first ray-traced run) fitted to shared data, and a batch chosen by Thompson-sampled hypervolume
 improvement. Hyperparameters follow the paper's Appendix D; one trust region by
-default (`trust_region.count`). A collapsed region restarts at a random Sobol
-point, the paper's Figure 4 ablation, rather than the hypervolume-scalarised
-restart its regret bound needs.
+default (`trust_region.count`). A collapsed region restarts at the point a
+random hypervolume scalarisation ranks best in one draw of a global GP over the
+initial design and earlier restart points, as Algorithm 1 and the authors'
+reference code do.
 
 Hypervolume is taken against the origin, every objective's floor, so every
 non-dominated point contributes. Each run's recommended configuration is the
@@ -92,5 +96,5 @@ deliverable is settable on an antenna and the methods search the same space.
 - **Reference point at the incumbent.** Only configurations better than today on
   all three would count; with a small budget and a random design mostly worse than
   the incumbent, the front above it is often empty early on.
-- **Knee point as the recommendation.** Needs a normalisation of three objectives
+- **Knee point as the recommendation.** Needs a normalisation of the objectives
   on different scales; the hypervolume contribution is scale-free.

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
+from src.data.load import load_npz
 from src.optim.objective import KpiVector
 
 # Written beside every run by src.optim.history.write_run.
@@ -74,7 +75,7 @@ class Run:
 
     @property
     def best_index(self) -> int:
-        """Row of ``history`` with the highest objective."""
+        """Row of ``history`` with the largest hypervolume contribution: the recommendation."""
         return int(self.meta["best_iteration"])
 
     @property
@@ -98,23 +99,18 @@ class Run:
         return str(self.meta["scenario_id"])
 
     @property
-    def wall_clock_seconds(self) -> float | None:
-        """Total run time, when the writer recorded it. None from a notebook."""
-        value = self.meta.get("wall_clock_seconds")
-        return None if value is None else float(value)
+    def wall_clock_seconds(self) -> float:
+        """Total run time."""
+        return float(self.meta["wall_clock_seconds"])
 
     @property
     def ray_tracing_seconds(self) -> float:
-        """Simulator time, summed over every evaluation. All of them are solved."""
+        """Simulator time, summed over every evaluation."""
         return float(self.history["seconds"].sum())
 
     @cached_property
     def radio_map(self) -> dict[str, np.ndarray]:
         """The winner's radio map, in the schema the simulation stage writes.
-
-        Read from the run's own directory rather than from
-        ``meta["best_radio_map"]``: that field is whatever string the writing
-        platform produced, and a Windows path does not resolve elsewhere.
 
         Raises:
             RunError: When the archive is missing.
@@ -124,8 +120,7 @@ class Run:
             raise RunError(
                 f"No {path}. The run was written with optim.output.save_radio_map=false."
             )
-        with np.load(path, allow_pickle=False) as archive:
-            return {key: archive[key] for key in archive.files}
+        return load_npz(path)
 
 
 def load(directory: str | Path) -> Run:
@@ -200,8 +195,7 @@ def baseline_map(cfg: DictConfig) -> dict[str, np.ndarray]:
     path = Path(cfg.simulation.output.radio_map_file)
     if not path.is_file():
         raise RunError(f"No {path}. Run `task simulation:radio` first.")
-    with np.load(path, allow_pickle=False) as archive:
-        return {key: archive[key] for key in archive.files}
+    return load_npz(path)
 
 
 def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
@@ -275,14 +269,7 @@ def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
             )
         ],
     )
-    record(
-        "every run recorded the KPI definition it scored with",
-        [run.label for run in runs if "kpi" not in run.meta.get("config", {})],
-    )
-
-    definitions = [
-        (run.label, _kpi_definition(run)) for run in runs if "kpi" in run.meta.get("config", {})
-    ]
+    definitions = [(run.label, _kpi_definition(run)) for run in runs]
     reference = definitions[0][1] if definitions else None
     record(
         "KPI definition agrees across runs",
@@ -314,8 +301,8 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
 
     The thresholds, the capacity model and each sector's PRB limit (recorded by
     :func:`src.optim.run.run`): two runs that differ on any one did not measure
-    the same thing. ``capacity`` sets the PRB
-    share behind the estimated throughput; the objective does not read it.
+    the same thing. ``capacity`` sets the PRB share behind the estimated
+    throughput.
 
     ``scs_hz`` and ``temperature`` set the per-RE noise floor behind every SINR,
     and SINR and ``scs_hz`` set the throughput of one PRB. ``bandwidth`` fixes
@@ -324,15 +311,12 @@ def _kpi_definition(run: Run) -> dict[str, Any]:
     """
     config = run.meta["config"]
     kpi = config["kpi"]
-    simulation = config.get("simulation", {})
-    radio_map = simulation.get("radio_map", {})
+    radio_map = config["simulation"]["radio_map"]
     return {
-        **{key: kpi.get(key) for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
-        "capacity": kpi.get("capacity"),
-        "max_prb": run.meta.get("max_prb"),
-        "bandwidth": {
-            band.get("name"): band.get("bandwidth") for band in radio_map.get("bands", [])
-        },
-        "scs_hz": {band.get("name"): band.get("scs_hz") for band in radio_map.get("bands", [])},
-        "temperature": radio_map.get("temperature"),
+        **{key: kpi[key] for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
+        "capacity": kpi["capacity"],
+        "max_prb": run.meta["max_prb"],
+        "bandwidth": {band["name"]: band["bandwidth"] for band in radio_map["bands"]},
+        "scs_hz": {band["name"]: band["scs_hz"] for band in radio_map["bands"]},
+        "temperature": radio_map["temperature"],
     }

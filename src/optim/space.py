@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.core.sector import Sector, Tilt, read_sectors
+from src.core.sector import Sector, Tilt, read_sectors, require_bands
 
 
 @dataclass(frozen=True)
@@ -50,20 +50,7 @@ class TiltSpace:
         sectors = read_sectors(cfg.simulation.input.sectors_file)
         band_names = tuple(str(entry.name) for entry in cfg.simulation.radio_map.bands)
 
-        missing = [
-            f"{sector.name}/{band}"
-            for sector in sectors
-            for band in band_names
-            if band not in sector.tilt
-        ]
-        if missing:
-            raise ValueError(
-                f"{len(missing)} sector-band pairs have no tilt: {', '.join(missing[:8])}"
-                f"{' ...' if len(missing) > 8 else ''}. Every sector in "
-                f"{cfg.simulation.input.sectors_file} needs one row per band in "
-                "simulation.radio_map.bands; regenerate or fix the sector table if the bands "
-                "changed."
-            )
+        require_bands(sectors, band_names)
 
         tilts = [sector.tilt_for(band) for sector in sectors for band in band_names]
         return cls(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
+
+from src.simulation.radio import read_manifest
 
 # Each artifact's ``simulation`` config block, and what to run when it is
 # missing. The inputs come from the generator or from real data.
@@ -48,11 +51,11 @@ class Artifacts:
     @property
     def shape(self) -> tuple[int, int]:
         """The grid's ``(n_rows, n_cols)``."""
-        return int(self.radio["n_rows"]), int(self.radio["n_cols"])
+        return grid_shape(self.radio)
 
     @property
     def scenario_id(self) -> str:
-        """The manifest's scenario identifier, the intended split key."""
+        """The manifest's scenario identifier."""
         return str(self.manifest["scenario_id"])
 
 
@@ -69,14 +72,22 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
         if not path.is_file():
             raise FileNotFoundError(f"No {path}. {_SOURCES[key][1]}.")
 
-    with np.load(paths["radio_map_file"], allow_pickle=False) as archive:
-        radio = {key: archive[key] for key in archive.files}
-
     return Artifacts(
         ue=pd.read_csv(paths["ue_file"]),
-        radio=radio,
-        manifest=json.loads(paths["manifest_file"].read_text(encoding="utf-8")),
+        radio=load_npz(paths["radio_map_file"]),
+        manifest=read_manifest(cfg),
     )
+
+
+def grid_shape(radio: dict[str, Any]) -> tuple[int, int]:
+    """A radio map's grid ``(n_rows, n_cols)``."""
+    return int(radio["n_rows"]), int(radio["n_cols"])
+
+
+def load_npz(path: str | Path) -> dict[str, np.ndarray]:
+    """Every array of an ``.npz`` archive, read eagerly so the file is closed, pickles refused."""
+    with np.load(path, allow_pickle=False) as archive:
+        return {key: archive[key] for key in archive.files}
 
 
 def save(frame: pd.DataFrame, path: str | Path) -> Path:
@@ -89,3 +100,30 @@ def save(frame: pd.DataFrame, path: str | Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(path, index=False)
     return path
+
+
+def write_json(payload: dict[str, Any], path: str | Path) -> Path:
+    """Write ``payload`` as strict, indented JSON, creating the directory. Returns the path.
+
+    A non-finite float is written as the string ``"inf"``, ``"-inf"`` or
+    ``"nan"``, which ``float`` reads back: ``null`` would not say which, and
+    the percentile KPIs are ``-inf`` where nothing is covered.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_finite_or_text(payload), indent=2, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _finite_or_text(value: Any) -> Any:
+    """``value`` with every non-finite float, at any depth, replaced by its text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _finite_or_text(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_or_text(item) for item in value]
+    return value

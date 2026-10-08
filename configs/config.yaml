@@ -7,7 +7,6 @@ defaults:
   - optim/method: morbo
   - _self_
 
-# Global seed.
 seed: 42
 
 # Notebook and `task evaluate` tables and figures, one subdirectory per notebook.

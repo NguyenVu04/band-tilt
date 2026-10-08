@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec, covered_best, max_rsrp, spectral_efficiency
+from src.kpi.capacity import CapacitySpec, covered_best, max_rsrp, prb_rate_bps
 
 # Display range for RSRP images. The lower bound mirrors kpi.hole_dbm in
 # configs/kpi.yaml, so the darkest colour and "uncovered" mean the same thing to
@@ -47,7 +47,7 @@ def serving_band(rsrp: np.ndarray, sinr: np.ndarray, spec: CapacitySpec) -> np.n
         ``spec.min_rsrp_dbm``.
     """
     n_tx = rsrp.shape[1]
-    rate = spectral_efficiency(sinr) * spec.prb_bandwidth_hz[:, None, None, None]
+    rate = prb_rate_bps(sinr, spec.prb_bandwidth_hz[:, None, None, None])
     offer = spec.pool_prb[:, :, None, None] * rate
     candidate = (rsrp > spec.min_rsrp_dbm) & np.isfinite(offer)
     layers = np.where(candidate, offer, -np.inf).reshape(-1, *rsrp.shape[-2:])
@@ -173,8 +173,3 @@ def extent_of(radio: dict[str, Any]) -> list[float]:
         origin_y,
         origin_y + int(radio["n_rows"]) * tile,
     ]
-
-
-def grid_shape(radio: dict[str, Any]) -> tuple[int, int]:
-    """The grid's ``(n_rows, n_cols)``."""
-    return int(radio["n_rows"]), int(radio["n_cols"])

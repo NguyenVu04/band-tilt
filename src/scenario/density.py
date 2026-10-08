@@ -269,7 +269,7 @@ def field(raster: Raster, spec: DensitySpec, seed: int) -> DensityField:
 
     Weights carry the density function alone. They are deliberately NOT scaled
     by a tile's open area: ``free_fraction`` is a sub-sampled estimate, and on a
-    tile holding only a sliver of open ground the coarsest sub-grid sector that
+    tile holding only a sliver of open ground the coarsest sub-grid tile that
     lands on it rounds that sliver up to its own area. Baking the estimate in
     here would hand those tiles that error as UE weight.
 

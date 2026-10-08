@@ -38,7 +38,7 @@ def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     """The UE population, typed, with no row dropped.
 
     A UE no transmitter reaches stays in: the serving rule counts it as not
-    served, which is what the service failure rate has to see.
+    served, and the throughput KPIs count it at 0 Mbit/s.
 
     Returns:
         One row per UE per interval: the contract columns, any optional ones
@@ -76,11 +76,7 @@ def run(cfg: DictConfig) -> Path:
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Build the processed UE table. The script form of ``02_preprocessing.ipynb``.
-
-    Example:
-        $ uv run python -m src.data.build data.output.ue_file=/tmp/ue.parquet
-    """
+    """Build the processed UE table. The script form of ``02_preprocessing.ipynb``."""
     log_stage(cfg, "preprocessing", groups=["data"], outputs=[run(cfg)])
 
 

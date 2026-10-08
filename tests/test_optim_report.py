@@ -58,7 +58,6 @@ _CONFIG = {
         # it still exercises the whole publish path.
         "method": {"name": "random", "budget": {"n_init": 4, "n_iter": 6}},
         "output": {"dir": "", "deliverable_dir": "", "save_radio_map": False},
-        "n_solutions": 4,
         "seed": 0,
         "tilt_resolution_deg": 0.1,
     },
@@ -176,47 +175,27 @@ def _kpis(count: int) -> list[KpiVector]:
     return [_kpi(np.full(3, 0.5)), *(_kpi(rng.uniform(0.1, 1.0, 3)) for _ in range(count - 1))]
 
 
-def test_choose_always_publishes_the_incumbent_first() -> None:
-    """Every published delta is measured against it, so it has to be offered."""
-    assert choose(_kpis(24), 4)[0] == 0
-
-
-def test_choose_respects_the_budget_and_never_repeats() -> None:
-    """A required row that also ranks high is offered once."""
-    picks = choose(_kpis(24), 4, keep=(0, 3))
-    assert len(picks) == 4
-    assert len(set(picks)) == len(picks)
-
-
-def test_choose_never_drops_a_required_row_to_fit_the_budget() -> None:
-    """The budget is a preference; the incumbent and the winner are not."""
-    picks = choose(_kpis(24), 1, keep=(0, 3))
-    assert set(picks) == {0, 3}
-
-
-def test_choose_fills_the_budget_from_the_front_by_contribution() -> None:
-    """After the incumbent, only Pareto points, largest hypervolume contribution first.
+def test_choose_publishes_the_whole_front_by_contribution() -> None:
+    """Every Pareto point, largest hypervolume contribution first, and nothing else.
 
     Ranked by the measure that selects the winner, or the shortlist would
     disagree with the recommendation printed beside it.
     """
     kpis = _kpis(24)
     points = objective_matrix(kpis)
-    front = pareto_mask(points)
     contribution = hypervolume_contributions(points)
-    picks = choose(kpis, 6)
+    picks = choose(kpis)
 
-    offered = np.array(picks[1:])
-    assert front[offered].all()
-    assert np.all(np.diff(contribution[offered]) <= 0)
-    left_out = np.setdiff1d(np.flatnonzero(front), picks)
-    assert left_out.size == 0 or contribution[offered].min() >= contribution[left_out].max()
+    assert sorted(picks) == np.flatnonzero(pareto_mask(points)).tolist()
+    assert np.all(np.diff(contribution[picks]) <= 0)
 
 
-def test_choose_never_offers_a_dominated_configuration() -> None:
-    """A shorter front publishes fewer solutions rather than pad with dominated ones."""
-    kpis = [_kpi(np.full(3, 0.5)), _kpi(np.full(3, 0.9)), _kpi(np.full(3, 0.4))]
-    assert choose(kpis, 4, keep=(0, 1)) == [0, 1]
+def test_choose_lists_the_incumbent_only_when_it_is_on_the_front() -> None:
+    """A dominated incumbent is not a solution; every delta still reads against it."""
+    dominated = [_kpi(np.full(3, 0.5)), _kpi(np.full(3, 0.9)), _kpi(np.full(3, 0.4))]
+    assert choose(dominated) == [1]
+    on_front = [_kpi(np.array([0.9, 0.1, 0.5])), _kpi(np.array([0.1, 0.9, 0.5]))]
+    assert sorted(choose(on_front)) == [0, 1]
 
 
 def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
@@ -227,10 +206,6 @@ def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
     # save_radio_map is off, so nothing is re-solved.
     assert len(stub.seen) == len(history)
     assert loaded.meta["best_kpi"] == history.results[loaded.best_index].kpi.as_dict()
-    # The two-phase flags are gone: nothing is a prediction any more.
-    assert "verified" not in loaded.meta
-    assert "search_seconds" not in loaded.meta
-    assert "source" not in loaded.history
 
 
 def test_run_json_records_the_code_and_packages_it_ran_with(cfg, stub) -> None:
@@ -242,7 +217,7 @@ def test_run_json_records_the_code_and_packages_it_ran_with(cfg, stub) -> None:
 
 
 def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
-    """No row is a prediction, so the stub must have solved every one it offers."""
+    """Every published row was solved by the evaluator."""
     _history, directory = run(cfg)
     published = pd.read_parquet(directory / "solutions.parquet")
 
@@ -250,9 +225,6 @@ def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
     for _, row in published.iterrows():
         tilts = tuple(np.round(row[list(space.parameter_names)].to_numpy(dtype=float), 9))
         assert tilts in solved
-    for name in MEASURE_NAMES:
-        assert f"predicted_{name}" not in published
-        assert f"error_{name}" not in published
 
 
 def test_the_recommended_row_is_the_run_json_winner(cfg, stub) -> None:
@@ -266,12 +238,13 @@ def test_the_recommended_row_is_the_run_json_winner(cfg, stub) -> None:
 
 
 def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
-    """The deliverable offers the runners-up, and always names one solution."""
+    """The deliverable offers the whole front, and always names one solution first."""
     run(cfg)
     shortlist = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/solutions_random.csv")
     options = pd.read_csv(f"{cfg.optim.output.deliverable_dir}/tilt_options_random.csv")
 
     assert shortlist["recommended"].sum() == 1
+    assert bool(shortlist.loc[0, "recommended"])
     for name in MEASURE_NAMES:
         assert f"delta_{name}" in shortlist
     # One tilt table per offered solution, each covering every sector-band pair.
