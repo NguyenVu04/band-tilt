@@ -143,6 +143,11 @@ tasks:
       - task: optim
       - task: evaluate
 
+  reproduce:
+    desc: 'Rerun every stage and notebook and zip the results, e.g. task reproduce -- --seeds 42,43 optim.budget.n_iter=200 - needs a GPU'
+    cmds:
+      - uv run python scripts/reproduce.py {{.CLI_ARGS}}
+
   demo:
     desc: 'Live what-if app: edit tilts, ray-trace, compare KPIs (needs a CUDA GPU)'
     cmds:
