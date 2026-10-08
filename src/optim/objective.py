@@ -16,8 +16,7 @@ sector-band is above ``kpi.hole_dbm``.
   the band; a band whose strongest sector is not above ``kpi.hole_dbm`` does not
   cover the tile and contributes 1.
 - Throughput: ``mean_u ln(1 + R_u)`` over every UE report, ``R_u`` its estimated
-  throughput in Mbit/s, 0 when no layer reaches it. Measured and recorded, but
-  not in :data:`OBJECTIVE_NAMES`, so no search reads it.
+  throughput in Mbit/s, 0 when no layer reaches it.
 
 Each objective is maximised. A history is ranked by hypervolume against the
 origin, every objective's natural floor: :func:`best_by_hvc` picks the point with
@@ -66,13 +65,10 @@ KPI_NAMES = (
 )
 
 # What a search maximises, in the column order of every objective matrix.
-OBJECTIVE_NAMES = ("coverage_objective", "separation_objective")
-
-# Measured and recorded but not searched: out of the search pending review.
-UNSEARCHED_OBJECTIVES = ("throughput_objective",)
+OBJECTIVE_NAMES = ("coverage_objective", "separation_objective", "throughput_objective")
 
 # Everything measured per candidate: the column order of every table.
-MEASURE_NAMES = (*KPI_NAMES, *OBJECTIVE_NAMES, *UNSEARCHED_OBJECTIVES)
+MEASURE_NAMES = (*KPI_NAMES, *OBJECTIVE_NAMES)
 
 # The measures where larger is better. Named once, so no call site re-decides a
 # sign; the rest are minimised.
@@ -86,7 +82,6 @@ MAXIMISED = frozenset(
         "estimated_throughput_p50_mbps",
         "estimated_throughput_mean_mbps",
         *OBJECTIVE_NAMES,
-        *UNSEARCHED_OBJECTIVES,
     }
 )
 
@@ -115,7 +110,6 @@ class KpiVector:
         coverage_objective: See :func:`coverage_objective`. In ``[0, 1]``.
         separation_objective: See :func:`separation_objective`. In ``[0, 1]``.
         throughput_objective: See :func:`throughput_objective`. Non-negative.
-            Recorded, not searched.
     """
 
     hole_rate: float
@@ -316,7 +310,7 @@ def pareto_mask(points: np.ndarray) -> np.ndarray:
     A row dominates another when it is no worse on every column and strictly
     better on at least one, so identical rows do not dominate each other.
     """
-    # ponytail: O(n^2) pairwise comparison; fine for a few thousand rows, sort-based if more.
+    # O(n^2) pairwise comparison; fine for a few thousand rows, sort-based if more.
     points = np.asarray(points, dtype=float)
     no_worse = (points[:, None, :] >= points[None, :, :]).all(axis=2)
     better = (points[:, None, :] > points[None, :, :]).any(axis=2)

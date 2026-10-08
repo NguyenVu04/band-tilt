@@ -32,7 +32,8 @@ because a hole need not fall where anyone stands, and that difference is why bot
 are printed.
 
 Neither is an objective. The coverage and separation objectives
-(:mod:`src.optim.objective`) are tile-uniform and read no demand at all, so the
+(:mod:`src.optim.objective`) are tile-uniform and read no demand at all, and
+the throughput objective counts UE reports, not holes under them, so the
 UE-weighted view here answers a question they do not ask - which is why it is
 printed rather than optimised. The thresholds
 separating hole, weak and good are read from ``cfg.kpi``, never restated here,

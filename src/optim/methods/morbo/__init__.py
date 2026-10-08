@@ -1,4 +1,4 @@
-"""MORBO on the coverage and separation objectives."""
+"""MORBO on the coverage, separation and throughput objectives."""
 
 from src.optim.methods.morbo.search import search
 

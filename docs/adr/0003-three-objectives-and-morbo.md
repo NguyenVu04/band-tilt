@@ -43,6 +43,7 @@ sectors above `kpi.hole_dbm`:
 
 Coverage and separation are searched (`OBJECTIVE_NAMES`). Throughput is measured
 and recorded with every candidate, but no search reads it until it is reviewed.
+*Amended 2026-10-08:* throughput is reviewed and searched as the third objective.
 
 Each is rounded to 6 significant digits before a search reads it, for the same
 reason `J` was rounded: GPU accumulation order varies the trailing digits.

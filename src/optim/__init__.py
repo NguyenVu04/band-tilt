@@ -1,6 +1,6 @@
 """Optimization over the absolute-tilt space.
 
-One decision vector, two objectives, two ways of searching them. Every
+One decision vector, three objectives, two ways of searching them. Every
 method here proposes a tilt for each sector-band pair, has it measured by
 :mod:`src.kpi` and scored by :mod:`src.optim.objective`, and writes the same
 artifacts, so a comparison between methods is a comparison of search
@@ -12,9 +12,8 @@ Modules, each with one reason to change:
     The box an optimizer may move in, and the only place a vector becomes
     :class:`src.core.sector.Sector` objects.
 ``objective``
-    The KPI vector, the sign convention, the coverage and separation objectives
-    (throughput recorded, not searched), and the hypervolume that picks one
-    configuration.
+    The KPI vector, the sign convention, the coverage, separation and
+    throughput objectives, and the hypervolume that picks one configuration.
 ``evaluator``
     The expensive path: a tilt vector ray-traced into a radio map. The only
     module here that touches Sionna-RT.

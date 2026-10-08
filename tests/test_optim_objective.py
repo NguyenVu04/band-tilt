@@ -75,8 +75,8 @@ def test_reporting_order() -> None:
         "estimated_throughput_p50_mbps",
         "estimated_throughput_mean_mbps",
     )
-    assert OBJECTIVE_NAMES == ("coverage_objective", "separation_objective")
-    assert MEASURE_NAMES == (*KPI_NAMES, *OBJECTIVE_NAMES, "throughput_objective")
+    assert OBJECTIVE_NAMES == ("coverage_objective", "separation_objective", "throughput_objective")
+    assert MEASURE_NAMES == (*KPI_NAMES, *OBJECTIVE_NAMES)
 
 
 def test_only_the_signal_quality_throughput_and_objective_measures_are_maximised() -> None:
@@ -90,7 +90,6 @@ def test_only_the_signal_quality_throughput_and_objective_measures_are_maximised
         "estimated_throughput_p50_mbps",
         "estimated_throughput_mean_mbps",
         *OBJECTIVE_NAMES,
-        "throughput_objective",
     }
 
 
@@ -247,10 +246,8 @@ def test_the_pick_is_the_largest_hypervolume_contribution() -> None:
 
 
 def test_the_pick_ignores_every_reported_kpi() -> None:
-    """Better rates, or throughput, on a dominated objective vector do not win."""
-    moved = _kpi(
-        hole_rate=0.0, overlap_rate=0.0, separation_objective=0.49, throughput_objective=200.0
-    )
+    """Better rates on a dominated objective vector do not win."""
+    moved = _kpi(hole_rate=0.0, overlap_rate=0.0, separation_objective=0.49)
     assert best_by_hvc([_kpi(), moved]) == 0
 
 
