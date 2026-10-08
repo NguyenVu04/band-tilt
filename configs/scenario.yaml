@@ -53,14 +53,16 @@ density:
 # Multi-band sectors on four nodes: a centre node and three around it at 120 deg.
 layout:
   # Inter-site distance, centre node to each corner node [m]; the corners are
-  # sqrt(3) times this apart. 3GPP TR 38.901 Table 7.2-1 ISD: 500 m UMa, 1732 m RMa.
-  node_spacing_m: 1000.0
+  # sqrt(3) times this apart. SMa, TR 38.901 V19.2.0 Table 7.2-5: ISD 1299 m
+  # (1732 m the alternative); Table 7.2-1: 500 m UMa, 1732 m RMa.
+  node_spacing_m: 1299.0
   # Sectors per node, evenly spaced in azimuth.
   sectors_per_node: 3
   # Azimuth of the first sector [deg].
   azimuth_offset_deg: 45.0
-  # Mast height above ground [m]; TR 38.901 Table 7.2-1 h_BS is 25 m UMa, 35 m RMa.
-  mast_height_m: 25.0
+  # Mast height above ground [m]; SMa h_BS, TR 38.901 V19.2.0 Table 7.2-5, is 35 m
+  # (Table 7.2-1: 25 m UMa, 35 m RMa).
+  mast_height_m: 35.0
   # Least open-ground share at a mast site.
   min_free_fraction: 0.95
   # Open-ground clearance around a mast [m].
