@@ -77,15 +77,13 @@ RSRP and SINR are per band only, since the strongest layer across bands is not
 one a UE is measured on. The search maximises two objectives jointly, coverage
 and separation; throughput is measured and recorded with every candidate but not
 searched ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
-band `b`'s strongest sector at tile `g` and `i` the other co-band sectors above
-`kpi.hole_dbm`:
+band `b`'s strongest sector at tile `g`, `i` every other co-band sector, `R` in
+linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
 
-- **Coverage** `mean_g [1 - prod_b (1 - sigma(R_bs - weak_dbm))]`,
-  `sigma(x) = 1 / (1 + 10^(-x / 10))`: the soft chance that at least one band is
-  above the weak threshold.
-- **Separation** `mean_g prod_b 1 / (1 + sum_i 10^((m - (R_bs - R_bi)) / 10))`,
-  `m = kpi.overlap_margin_db`: a rival `m` dB down halves a band; an uncovered band
-  counts 1.
+- **Coverage** `|covered tiles| / |G|`, that is `1 - hole_rate`.
+- **Separation** `mean over covered g of prod_b R_bs / (R_bs + sum_i R_bi)`: an
+  equal rival halves a band; a band whose strongest sector is not above
+  `kpi.hole_dbm` counts 1.
 - **Throughput** (recorded, not searched) `mean_u ln(1 + R_u)` over every UE
   report, `R_u` in Mbit/s and 0 for a UE no layer reaches.
 

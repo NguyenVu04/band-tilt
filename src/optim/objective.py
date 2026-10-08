@@ -6,16 +6,15 @@ every measurement, the orientation that turns them into "larger is better", the
 objectives, and the hypervolume that ranks objective vectors.
 
 Notation: ``R_{i,b}(g)`` is sector ``i``'s RSRP on band ``b`` at tile ``g``,
-``s`` the strongest sector on that band, and each map objective is the mean over
-every tile of the grid.
+``s`` the strongest sector on that band, and a tile is covered when some
+sector-band is above ``kpi.hole_dbm``.
 
-- Coverage: ``1 - prod_b (1 - sigma(R_{s,b}(g) - kpi.weak_dbm))``, with
-  ``sigma(x) = 1 / (1 + 10^(-x / 10))``: the soft chance that at least one band
-  is above the weak threshold. A band at ``kpi.weak_dbm`` scores 1/2 alone.
-- Separation: ``prod_b 1 / (1 + sum_i 10^((m - (R_{s,b} - R_{i,b})) / 10))``,
-  ``m = kpi.overlap_margin_db``, over the other sectors on band ``b`` above
-  ``kpi.hole_dbm``. A rival ``m`` dB down halves the band; a band with no server
-  above ``kpi.hole_dbm`` has no rival to price and contributes 1.
+- Coverage: covered tiles over every tile of the grid.
+- Separation: the mean over covered tiles of
+  ``prod_b R_{s,b} / (R_{s,b} + sum_i R_{i,b})``, ``R`` in linear power and ``i``
+  every other sector on band ``b``, whatever its level. An equal rival halves
+  the band; a band whose strongest sector is not above ``kpi.hole_dbm`` does not
+  cover the tile and contributes 1.
 - Throughput: ``mean_u ln(1 + R_u)`` over every UE report, ``R_u`` its estimated
   throughput in Mbit/s, 0 when no layer reaches it. Measured and recorded, but
   not in :data:`OBJECTIVE_NAMES`, so no search reads it.
@@ -34,10 +33,10 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
-from scipy.special import expit
 
 from src.kpi.capacity import (
     CapacitySpec,
+    covered,
     covered_best,
     finite,
     max_rsrp,
@@ -114,7 +113,7 @@ class KpiVector:
         estimated_throughput_p50_mbps: Median of the same.
         estimated_throughput_mean_mbps: Mean of the same.
         coverage_objective: See :func:`coverage_objective`. In ``[0, 1]``.
-        separation_objective: See :func:`separation_objective`. In ``(0, 1]``.
+        separation_objective: See :func:`separation_objective`. In ``[0, 1]``.
         throughput_objective: See :func:`throughput_objective`. Non-negative.
             Recorded, not searched.
     """
@@ -169,46 +168,42 @@ def _rounded(value: float) -> float:
 
 
 def coverage_objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
-    """Mean over tiles of the soft chance that at least one band is above the weak threshold.
+    """Share of the grid's tiles that some sector-band covers.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.weak_dbm``.
+        cfg: Composed config; reads ``cfg.kpi.hole_dbm``.
 
     Returns:
-        A value in ``[0, 1]``; a tile no band reaches, and every no-path tile,
-        scores 0.
+        A value in ``[0, 1]``, ``1 - hole_rate``.
     """
-    strongest = finite(rsrp).max(axis=1)
-    # sigma(x) = 1 / (1 + 10^(-x / 10)) is the logistic of x ln(10) / 10.
-    band = expit((strongest - float(cfg.kpi.weak_dbm)) * np.log(10.0) / 10.0)
-    return _rounded((1.0 - np.prod(1.0 - band, axis=0)).mean())
+    return _rounded(covered(rsrp, cfg).mean())
 
 
 def separation_objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
-    """Mean over tiles of how cleanly the strongest sector stands out on every band.
+    """Mean over covered tiles of the strongest sector's power share, multiplied over bands.
 
     Args:
         rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
-        cfg: Composed config; reads ``cfg.kpi.hole_dbm`` and
-            ``cfg.kpi.overlap_margin_db``.
+        cfg: Composed config; reads ``cfg.kpi.hole_dbm``.
 
     Returns:
-        A value in ``(0, 1]``, 1 where every covered band has one sector with no
-        co-band rival above ``kpi.hole_dbm``.
+        A value in ``(0, 1]``, 1 where every covering band has a single sector
+        with any path; 0 when no tile is covered.
     """
-    hole_dbm = float(cfg.kpi.hole_dbm)
-    margin_db = float(cfg.kpi.overlap_margin_db)
     layers = finite(rsrp)
     strongest = layers.max(axis=1, keepdims=True)
-    counted = (layers > hole_dbm) & (strongest > hole_dbm)
-    # Only counted layers are differenced: `-inf - -inf` is NaN, and warns.
-    relative_db = np.subtract(layers, strongest, out=np.full_like(layers, -np.inf), where=counted)
-    terms = (10.0 ** ((relative_db + margin_db) / 10.0)).sum(axis=1)
-    # `s` is counted against itself at 10^(m / 10) wherever its band is covered.
-    itself = np.where(counted.any(axis=1), 10.0 ** (margin_db / 10.0), 0.0)
-    rivals = np.clip(terms - itself, 0.0, None)
-    return _rounded(np.prod(1.0 / (1.0 + rivals), axis=0).mean())
+    band_covers = strongest[:, 0] > float(cfg.kpi.hole_dbm)
+    # Only covering bands are differenced: `-inf - -inf` is NaN, and warns. The
+    # rest stay 0 dB, a finite share that `np.where` below discards.
+    relative_db = np.subtract(
+        layers, strongest, out=np.zeros_like(layers), where=band_covers[:, None]
+    )
+    # R_s / sum_k R_k taken relative to R_s, so no layer underflows in mW.
+    share = 1.0 / (10.0 ** (relative_db / 10.0)).sum(axis=1)
+    per_tile = np.where(band_covers, share, 1.0).prod(axis=0)
+    is_covered = band_covers.any(axis=0)
+    return _rounded(per_tile[is_covered].mean()) if is_covered.any() else 0.0
 
 
 def throughput_objective(served: pd.DataFrame) -> float:

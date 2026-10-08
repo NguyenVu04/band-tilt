@@ -167,13 +167,13 @@ The implementation uses BoTorch/GPyTorch [3]. The GPs only choose where to look;
 
 ### 3.3 The objectives
 
-The objectives are [ADR 0003](adr/0003-three-objectives-and-morbo.md), implemented in `src/optim/objective.py`. With $R_{bs}(g)$ band $b$'s strongest sector at tile $g$ and $i$ the other co-band sectors above `kpi.hole_dbm`:
+The objectives are [ADR 0003](adr/0003-three-objectives-and-morbo.md), implemented in `src/optim/objective.py`. With $R_{bs}(g)$ band $b$'s strongest sector at tile $g$, $i$ every other co-band sector, all in linear power, and $G_{\text{cov}}$ the tiles some sector-band reaches above $T_{\text{hole}}$ = `kpi.hole_dbm`:
 
-- **Coverage** $\frac{1}{|G|}\sum_g \left[1 - \prod_b \left(1 - \sigma(R_{bs}(g) - T_{\text{weak}})\right)\right]$, $\sigma(x) = 1 / (1 + 10^{-x/10})$: the soft chance that at least one band is above the weak threshold.
-- **Separation** $\frac{1}{|G|}\sum_g \prod_b 1 / \left(1 + \sum_i 10^{(m - (R_{bs} - R_{bi}))/10}\right)$, $m$ = `kpi.overlap_margin_db`: a rival $m$ dB down halves a band; a band with no server above the hole threshold counts 1.
+- **Coverage** $|G_{\text{cov}}| / |G|$, that is $1 - \text{HoleRate}$.
+- **Separation** $\frac{1}{|G_{\text{cov}}|}\sum_{g \in G_{\text{cov}}} \prod_b R_{bs}(g) / \left(R_{bs}(g) + \sum_i R_{bi}(g)\right)$: an equal rival halves a band; a band whose strongest sector is not above $T_{\text{hole}}$ counts 1.
 - **Throughput** (recorded, not searched) $\frac{1}{|U|}\sum_u \ln(1 + R_u)$ over every UE report, $R_u$ in Mbit/s and 0 for a UE no layer reaches.
 
-$T_{\text{weak}}$ = `kpi.weak_dbm` = −90 dBm. Coverage and separation are searched (`OBJECTIVE_NAMES`); each is maximised and rounded to 6 significant digits before a search reads it. A run is ranked by hypervolume against the origin, and its recommendation is the evaluated point with the largest hypervolume contribution.
+Coverage and separation are searched (`OBJECTIVE_NAMES`); each is maximised and rounded to 6 significant digits before a search reads it. A run is ranked by hypervolume against the origin, and its recommendation is the evaluated point with the largest hypervolume contribution.
 
 **The serving rule** (`src/kpi/capacity.py`) decides which UEs a sector-band serves. Within an interval UEs connect one at a time, each to the sector-band above −120 dBm where an equal share of 0.8 of its `max_prb`, split over the UEs already there and itself, carries the most Shannon throughput. Nobody is refused. It drives the estimated-throughput KPIs, the throughput objective and every per-sector-band table.
 

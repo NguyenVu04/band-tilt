@@ -30,10 +30,8 @@ from src.optim.objective import (
 
 @pytest.fixture
 def cfg():
-    """The three settings the map objectives read. They read nothing else."""
-    return OmegaConf.create(
-        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
-    )
+    """The one setting the map objectives read. They read nothing else."""
+    return OmegaConf.create({"kpi": {"hole_dbm": -120.0}})
 
 
 def _kpi(**overrides: float) -> KpiVector:
@@ -110,60 +108,73 @@ def test_from_mapping_names_a_missing_measure() -> None:
         KpiVector.from_mapping(values)
 
 
-def test_a_band_at_the_weak_threshold_covers_half(cfg) -> None:
-    """The logistic is centred on kpi.weak_dbm, one decade of odds per 10 dB."""
-    assert coverage_objective(_map([[-90.0]]), cfg) == pytest.approx(0.5)
-    assert coverage_objective(_map([[-80.0]]), cfg) == pytest.approx(10.0 / 11.0, abs=5e-7)
+def _tiles(*tiles: list[list[float]]) -> np.ndarray:
+    """A one-row radio map, one ``[band][tx]`` RSRP list per tile."""
+    return np.stack([np.array(tile, dtype=float) for tile in tiles], axis=-1)[:, :, None, :]
 
 
-def test_coverage_is_the_chance_that_any_band_covers(cfg) -> None:
-    """Two bands at the threshold: 1 - (1/2)(1/2)."""
-    assert coverage_objective(_map([[-90.0], [-90.0]]), cfg) == pytest.approx(0.75)
+def test_coverage_counts_tiles_above_the_hole_threshold(cfg) -> None:
+    """At the threshold is a hole, as hole_rate counts it."""
+    assert coverage_objective(_map([[-119.0]]), cfg) == 1.0
+    assert coverage_objective(_map([[-120.0]]), cfg) == 0.0
+    assert coverage_objective(_tiles([[-90.0]], [[-125.0]]), cfg) == pytest.approx(0.5)
 
 
-def test_coverage_reads_only_the_strongest_sector_of_each_band(cfg) -> None:
+def test_coverage_needs_only_one_band(cfg) -> None:
+    """A tile any band covers is covered."""
+    assert coverage_objective(_map([[-125.0], [-90.0]]), cfg) == 1.0
+
+
+def test_coverage_reads_only_the_strongest_sector(cfg) -> None:
     """A rival neither adds nor removes coverage; crowding is separation's business."""
     crowded = coverage_objective(_map([[-110.0, -110.0]]), cfg)
     assert crowded == coverage_objective(_map([[-110.0, np.nan]]), cfg)
 
 
 def test_a_no_path_tile_is_not_covered(cfg) -> None:
-    """No path is -inf, which no logistic lifts off zero."""
+    """No path is -inf, below every threshold."""
     assert coverage_objective(_map([[np.nan, np.nan], [np.nan, np.nan]]), cfg) == 0.0
 
 
 def test_a_lone_server_is_perfectly_separated(cfg) -> None:
-    """No co-band rival above the hole threshold, nothing to price."""
-    assert separation_objective(_map([[-90.0, -125.0]]), cfg) == pytest.approx(1.0)
+    """A no-path neighbour carries no power."""
+    assert separation_objective(_map([[-90.0, np.nan]]), cfg) == 1.0
 
 
-def test_a_rival_one_margin_down_halves_the_band(cfg) -> None:
-    """10^((6 - 6) / 10) = 1, so the factor is 1 / 2."""
-    assert separation_objective(_map([[-90.0, -96.0]]), cfg) == pytest.approx(0.5)
+def test_an_equal_rival_halves_the_band(cfg) -> None:
+    """R / (R + R) = 1 / 2."""
+    assert separation_objective(_map([[-90.0, -90.0]]), cfg) == pytest.approx(0.5)
 
 
-def test_an_equal_rival_costs_more_than_half(cfg) -> None:
-    """At 0 dB apart the term is 10^0.6."""
-    expected = 1.0 / (1.0 + 10.0**0.6)
-    assert separation_objective(_map([[-90.0, -90.0]]), cfg) == pytest.approx(expected, abs=5e-7)
+def test_separation_is_the_linear_power_share(cfg) -> None:
+    """A rival 3 dB down: 1 / (1 + 10^-0.3)."""
+    expected = 1.0 / (1.0 + 10.0**-0.3)
+    assert separation_objective(_map([[-90.0, -93.0]]), cfg) == pytest.approx(expected, abs=5e-7)
+
+
+def test_a_rival_below_the_hole_threshold_is_still_priced(cfg) -> None:
+    """Only the strongest sector is held to the hole threshold."""
+    expected = 1.0 / (1.0 + 10.0**-0.3)
+    assert separation_objective(_map([[-118.0, -121.0]]), cfg) == pytest.approx(expected, abs=5e-7)
 
 
 def test_separation_multiplies_over_bands_and_compares_within_each(cfg) -> None:
     """Each band halved by its own rival; a strong other-band layer is no rival."""
-    rsrp = _map([[-90.0, -96.0], [-70.0, -76.0]])
+    rsrp = _map([[-90.0, -90.0], [-70.0, -70.0]])
     assert separation_objective(rsrp, cfg) == pytest.approx(0.25)
 
 
-def test_a_band_with_no_server_above_the_hole_threshold_counts_one(cfg) -> None:
-    """Holes are coverage's business; an uncovered band has no rival to price."""
-    half = separation_objective(_map([[-125.0, -125.0], [-90.0, -96.0]]), cfg)
+def test_a_band_that_does_not_cover_the_tile_counts_one(cfg) -> None:
+    """Its strongest sector is at or below the hole threshold."""
+    half = separation_objective(_map([[-125.0, -125.0], [-90.0, -90.0]]), cfg)
     assert half == pytest.approx(0.5)
-    assert separation_objective(_map([[np.nan, np.nan]]), cfg) == pytest.approx(1.0)
 
 
-def test_a_rival_at_or_below_the_hole_threshold_is_not_priced(cfg) -> None:
-    """-120 dBm serves nobody, so it crowds nobody."""
-    assert separation_objective(_map([[-118.0, -120.0]]), cfg) == pytest.approx(1.0)
+def test_separation_averages_over_covered_tiles_only(cfg) -> None:
+    """A hole neither lifts nor drags the mean; nothing covered scores 0."""
+    with_hole = separation_objective(_tiles([[-90.0, -90.0]], [[-125.0, -125.0]]), cfg)
+    assert with_hole == pytest.approx(0.5)
+    assert separation_objective(_map([[np.nan, np.nan]]), cfg) == 0.0
 
 
 def test_solver_round_off_does_not_reach_the_objectives(cfg) -> None:
