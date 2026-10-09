@@ -74,9 +74,8 @@ estimated UE throughput - are measured for every
 candidate through [`src/kpi/`](src/kpi/). The evaluation reports seven of them
 over all bands and the coverage, overlap, RSRP and SINR measures per band; best-server
 RSRP and SINR are per band only, since the strongest layer across bands is not
-one a UE is measured on. The search maximises two objectives jointly, coverage
-and separation; throughput is measured and recorded with every candidate but not
-searched ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
+one a UE is measured on. The search maximises three objectives jointly, coverage,
+separation and throughput ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
 band `b`'s strongest sector at tile `g`, `i` every other co-band sector, `R` in
 linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
 
@@ -84,7 +83,7 @@ linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
 - **Separation** `mean over covered g of prod_b R_bs / (R_bs + sum_i R_bi)`: an
   equal rival halves a band; a band whose strongest sector is not above
   `kpi.hole_dbm` counts 1.
-- **Throughput** (recorded, not searched) `mean_u ln(1 + R_u)` over every UE
+- **Throughput** `mean_u ln(1 + R_u)` over every UE
   report, `R_u` in Mbit/s and 0 for a UE no layer reaches.
 
 A run is ranked by hypervolume against the origin, and its recommended
@@ -255,7 +254,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
 |---|---|---|
 | `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/sector layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
 | `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
-| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: they read `weak_dbm`, `hole_dbm`, `overlap_margin_db` and the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
+| `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: coverage and separation read `hole_dbm`, throughput reads the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
 [`configs/optim/base.yaml`](configs/optim/base.yaml) configures what every

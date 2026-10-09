@@ -38,7 +38,7 @@ density:
   # Share of UEs in hotspots.
   hotspot_mass_fraction: 0.7
   # Number of hotspots.
-  n_hotspots: 4
+  n_hotspots: 3
   # Major-axis sigma range [m].
   sigma_major_m: [80.0, 200.0]
   # Minor-axis sigma range [m], capped at the major axis.
@@ -50,30 +50,35 @@ density:
   # Least distance between hotspot centres [m].
   min_hotspot_distance_m: 500.0
 
-# Multi-band sectors on four nodes: a centre node and three around it at 120 deg.
+# Multi-band sectors on nodes laid out in `shape` about the scene centre.
 layout:
-  # Inter-site distance, centre node to each corner node [m]; the corners are
-  # sqrt(3) times this apart. SMa, TR 38.901 V19.2.0 Table 7.2-5: ISD 1299 m
-  # (1732 m the alternative); Table 7.2-1: 500 m UMa, 1732 m RMa.
-  node_spacing_m: 1299.0
+  # Node geometry (src/scenario/layout.py SHAPES): triangle (centre node and
+  # three around it at 120 deg), square, square_centre or hexagon (centre node
+  # and its six first-tier neighbours).
+  shape: hexagon
+  # Inter-site distance between nearest nodes [m]. UMa, TR 38.901 (Rel-19)
+  # Table 7.2-1: ISD 500 m, 200-500 m allowed (Note 1).
+  node_spacing_m: 500.0
   # Sectors per node, evenly spaced in azimuth.
   sectors_per_node: 3
   # Azimuth of the first sector [deg].
-  azimuth_offset_deg: 45.0
-  # Mast height above ground [m]; SMa h_BS, TR 38.901 V19.2.0 Table 7.2-5, is 35 m
-  # (Table 7.2-1: 25 m UMa, 35 m RMa).
-  mast_height_m: 35.0
+  azimuth_offset_deg: 0.0
+  # Mast height above ground [m]; UMa h_BS, TR 38.901 (Rel-19) Table 7.2-1.
+  mast_height_m: 25.0
   # Least open-ground share at a mast site.
   min_free_fraction: 0.95
   # Open-ground clearance around a mast [m].
   clearance_radius_m: 20.0
   # Search radius for open ground near a node [m].
   snap_radius_m: 250.0
-  # Incumbent tilt of every sector, per band [deg].
+  # Incumbent tilt of every sector, per band [deg below horizontal]. UMa
+  # calibration, TR 38.901 (Rel-19) Table 7.8-1: electrical downtilt 102 deg,
+  # where 90 deg is boresight horizontal (Section 7.3.1). 3GPP tilts
+  # electrically; src/simulation/transmitter.py applies it as the mast's pitch.
   default_tilt:
-    b2600: {baseline_deg: 10.0, bounds_deg: [0.0, 20.0]}
-    b1800: {baseline_deg: 10.0, bounds_deg: [0.0, 20.0]}
-    b700: {baseline_deg: 10.0, bounds_deg: [0.0, 20.0]}
+    b2600: {baseline_deg: 12.0, bounds_deg: [0.0, 20.0]}
+    b1800: {baseline_deg: 12.0, bounds_deg: [0.0, 20.0]}
+    b700: {baseline_deg: 12.0, bounds_deg: [0.0, 20.0]}
   # PRB limit of every sector, per band: N_RB at 15 kHz SCS (TS 38.101-1
   # Table 5.3.2-1). Keep in step with simulation.radio_map.bands.
   default_max_prb: {b2600: 216, b1800: 106, b700: 52}

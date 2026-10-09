@@ -2,7 +2,7 @@
 # KPI thresholds and the capacity model.
 
 # Best-server RSRP at or below this is a coverage hole [dBm].
-hole_dbm: -120.0
+hole_dbm: -110.0
 
 # Upper bound of weak coverage; the lower bound is hole_dbm [dBm].
 weak_dbm: -90.0

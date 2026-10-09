@@ -4,7 +4,7 @@
 
 ## Abstract
 
-Multi-band base stations transmit several frequency bands from the same mast, yet their antenna tilts are often tuned one band and one sector at a time, without accounting for how the bands interact. This paper optimizes all tilts jointly for coverage, interference and estimated user throughput, scoring each candidate with an uncalibrated, site-specific ray-traced simulation and selecting candidates with multi-objective Bayesian optimization. In a single-seed comparison with random search at the same number of evaluations, the method reaches a larger hypervolume, though it takes about twice the wall-clock time. Its recommended configuration reduces weak coverage and raises median signal quality and throughput, at the cost of more all-band cell overlap, a larger coverage hole on the highest band and a slightly larger share of users on hole tiles. Across the evaluated configurations, the coverage-hole rate changes little. The evaluation is limited to one simulated scenario with synthetic traffic, and no band-by-band baseline was run.
+Multi-band base stations transmit several frequency bands from the same mast, yet their antenna tilts are often tuned one band and one sector at a time, without accounting for how the bands interact. This paper optimizes all tilts jointly for coverage, interference and estimated user throughput, scoring each candidate with an uncalibrated, site-specific ray-traced simulation and selecting candidates with multi-objective Bayesian optimization. On a seven-site urban-macro layout with the 3GPP calibration tilt as the incumbent, and in a single-seed comparison with random search at the same number of evaluations, the method reaches a larger hypervolume in about a tenth more wall-clock time. Its recommended configuration lowers the coverage-hole rate and the co-band overlap rate together, reduces weak coverage and raises median signal quality and estimated throughput. Random search's best configuration, a point of the initial design both methods share, lowers the hole rate further but raises the overlap rate. Most of the remaining hole area lies more than 1 km from any site. The evaluation is limited to one simulated scenario with synthetic traffic and one seed, and no band-by-band baseline was run.
 
 **Index Terms** — 5G, radio access network, antenna tilt optimization, coverage and capacity optimization, multi-band networks, Bayesian optimization, multi-objective optimization, ray tracing.
 
@@ -22,16 +22,16 @@ Multi-band base stations transmit several frequency bands from the same mast, ye
 
 **What is missing.** Engineers need a way to evaluate the *whole* network's tilt configuration, across every band and sector at once, before touching any antenna; to see the trade-offs between coverage, interference and user throughput explicitly rather than discovering them afterwards; and to obtain a small set of concrete, reviewable options rather than a single opaque answer. Such a tool must be economical in the number of evaluations, since each site-specific evaluation of a multi-site network is far more costly than a closed-form model, and transparent, so that an engineer can see where each option gains, where it loses and which antennas must change.
 
-This paper addresses the static part of that need: coverage, interference and throughput at fixed UE positions; mobility and handover are not modelled. It combines a ray-traced model of a four-site urban scene, which estimates how every candidate configuration would affect coverage, interference and user throughput, with a sample-efficient multi-objective optimizer that learns which configurations are worth testing. The outcome is a shortlist of simulated options, each accompanied by its estimated effect on every performance indicator and the antenna changes it requires, together with a per-sector impact ranking for the recommended option, produced in minutes of computation in this setting before any antenna is changed. The radio model is not calibrated against measurements, and field validation of the chosen option remains necessary.
+This paper addresses the static part of that need: coverage, interference and throughput at fixed UE positions; mobility and handover are not modelled. It combines a ray-traced model of a seven-site urban scene, which estimates how every candidate configuration would affect coverage, interference and user throughput, with a sample-efficient multi-objective optimizer that learns which configurations are worth testing. The outcome is a shortlist of simulated options, each accompanied by its estimated effect on every performance indicator and the antenna changes it requires, together with a per-sector impact ranking for the recommended option, produced in minutes of computation in this setting before any antenna is changed. The radio model is not calibrated against measurements, and field validation of the chosen option remains necessary.
 
 ### B. Approach and Contributions
 
 This paper treats the tilts of all (sector, band) pairs as a single coordinated optimization problem and evaluates it entirely in simulation. A ray tracer applied to explicit scene geometry, without calibration against measurements, scores each candidate configuration on coverage, co-band separation and the estimated equal-share Shannon rate of a synthetic UE population. The contributions are as follows:
 
-1. **Problem formulation.** Joint multi-band tilt configuration is cast as a 36-dimensional, three-objective black-box problem with a co-band separation objective and a proportional-fair throughput utility that counts unserved UEs at zero rate (Section III).
+1. **Problem formulation.** Joint multi-band tilt configuration is cast as a 63-dimensional, three-objective black-box problem with a co-band separation objective and a proportional-fair throughput utility that counts unserved UEs at zero rate (Section III).
 2. **Sample-efficient search.** MORBO [6], a trust-region multi-objective Bayesian optimization method designed for high-dimensional spaces, is applied to the problem and compared with Sobol random search under a matched evaluation budget, a shared initial design and a common seed, so that the difference on this seed does not stem from the starting points (Section IV).
 3. **Evaluation beyond the objectives.** The recommended configurations are assessed not only on the searched objectives but on eleven KPIs, per frequency layer, by area and by demand, and in terms of inter-layer load redistribution and per-sector impact. Apart from the hole rate, which equals one minus the coverage objective, none of these is optimized directly, although the throughput KPIs share the per-UE rates of the throughput objective and the overlap KPIs are related to the separation objective (Sections V–VI).
-4. **Empirical findings.** In the studied SMa-like layout, the coverage-hole rate changes little across the evaluated configurations. On one seed, MORBO's recommendation instead improves weak coverage, median SINR and throughput and shifts load from 2600 MHz to the lower bands, at the cost of all-band overlap and 2600 MHz coverage. No band-by-band baseline was run, so the benefit of optimizing the bands jointly rather than separately is not isolated (Section VI).
+4. **Empirical findings.** On one seed, MORBO's recommendation lowers the hole rate and the all-band overlap rate together, as 32 of its 73 evaluations do against none of random search's; it also improves weak coverage, median SINR and throughput and shifts load from 2600 MHz to the lower bands. Random search adds almost no hypervolume beyond the shared initial design. No band-by-band baseline was run, so the benefit of optimizing the bands jointly rather than separately is not isolated (Section VI).
 
 The remainder of the paper is organized as follows. Section II reviews related work. Section III presents the system model and problem formulation. Section IV describes the search methods. Section V details the experimental methodology and assessment criteria. Section VI reports and interprets the results. Section VII discusses implications and limitations, and Section VIII concludes.
 
@@ -41,15 +41,15 @@ The remainder of the paper is organized as follows. Section II reviews related w
 
 **Black-box optimization of RAN parameters.** Because network KPIs are expensive to evaluate and non-differentiable with respect to configuration, tilt and power settings have been optimized with Bayesian optimization and reinforcement learning over simulators. Dreifuerst et al. [4] tune the downtilt and transmit power of all sectors jointly with multi-objective Bayesian optimization and deep reinforcement learning, and obtain Pareto fronts between coverage and capacity. Standard Gaussian-process Bayesian optimization degrades in high dimensions; trust-region methods such as TuRBO [5] restore sample efficiency by restricting the search to adaptively sized local regions. MORBO [6] extends this idea to multiple objectives, maintaining trust regions centred on points of large hypervolume contribution and selecting batches by Thompson-sampled hypervolume improvement [7], [15].
 
-**Ray-traced propagation models.** Statistical path-loss models represent building shadowing and multipath only in distribution, whereas the effect of a tilt change at a given location depends on site-specific blockage and reflections. GPU-accelerated ray tracers such as Sionna RT [10] make site-specific evaluation of a full network configuration fast enough — about 2.4 s per evaluation for the twelve-sector scene of this study — for optimization loops of tens to hundreds of full-network evaluations.
+**Ray-traced propagation models.** Statistical path-loss models represent building shadowing and multipath only in distribution, whereas the effect of a tilt change at a given location depends on site-specific blockage and reflections. GPU-accelerated ray tracers such as Sionna RT [10] make site-specific evaluation of a full network configuration fast enough — about 5 to 7 s per evaluation for the 21-sector scene of this study — for optimization loops of tens to hundreds of full-network evaluations.
 
-**Positioning of this work.** Joint optimization across sectors with a Pareto front between coverage and capacity has been shown before [4]. The present study differs in treating each band of a multi-band sector as a separate decision variable, coupled to the other bands through the serving rule; in adding a co-band separation objective; in searching 36 dimensions with a trust-region method; and in scoring candidates with a site-specific ray tracer. It further evaluates the outcome on layer-level and demand-level KPIs. Agreement between the objectives and these KPIs is partly by construction: the throughput KPIs share the per-UE rates of the throughput objective, and the overlap KPIs are related to the separation objective. The per-layer and demand-level measures are the less constrained check.
+**Positioning of this work.** Joint optimization across sectors with a Pareto front between coverage and capacity has been shown before [4]. The present study differs in treating each band of a multi-band sector as a separate decision variable, coupled to the other bands through the serving rule; in adding a co-band separation objective; in searching 63 dimensions with a trust-region method; and in scoring candidates with a site-specific ray tracer. It further evaluates the outcome on layer-level and demand-level KPIs. Agreement between the objectives and these KPIs is partly by construction: the throughput KPIs share the per-UE rates of the throughput objective, and the overlap KPIs are related to the separation objective. The per-layer and demand-level measures are the less constrained check.
 
 ## III. System Model and Problem Formulation
 
 ### A. Network Layout
 
-The study area is an urban scene rasterized onto a grid $G$ of 20 m tiles, $326 \times 310 = 101{,}060$ tiles covering $6{,}200 \times 6{,}520$ m. Four sites are placed at the vertices and centroid of an equilateral triangle with a 2,250 m side, giving 1,299 m from centre to vertex, the SMa inter-site distance of 3GPP TR 38.901 [11]. SMa specifies a 19-site hexagonal grid, of which these four sites form a subset. Each mast is snapped to the nearest open ground, which places one vertex site 1,310 m from the centre. Each site hosts three sectors at azimuths of 45°, 165° and 285° on 35 m masts, the SMa base-station height, yielding $N = 12$ sectors. Each sector is equipped with an $8 \times 8$ cross-polarized planar array with the TR 38.901 element pattern, transmitting 4.85 dBm reference-signal power per resource element. Every sector carries $B = 3$ bands (Table I), giving 36 sector-band pairs.
+The study area is an urban scene rasterized onto a grid $G$ of 20 m tiles, $326 \times 310 = 101{,}060$ tiles covering $6{,}200 \times 6{,}520$ m. Seven sites form a centre site and its first tier on a hexagonal grid with a 500 m inter-site distance, the urban-macro (UMa) layout of 3GPP TR 38.901 [11]. UMa specifies a 19-site grid, of which these seven sites are the centre and first ring. Each mast stands on open ground at its ideal position. Each site hosts three sectors at azimuths of 0°, 120° and 240° on 25 m masts, the UMa base-station height, yielding $N = 21$ sectors. Each sector is equipped with an $8 \times 8$ cross-polarized planar array with the TR 38.901 element pattern, transmitting 4.85 dBm reference-signal power per resource element. Every sector carries $B = 3$ bands (Table I), giving 63 sector-band pairs.
 
 *Table I. Frequency bands. PRB limits are $N_{RB}$ at 15 kHz subcarrier spacing per 3GPP TS 38.101-1, Table 5.3.2-1 [12].*
 
@@ -61,7 +61,7 @@ The study area is an urban scene rasterized onto a grid $G$ of 20 m tiles, $326 
 
 ![Study area](../reports/figures/00_simulation/study_area.png)
 
-*Fig. 1. Study area: twelve sectors on four sites and a sample of UE positions over the scene.*
+*Fig. 1. Study area: twenty-one sectors on seven sites and a sample of UE positions over the scene.*
 
 ### B. Propagation Model
 
@@ -69,21 +69,21 @@ The radio model is not calibrated against measurements. Each band is ray-traced 
 
 ### C. Traffic Model
 
-No operator data was available; a synthetic UE population was therefore generated. Every 15 minutes over seven days (672 intervals), 10 to 20 UEs are drawn from a mixture of four elliptical Gaussian demand hotspots and a uniform background over open ground. The hotspots are placed where the surrounding building volume is high, at least 500 m apart, and hold on average 70 % of UEs, modulated by a diurnal profile and first-order autoregressive noise. UEs are independent between intervals, without mobility. This yields 10,087 UE reports, which are synthetic positions rather than measurements, each served from the radio map at its tile. Measurement noise, report censoring and positioning error are not modelled.
+No operator data was available; a synthetic UE population was therefore generated. Every 15 minutes over seven days (672 intervals), 10 to 20 UEs are drawn from a mixture of three elliptical Gaussian demand hotspots and a uniform background over open ground. The hotspots are placed where the surrounding building volume is high, at least 500 m apart, and hold on average 70 % of UEs, modulated by a diurnal profile and first-order autoregressive noise. UEs are independent between intervals, without mobility. This yields 10,087 UE reports, which are synthetic positions rather than measurements, each served from the radio map at its tile. Measurement noise, report censoring and positioning error are not modelled.
 
 ### D. Decision Variables
 
-For $N = 12$ sectors and $B = 3$ bands, the decision vector is the absolute electrical tilt of every sector-band pair,
+For $N = 21$ sectors and $B = 3$ bands, the decision vector is the absolute downtilt of every sector-band pair,
 
 $$
-\boldsymbol{\theta} = [\theta_{1,1}, \dots, \theta_{1,B}, \dots, \theta_{N,B}] \in \Theta = [0^\circ, 20^\circ]^{36},
+\boldsymbol{\theta} = [\theta_{1,1}, \dots, \theta_{1,B}, \dots, \theta_{N,B}] \in \Theta = [0^\circ, 20^\circ]^{63},
 $$
 
-with every proposal snapped to a 0.1° lattice so that each proposal is a discrete setting. Whether a given antenna supports this range and an independent electrical tilt per band was not checked. The incumbent configuration $\boldsymbol{\theta}^{(0)}$ sets 10° on every band and sector. No step-size limit or maximum change from $\boldsymbol{\theta}^{(0)}$ is imposed; tilt movement is reported but not penalized.
+with every proposal snapped to a 0.1° lattice so that each proposal is a discrete setting. Whether a given antenna supports this range and an independent electrical tilt per band was not checked. The simulator applies each tilt as a rotation of the whole array in elevation, so side and back lobes tilt with the main beam, as under mechanical tilt. The incumbent configuration $\boldsymbol{\theta}^{(0)}$ sets 12° on every band and sector, the UMa electrical downtilt of the TR 38.901 calibration parameters [11]. No step-size limit or maximum change from $\boldsymbol{\theta}^{(0)}$ is imposed; tilt movement is reported but not penalized.
 
 ### E. Serving and Capacity Model
 
-Within each interval, UEs attach sequentially in report-time order. Each UE attaches to the sector-band, among those with RSRP above $T_{\text{hole}} = -120$ dBm at its tile, that offers it the highest Shannon-bound rate under an equal share of $0.8 \, N_{RB}$ PRBs divided among the UEs already attached and itself. No UE is refused admission. A UE with no sector-band above $T_{\text{hole}}$ is unserved and assigned a rate of 0 Mbit/s. The resulting per-UE rate $R_u$ drives the throughput KPIs, the throughput objective and all per-layer service statistics. This rate-greedy rule is an idealization, not a model of any vendor's band-selection or load-balancing policy, so the inter-layer load results of Section VI-E describe this rule.
+Within each interval, UEs attach sequentially in report-time order. Each UE attaches to the sector-band, among those with RSRP above $T_{\text{hole}} = -110$ dBm at its tile, that offers it the highest Shannon-bound rate under an equal share of $0.8 \, N_{RB}$ PRBs divided among the UEs already attached and itself. No UE is refused admission. A UE with no sector-band above $T_{\text{hole}}$ is unserved and assigned a rate of 0 Mbit/s. The resulting per-UE rate $R_u$ drives the throughput KPIs, the throughput objective and all per-layer service statistics. This rate-greedy rule is an idealization, not a model of any vendor's band-selection or load-balancing policy, so the inter-layer load results of Section VI-E describe this rule.
 
 ### F. Key Performance Indicators
 
@@ -295,36 +295,38 @@ with $M$ the number of objectives and $\mathbf{w}$ drawn uniformly on the positi
 | Property | Value |
 |---|---|
 | Grid | 326 × 310 tiles of 20 m (6,200 × 6,520 m) |
-| Sites / sectors / sector-band pairs | 4 / 12 / 36 |
-| Inter-site distance | 1,299 m centre to vertex sites (SMa, TR 38.901 [11]); 2,250 m between vertex sites |
-| Mast height | 35 m (SMa) |
-| Incumbent tilt (2600 / 1800 / 700 MHz) | 10° / 10° / 10° |
+| Sites / sectors / sector-band pairs | 7 / 21 / 63 |
+| Layout | Centre site and first tier of a hexagonal grid (UMa, TR 38.901 [11]) |
+| Inter-site distance | 500 m (UMa) |
+| Mast height | 25 m (UMa) |
+| Sector azimuths | 0°, 120°, 240° at every site |
+| Incumbent tilt (2600 / 1800 / 700 MHz) | 12° / 12° / 12° (UMa calibration, TR 38.901 [11]) |
 | Tilt bounds and resolution | [0°, 20°], 0.1° |
 | Time intervals | 672 × 15 min (7 days) |
 | UEs per interval | 10 to 20 |
-| Demand hotspots | 4, holding 70 % of UEs on average |
+| Demand hotspots | 3, holding 70 % of UEs on average |
 | UE reports | 10,087 |
-| UE reports with no path to any sector | 13.9 % |
-| KPI thresholds | $T_{\text{hole}} = -120$ dBm, $T_{\text{weak}} = -90$ dBm, $\Delta = 6$ dB |
+| UE reports with no path to any sector | 3.8 % |
+| KPI thresholds | $T_{\text{hole}} = -110$ dBm, $T_{\text{weak}} = -90$ dBm, $\Delta = 6$ dB |
 | Search seed | 42 (both methods) |
 
-The fraction of tiles reached by any path is 97.1 % at 700 MHz, 95.1 % at 1800 MHz and 95.2 % at 2600 MHz, with median RSRP over reached tiles of −84.1, −91.3 and −95.5 dBm respectively.
+The fraction of tiles reached by any path is 93.1 % at 700 MHz, 90.6 % at 1800 MHz and 90.8 % at 2600 MHz, with median RSRP over reached tiles of −90.5, −97.7 and −101.7 dBm respectively. 3GPP fixes no coverage-hole threshold: TS 37.320 [22] defines a hole by the signal level needed for basic service without quantifying it, so $T_{\text{hole}}$ is a choice of this study.
 
 ### B. Characterization of the Incumbent Configuration
 
-At the incumbent tilts, 4.40 % of tiles are holes, 29.4 % weak and 66.2 % well covered (Table III). The holes are fragmented into 1,708 connected regions, 1,247 of which comprise a single tile; the largest holds 22.7 % of the hole area, and 1,876 of the 4,445 hole tiles receive no propagation path from any sector. The hole rate is 0.13 % within 1 km of a site and 5.87 % beyond.
+At the incumbent tilts, 14.7 % of tiles are holes, 38.8 % weak and 46.6 % well covered (Table III). The holes are fragmented into 3,582 connected regions, 2,491 of which comprise a single tile; the largest holds 26.5 % of the hole area, and 3,996 of the 14,818 hole tiles receive no propagation path from any sector. The hole rate is 0.94 % within 1 km of a site and 17.4 % beyond: seven sites span about 1 km of a 6.2 × 6.5 km scene, so most of the hole area lies far from every site.
 
-Per layer, the hole share is 5.6 % at 700 MHz, 11.3 % at 1800 MHz and 14.1 % at 2600 MHz. Although 700 MHz is the strongest band on 93.9 % of the covered area, the serving rule places 88.1 % of that area on 2600 MHz, the band with the most PRBs. Of all UE reports, 62.5 % are served on 2600 MHz, 12.9 % on 1800 MHz and 8.2 % on 700 MHz. Co-band overlap affects 34.9 % of tiles, with 1.09 overlapping neighbours per covered tile on average (median 0, 90th percentile 3); 20.9 % of covered tiles have three or more, at a median distance of 1,371 m from the nearest site.
+Per layer, the hole share is 17.5 % at 700 MHz, 28.9 % at 1800 MHz and 35.7 % at 2600 MHz. Although 700 MHz is the strongest band on 90.9 % of the covered area, the serving rule places 73.9 % of that area on 2600 MHz, the band with the most PRBs. Of all UE reports, 57.2 % are served on 2600 MHz, 12.0 % on 1800 MHz and 13.2 % on 700 MHz. Co-band overlap affects 46.3 % of tiles, with 2.13 overlapping neighbours per covered tile on average (median 1, 90th percentile 6); 32.9 % of covered tiles have three or more, at a median distance of 1,652 m from the nearest site.
 
-Demand and coverage are misaligned: holes occupy 4.4 % of the area but carry 16.4 % of UE reports (Table III), and 13.9 % of reports fall on tiles with no path to any sector. One of the four demand hotspots (1,866 UE reports), placed by the synthetic generator where building volume is high, is centred 3,297 m from the nearest site, where no layer provides a path at the incumbent tilts. For this synthetic population, the area-based hole rate therefore understates the service deficit.
+Demand and coverage are misaligned: holes occupy 14.7 % of the area but carry 17.6 % of UE reports (Table III), and 3.8 % of reports fall on tiles with no path to any sector. One of the three demand hotspots (2,292 UE reports), placed by the synthetic generator where building volume is high, is centred 1,906 m from the nearest site, where the best server is at −145 dBm at the incumbent tilts. For this synthetic population, the area-based hole rate therefore understates the service deficit.
 
 *Table III. Coverage class by area and by demand at the incumbent configuration.*
 
 | Coverage class | Tiles | Share of area | Share of UE reports |
 |---|---:|---:|---:|
-| Hole ($\le -120$ dBm) | 4,445 | 4.4 % | 16.4 % |
-| Weak ($-120$ to $-90$ dBm) | 29,735 | 29.4 % | 22.2 % |
-| Good ($> -90$ dBm) | 66,880 | 66.2 % | 61.4 % |
+| Hole ($\le -110$ dBm) | 14,818 | 14.7 % | 17.6 % |
+| Weak ($-110$ to $-90$ dBm) | 39,163 | 38.8 % | 25.3 % |
+| Good ($> -90$ dBm) | 47,079 | 46.6 % | 57.2 % |
 
 ![RSRP per band](../reports/figures/00_simulation/rsrp_per_band.png)
 
@@ -343,7 +345,7 @@ Prior to optimization, the UE table, scenario manifest and radio map were valida
 Five criteria are applied. Criteria 1 and 2 assess effectiveness, criterion 3 the search, criterion 4 side effects across layers and demand, and criterion 5 cost. None tests robustness to model error, traffic or seed.
 
 1. **Overall quality:** hypervolume of each run's evaluated set, expressed as a gain over the incumbent's. Hypervolume is taken against the origin on unnormalized objectives, so these percentages depend on that reference point.
-2. **Reported KPIs:** direction of change against the incumbent over the seven network-level KPIs and the per-band measures of Section III-F. A change is labelled better, worse or unchanged; since solver noise per KPI has not been measured, no tie tolerance is applied, and the hole rate, whose changes are a tenth of a point, is left out of the tally.
+2. **Reported KPIs:** direction of change against the incumbent over the seven network-level KPIs and the per-band measures of Section III-F. A change is labelled better, worse or unchanged; since solver noise per KPI has not been measured, no tie tolerance is applied.
 3. **Search effectiveness:** sample efficiency, and the paired hypervolume difference between MORBO and random search on the same seed.
 4. **Layer and demand effects:** where a configuration moves demand, not only area, and how it trades one KPI against another.
 5. **Cost:** ray-tracing evaluations, ray-tracing time and wall-clock time per run.
@@ -354,40 +356,40 @@ The evaluation operates exclusively on archived run outputs without re-solving. 
 
 ### A. Comparability and Consistency
 
-All 23 comparability checks hold: both runs optimized the incumbent's scenario, retained their radio maps and match the incumbent's grid, solver settings, bands, carrier frequencies and KPI definitions. Recomputing each recommendation's KPIs from its archived radio map reproduces the recorded values exactly for the hole, weak and overlap rates and the objectives, and to within $3 \times 10^{-6}$ Mbit/s for the throughput KPIs. This checks the bookkeeping, not the reproducibility of the search. Repeatability across seeds remains untested, as each method was executed with one seed.
+All 23 comparability checks hold: both runs optimized the incumbent's scenario, retained their radio maps and match the incumbent's grid, solver settings, bands, carrier frequencies and KPI definitions. Recomputing each recommendation's KPIs from its archived radio map reproduces the recorded values exactly for the hole, weak and overlap rates and the objectives, and to within $1.1 \times 10^{-5}$ for the throughput KPIs (in Mbit/s) and the mean number of overlapping neighbours. This checks the bookkeeping, not the reproducibility of the search. Repeatability across seeds remains untested, as each method was executed with one seed.
 
 ### B. Network-Level KPIs
 
-*Table IV. Recommended configuration of each method against the incumbent. Bold marks the best value per row. The tally excludes the hole rate, whose changes of a tenth of a point may lie within unmeasured solver noise, and counts median and mean throughput separately although both derive from the same per-UE rates.*
+*Table IV. Recommended configuration of each method against the incumbent. Bold marks the best value per row. The tally counts the seven network KPIs, median and mean throughput separately although both derive from the same per-UE rates.*
 
 | KPI | Direction | Incumbent | MORBO | Random search |
 |---|:-:|---:|---:|---:|
-| Coverage-hole rate | ↓ | 4.40 % | **4.30 %** | 4.50 % |
-| Weak-coverage rate | ↓ | 29.4 % | **24.6 %** | 29.6 % |
-| Co-band overlap rate | ↓ | **34.9 %** | 36.6 % | 48.7 % |
-| Overlapping neighbours per covered tile | ↓ | 1.09 | **1.01** | 1.20 |
+| Coverage-hole rate | ↓ | 14.66 % | 13.83 % | **12.96 %** |
+| Weak-coverage rate | ↓ | 38.8 % | 27.1 % | **24.4 %** |
+| Co-band overlap rate | ↓ | 46.3 % | **43.1 %** | 51.0 % |
+| Overlapping neighbours per covered tile | ↓ | 2.13 | **1.39** | 1.76 |
 | Cell-edge throughput, p05 [Mbit/s] | ↑ | 0.0 | 0.0 | 0.0 |
-| Median throughput [Mbit/s] | ↑ | 51.7 | 55.5 | **61.5** |
-| Mean throughput [Mbit/s] | ↑ | 80.4 | 85.0 | **88.6** |
-| Coverage objective $f_{\text{cov}}$ | ↑ | 0.9560 | **0.9570** | 0.9550 |
-| Separation objective $f_{\text{sep}}$ | ↑ | 0.6778 | **0.6994** | 0.6388 |
-| Throughput objective $f_{\text{thr}}$ | ↑ | 3.513 | 3.566 | **3.628** |
-| Network KPIs better / worse / unchanged, hole rate excluded | | | 4 / 1 / 1 | 2 / 3 / 1 |
-| Hypervolume of all evaluations | ↑ | 2.276 | **2.433** | 2.353 |
+| Median throughput [Mbit/s] | ↑ | 36.6 | **50.0** | 48.7 |
+| Mean throughput [Mbit/s] | ↑ | 58.6 | **74.9** | 72.4 |
+| Coverage objective $f_{\text{cov}}$ | ↑ | 0.8534 | 0.8617 | **0.8704** |
+| Separation objective $f_{\text{sep}}$ | ↑ | 0.5260 | **0.6075** | 0.5544 |
+| Throughput objective $f_{\text{thr}}$ | ↑ | 3.214 | 3.464 | **3.505** |
+| Network KPIs better / worse / unchanged | | | 6 / 0 / 1 | 5 / 1 / 1 |
+| Hypervolume of all evaluations | ↑ | 1.443 | **1.851** | 1.754 |
 
 *Table V. Best-server RSRP and SINR per band over each band's covered tiles.*
 
 | Band | Configuration | RSRP p50 [dBm] | RSRP p05 [dBm] | SINR p50 [dB] | SINR p05 [dB] |
 |---|---|---:|---:|---:|---:|
-| 2600 MHz | Incumbent | −93.4 | −113.2 | 12.7 | −0.93 |
-| | MORBO | −93.0 | −113.9 | 15.0 | −0.92 |
-| | Random search | −94.1 | −114.5 | 12.1 | −1.32 |
-| 1800 MHz | Incumbent | −89.9 | −110.3 | 12.2 | −0.98 |
-| | MORBO | −89.0 | −110.6 | 13.9 | −1.10 |
-| | Random search | −89.0 | −110.1 | 13.3 | −1.05 |
-| 700 MHz | Incumbent | −83.6 | −105.3 | 11.5 | −1.12 |
-| | MORBO | −82.0 | −104.5 | 13.9 | −0.92 |
-| | Random search | −86.0 | −108.2 | 9.9 | −1.52 |
+| 2600 MHz | Incumbent | −97.7 | −107.6 | 4.8 | −3.46 |
+| | MORBO | −92.8 | −107.7 | 9.2 | −2.22 |
+| | Random search | −92.1 | −107.3 | 7.4 | −2.36 |
+| 1800 MHz | Incumbent | −94.9 | −106.8 | 4.7 | −3.42 |
+| | MORBO | −90.9 | −106.9 | 8.2 | −2.70 |
+| | Random search | −90.0 | −106.3 | 6.8 | −2.68 |
+| 700 MHz | Incumbent | −89.1 | −105.5 | 4.3 | −3.62 |
+| | MORBO | −83.9 | −104.5 | 7.5 | −2.48 |
+| | Random search | −83.8 | −103.7 | 5.1 | −3.35 |
 
 ![KPI comparison](../reports/figures/04_evaluation/kpi_comparison.png)
 
@@ -399,13 +401,13 @@ All 23 comparability checks hold: both runs optimized the incumbent's scenario, 
 
 Four observations follow from Tables IV and V.
 
-*The all-band hole rate changes little across the evaluated configurations.* In the studied layout, the incumbent configuration already holds the hole rate below 5 %. The recommendations shift it by a tenth of a percentage point (−0.10 for MORBO, +0.10 for random search), and the lowest value found by either search is 4.15 %. This describes the configurations both runs evaluated, not a sensitivity analysis; per-band hole rates move by more (Table VIII). One reason lies in the propagation model: 1,876 of the 4,445 incumbent hole tiles receive no propagation path from any sector, and tilt alters antenna gain, not the existence of a path. Since diffraction and diffuse scattering are disabled (Section III-B), some of these tiles may receive signal in a model that includes them. The remaining 2,569 hole tiles do have a path. Whether a different site layout would close these holes was not tested.
+*MORBO lowers holes and overlap together.* Its recommendation reduces the hole rate by 0.83 points and the all-band overlap rate by 3.2 points, cuts the mean number of overlapping neighbours per covered tile by 35 %, and achieves an 11.6-point reduction in weak coverage. Median SINR rises on every band, by 4.4 dB at 2600 MHz, 3.5 dB at 1800 MHz and 3.2 dB at 700 MHz, and 5th-percentile SINR by 1.2, 0.7 and 1.1 dB. The 5th-percentile RSRP falls by about 0.1 dB at 2600 and 1800 MHz and rises by 1.0 dB at 700 MHz. Mean throughput rises by 16.2 Mbit/s (28 %). Of the seven network KPIs, six improve and none worsens; the seventh, cell-edge throughput, stays at zero.
 
-*MORBO trades a small overlap increase for gains elsewhere.* Its recommendation achieves the largest reduction in weak coverage (−4.8 points) and raises median SINR on every band, by 2.3 dB at 2600 MHz, 1.6 dB at 1800 MHz and 2.4 dB at 700 MHz. The tails do not all improve: 5th-percentile RSRP falls by 0.7 dB at 2600 MHz and 0.2 dB at 1800 MHz, and 5th-percentile SINR falls by 0.1 dB at 1800 MHz. The all-band overlap rate rises by 1.7 points, even though the overlap rate of every individual band falls (Table VIII); since the all-band rate counts a tile if any band overlaps there, the overlapping tiles of different bands must coincide less than before.
+*Random search buys coverage with overlap.* Its recommendation attains the lowest hole and weak-coverage rates, 1.70 and 14.4 points below the incumbent, but the all-band overlap rate rises by 4.6 points and the separation objective gains only 0.028 against MORBO's 0.081. Every band's own overlap rate falls (Table VIII) while the all-band rate rises; since the all-band rate counts a tile if any band overlaps there, the overlapping tiles of different bands must coincide less than before.
 
-*Random search buys throughput with overlap.* Its recommendation attains the highest median and mean throughput, but the overlap rate rises by 13.9 points and the separation objective falls by 0.039. Its 700 MHz layer loses 2.4 dB of median RSRP and 1.5 dB of median SINR, weakening the coverage layer.
+*Hole-rate changes of about a point lie near unmeasured noise.* Each recommendation is the best of 73 evaluations under one solver-noise realization (Section VII-B), and solver noise per KPI has not been measured, so hole-rate differences of this size should be read as indicative.
 
-*Cell-edge throughput is pinned at zero.* Between 16.4 % and 16.6 % of UE reports lie on hole tiles in every configuration, exceeding 5 %, so the 5th-percentile throughput is 0 Mbit/s throughout and cannot discriminate between configurations.
+*Cell-edge throughput is pinned at zero.* Between 14.4 % and 17.6 % of UE reports lie on hole tiles in every configuration, exceeding 5 %, so the 5th-percentile throughput is 0 Mbit/s throughout and cannot discriminate between configurations.
 
 ### C. Search Effectiveness
 
@@ -413,17 +415,17 @@ Four observations follow from Tables IV and V.
 
 | Method | Incumbent | Initial design | All evaluations | Gain over incumbent | Pareto points | Recommended evaluation |
 |---|---:|---:|---:|---:|---:|---:|
-| MORBO | 2.2762 | 2.3388 | 2.4325 | +6.9 % | 18 | 66 |
-| Random search | 2.2762 | 2.3388 | 2.3528 | +3.4 % | 9 | 65 |
+| MORBO | 1.4428 | 1.7536 | 1.8507 | +28.3 % | 6 | 68 |
+| Random search | 1.4428 | 1.7536 | 1.7540 | +21.6 % | 6 | 7 |
 
-*Table VII. Best hypervolume and hole rate reached after a given number of evaluations.*
+*Table VII. Best hypervolume and all-band overlap rate reached after a given number of evaluations. The best hole rate, 12.96 %, is reached by evaluation 10 in both runs, by a point of the shared initial design.*
 
-| Evaluations | HV, MORBO | HV, random | Hole rate, MORBO | Hole rate, random |
+| Evaluations | HV, MORBO | HV, random | Overlap rate, MORBO | Overlap rate, random |
 |---:|---:|---:|---:|---:|
-| 10 | 2.3388 | 2.3388 | 4.40 % | 4.40 % |
-| 25 | 2.3544 | 2.3388 | 4.25 % | 4.40 % |
-| 50 | 2.4010 | 2.3468 | 4.15 % | 4.26 % |
-| 73 | 2.4325 | 2.3528 | 4.15 % | 4.26 % |
+| 10 | 1.7537 | 1.7539 | 46.3 % | 46.3 % |
+| 25 | 1.7680 | 1.7539 | 46.3 % | 46.3 % |
+| 50 | 1.8320 | 1.7539 | 43.6 % | 46.3 % |
+| 73 | 1.8507 | 1.7540 | 43.1 % | 46.3 % |
 
 ![Search progress](../reports/figures/04_evaluation/search_progress.png)
 
@@ -433,15 +435,15 @@ Four observations follow from Tables IV and V.
 
 *Fig. 7. Every MORBO evaluation, grouped by proposer (Sobol initial design or trust-region proposal).*
 
-*The difference arises in the search, on this seed.* Because both methods share the same eight-point initial design, the difference between their final hypervolumes arises after it. MORBO's final hypervolume exceeds that of random search by 0.080 on the single seed pair; with one pair, no confidence interval or significance test can be reported, and the margin may not generalize across seeds.
+*The difference arises in the search, on this seed.* Because both methods share the same eight-point initial design, the difference between their final hypervolumes arises after it. From the shared 1.7536, MORBO adds 0.0971 and random search 0.0004: random search's 64 further points barely extend the front, and its recommendation is evaluation 7, a point of the shared initial design that also lies on MORBO's front. MORBO's final hypervolume exceeds random search's by 0.097 on the single seed pair; with one pair, no confidence interval or significance test can be reported, and the margin may not generalize across seeds.
 
-*MORBO is more sample-efficient on this seed, though not faster.* After 25 evaluations, MORBO's hypervolume already exceeds the one random search reaches after 73, by a margin of 0.0016 (2.3544 against 2.3528). By evaluation 50, its best hole rate (4.15 %) is below random search's (4.26 %). MORBO's hypervolume was still rising between evaluations 50 and 73, indicating that the budget did not exhaust its progress. Sample efficiency is not wall-clock efficiency here. At about 2.4 s per evaluation, MORBO's model overhead exceeded its ray-tracing time (Section VI-G), and in MORBO's wall-clock time random search could have run about twice as many evaluations. That comparison was not run.
+*MORBO is more sample-efficient on this seed at a similar wall-clock time.* After 25 evaluations, MORBO's hypervolume already exceeds the one random search reaches after 73 (1.7680 against 1.7540). MORBO's hypervolume was still rising at the end, and its recommendation is evaluation 68 of 73, so the budget of 73 evaluations in 63 dimensions did not exhaust its progress. Its model overhead is offset here by cheaper ray tracing on the configurations it evaluated, so its wall-clock time exceeds random search's by about a tenth (Section VI-G).
 
-*The Pareto front consists entirely of trust-region proposals.* None of the eight Sobol points lies on MORBO's front; all 18 Pareto-optimal points are among its 64 trust-region proposals. These proposals also exceed the initial design on average in all three objectives: mean coverage 0.9570 against 0.9522, mean separation 0.6789 against 0.6497 and mean throughput utility 3.589 against 3.529. Because these proposals perturb the current Pareto points, any local search would be expected to show this. It does not isolate the contribution of the GP models, and no ablation without them was run.
+*The front is mostly trust-region proposals.* Five of MORBO's six Pareto-optimal points are trust-region proposals; the sixth is the shared initial-design point with the lowest hole rate. The proposals exceed the initial design on average in all three objectives: mean coverage 0.8575 against 0.8559, mean separation 0.5867 against 0.5557 and mean throughput utility 3.422 against 3.369, whereas random search's later points match its initial design (0.8559, 0.5573 and 3.371). Because these proposals perturb the current Pareto points, any local search would be expected to show this. It does not isolate the contribution of the GP models, and no ablation without them was run.
 
-*No evaluation reduced the all-band overlap rate.* The best overlap rate found by either method equals the incumbent's 34.9 %: within the explored space, no configuration lowered the aggregate overlap.
+*Only MORBO lowers the all-band overlap rate.* 32 of MORBO's 73 evaluations lower both the hole rate and the overlap rate below the incumbent's; none of random search's does, and its lowest overlap rate equals the incumbent's 46.3 %. On the three objectives, by contrast, the incumbent is a weak reference: 61 of MORBO's evaluations and 48 of random search's beat it on all three.
 
-*The recommendation is not the minimum-hole configuration.* MORBO's lowest observed hole rate is 4.15 %, whereas its recommendation — the point with the largest hypervolume contribution — lies at 4.30 %. The remaining front points constitute alternatives for an operator who prioritizes hole reduction.
+*The recommendation is not the minimum-hole configuration.* The lowest hole rate either method observed is 12.96 %, at a shared initial-design point whose overlap rate is 51.0 %, whereas MORBO's recommendation — the point with the largest hypervolume contribution — lies at 13.83 % with 43.1 % overlap. The remaining front points constitute alternatives for an operator who prioritizes hole reduction.
 
 ![Coverage vs separation trade-off](../reports/figures/04_evaluation/tradeoff_coverage_objective_vs_separation_objective.png)
 
@@ -453,26 +455,26 @@ Four observations follow from Tables IV and V.
 
 | Band | Measure | Incumbent | MORBO | Random search |
 |---|---|---:|---:|---:|
-| 2600 MHz | Hole / weak / overlap | 14.1 / 50.2 / 23.8 % | 15.4 / 49.5 / 20.8 % | 16.2 / 52.1 / 24.2 % |
-| 1800 MHz | Hole / weak / overlap | 11.3 / 44.1 / 25.2 % | 11.5 / 41.9 / 23.4 % | 11.2 / 41.5 / 24.5 % |
-| 700 MHz | Hole / weak / overlap | 5.6 / 29.4 / 28.2 % | 5.5 / 25.2 / 24.9 % | 5.9 / 36.1 / 31.2 % |
-| All bands | Overlap (KPI) | 34.9 % | 36.6 % | 48.7 % |
+| 2600 MHz | Hole / weak / overlap | 35.7 / 45.5 / 28.8 % | 35.7 / 37.6 / 20.3 % | 34.3 / 36.7 / 23.6 % |
+| 1800 MHz | Hole / weak / overlap | 28.9 / 44.6 / 32.2 % | 28.8 / 37.6 / 24.2 % | 27.5 / 36.3 / 28.5 % |
+| 700 MHz | Hole / weak / overlap | 17.5 / 38.0 / 39.9 % | 16.8 / 26.3 / 29.5 % | 16.2 / 24.5 / 37.9 % |
+| All bands | Overlap (KPI) | 46.3 % | 43.1 % | 51.0 % |
 
 *Table IX. Coverage class by area and by demand (share of UE reports).*
 
 | Coverage class | Incumbent: area | Incumbent: demand | MORBO: area | MORBO: demand | Random: area | Random: demand |
 |---|---:|---:|---:|---:|---:|---:|
-| Hole | 4.40 % | 16.40 % | 4.30 % | 16.58 % | 4.50 % | 16.36 % |
-| Weak | 29.4 % | 22.2 % | 24.6 % | 19.4 % | 29.6 % | 20.5 % |
-| Good | 66.2 % | 61.4 % | 71.1 % | 64.1 % | 65.9 % | 63.2 % |
+| Hole | 14.66 % | 17.56 % | 13.83 % | 15.76 % | 12.96 % | 14.41 % |
+| Weak | 38.8 % | 25.3 % | 27.1 % | 19.9 % | 24.4 % | 18.5 % |
+| Good | 46.6 % | 57.2 % | 59.0 % | 64.3 % | 62.7 % | 67.1 % |
 
 *Table X. Distribution of overlapping co-band neighbours over covered tiles.*
 
 | Configuration | Mean | 0 neighbours | 1 | 2 | 3 or more |
 |---|---:|---:|---:|---:|---:|
-| Incumbent | 1.09 | 63.5 % | 9.4 % | 6.2 % | 20.9 % |
-| MORBO | 1.01 | 61.8 % | 13.8 % | 8.2 % | 16.3 % |
-| Random search | 1.20 | 49.0 % | 22.6 % | 11.7 % | 16.8 % |
+| Incumbent | 2.13 | 45.7 % | 13.3 % | 8.1 % | 32.9 % |
+| MORBO | 1.39 | 49.9 % | 20.1 % | 11.1 % | 18.8 % |
+| Random search | 1.76 | 41.5 % | 20.0 % | 13.5 % | 25.1 % |
 
 ![Coverage before and after, 2600 MHz](../reports/figures/04_evaluation/coverage_before_after_b2600.png)
 
@@ -482,13 +484,13 @@ Four observations follow from Tables IV and V.
 
 *Fig. 10. Change in 2600 MHz best-server RSRP under each method's recommendation.*
 
-*Area gains do not reach demand in the holes.* MORBO's recommendation reduces hole area by 0.10 points but raises the share of UE reports on hole tiles from 16.40 % to 16.58 %: the hole tiles it opens carry more demand than those it closes. The coverage and separation objectives are tile-uniform and do not weight by demand. The throughput objective does count demand, but the 13.9 % of UE reports on tiles with no propagation path to any sector contribute zero regardless of tilt and therefore exert no pressure on the search.
+*Hole gains reach demand.* MORBO's recommendation reduces hole area by 0.83 points and the share of UE reports on hole tiles by 1.80 points, from 17.56 % to 15.76 %; random search's reduces them by 1.70 and 3.14 points. The coverage and separation objectives are tile-uniform and do not weight by demand; the throughput objective does, through every UE report served at a positive rate.
 
-*Weak coverage improves by both area and demand.* MORBO reduces the weak-coverage share by 4.8 points of area and 2.9 points of demand, and raises the good-coverage share by 4.9 and 2.7 points respectively.
+*Weak coverage improves by both area and demand.* MORBO reduces the weak-coverage share by 11.6 points of area and 5.3 points of demand, and raises the good-coverage share by 12.5 and 7.1 points respectively.
 
-*The capacity layer contracts while the coverage layer strengthens.* Under MORBO, the 2600 MHz hole rate rises from 14.1 % to 15.4 %, whereas the 700 MHz weak rate falls from 29.4 % to 25.2 %. Each band's own overlap rate falls, by 3.0 points at 2600 MHz, 1.8 at 1800 MHz and 3.3 at 700 MHz. Random search, in contrast, increases the 700 MHz weak rate by 6.7 points and its overlap by 3.0 points.
+*The coverage layer strengthens and every layer's overlap falls.* Under MORBO, the 700 MHz hole rate falls by 0.65 points and its weak rate by 11.6 points, while the 2600 MHz and 1800 MHz hole rates stay within 0.1 point of the incumbent's. Each band's own overlap rate falls, by 8.5 points at 2600 MHz, 8.0 at 1800 MHz and 10.3 at 700 MHz. Random search lowers every band's hole rate by more, but its 700 MHz overlap falls by only 2.0 points.
 
-*Overlap becomes shallower but more widespread under MORBO.* The share of covered tiles with three or more overlapping neighbours falls from 20.9 % to 16.3 %, while tiles with one or two neighbours increase. Random search shifts a far larger share of tiles from zero to one or two neighbours.
+*Overlap becomes shallower under MORBO.* The share of covered tiles with three or more overlapping neighbours falls from 32.9 % to 18.8 %, and the share with none rises from 45.7 % to 49.9 %. Random search leaves 25.1 % of covered tiles with three or more and lowers the share with none to 41.5 %.
 
 ### E. Inter-Layer Load Redistribution
 
@@ -496,9 +498,9 @@ Four observations follow from Tables IV and V.
 
 | Configuration | Served on 2600 MHz | Served on 1800 MHz | Served on 700 MHz | Not served | Served SINR p50, 2600 / 1800 / 700 MHz [dB] |
 |---|---:|---:|---:|---:|---|
-| Incumbent | 62.5 % | 12.9 % | 8.2 % | 16.4 % | 11.2 / 15.3 / 19.8 |
-| MORBO | 55.7 % | 16.1 % | 11.6 % | 16.6 % | 13.1 / 16.9 / 17.9 |
-| Random search | 56.0 % | 19.1 % | 8.6 % | 16.4 % | 17.4 / 17.7 / 20.5 |
+| Incumbent | 57.2 % | 12.0 % | 13.2 % | 17.6 % | 7.2 / 12.0 / 13.2 |
+| MORBO | 53.0 % | 16.7 % | 14.6 % | 15.8 % | 13.1 / 14.9 / 14.2 |
+| Random search | 49.4 % | 23.4 % | 12.8 % | 14.4 % | 9.6 / 14.6 / 16.3 |
 
 ![Serving band mix](../reports/figures/04_evaluation/serving_band_mix.png)
 
@@ -508,11 +510,11 @@ Four observations follow from Tables IV and V.
 
 *Fig. 12. Median estimated throughput per sector-band, incumbent and recommended.*
 
-*Traffic migrates from 2600 MHz to the lower layers.* Under MORBO's recommendation, the 2600 MHz share of UE reports falls by 6.8 points, while 1800 MHz gains 3.2 points and 700 MHz 3.4 points. Median served SINR on 2600 MHz rises by 1.9 dB, whereas on 700 MHz it falls by 1.8 dB while that layer serves more users.
+*Traffic migrates from 2600 MHz to the lower layers.* Under MORBO's recommendation, the 2600 MHz share of UE reports falls by 4.2 points, while 1800 MHz gains 4.6 points and 700 MHz 1.3 points, and the unserved share falls by 1.8 points. Median served SINR rises on every layer, by 5.9 dB on 2600 MHz, 2.9 dB on 1800 MHz and 1.0 dB on 700 MHz.
 
-*The largest changes are load-shedding downtilts on the capacity layer.* Sector n2s1 (site 2, sector 1) at 2600 MHz, downtilted by 4.2°, serves 664 fewer reports (963 → 299), and n1s0 at 2600 MHz, downtilted by 5.4°, serves 384 fewer (521 → 137); the median throughput of the UEs that remain rises by 18.4 and 20.8 Mbit/s respectively.
+*The largest changes are load-shedding downtilts on the capacity layer.* Sector n1s1 (site 1, sector 1) at 2600 MHz, downtilted by 3.6°, serves 347 fewer reports (413 → 66), and n6s2 at 2600 MHz, downtilted by 7.2°, serves 203 fewer (272 → 69); the median throughput of the UEs that remain rises by 19.8 and 104.6 Mbit/s respectively.
 
-*Some uptilted capacity carriers serve more reports.* Sector n3s2 at 2600 MHz, uptilted by 8.1°, serves 363 additional reports (769 → 1,132) at a 4.3 dB higher median SINR, and n0s2 at 2600 MHz, uptilted by 7.4°, serves 214 additional reports. Which sectors previously served these reports was not traced. Ranking sector-bands by the magnitude of the change in served reports could give an operator a prioritized monitoring list for a staged rollout; this ranking is computed for the recommendation only and has not been tested in a rollout.
+*Some uptilted capacity carriers serve more reports.* Sector n2s1 at 2600 MHz, uptilted by 7.3°, serves 257 additional reports (520 → 777) at a 6.5 dB higher median SINR, and n3s0 at 2600 MHz, uptilted by 11.1°, serves 142 additional reports. Which sectors previously served these reports was not traced. Ranking sector-bands by the magnitude of the change in served reports could give an operator a prioritized monitoring list for a staged rollout; this ranking is computed for the recommendation only and has not been tested in a rollout.
 
 ### F. Recommended Tilt Configuration
 
@@ -524,11 +526,11 @@ Four observations follow from Tables IV and V.
 
 | Band | Sectors moved | Mean $\lvert\Delta\rvert$ [°] | Largest $\lvert\Delta\rvert$ [°] | Mean $\Delta$ [°] |
 |---|---:|---:|---:|---:|
-| 2600 MHz | 12 of 12 | 4.66 | 9.2 | −0.24 |
-| 1800 MHz | 12 of 12 | 4.51 | 8.9 | −1.31 |
-| 700 MHz | 12 of 12 | 5.41 | 9.4 | −1.57 |
+| 2600 MHz | 21 of 21 | 5.94 | 11.9 | −0.49 |
+| 1800 MHz | 21 of 21 | 5.35 | 11.5 | −1.19 |
+| 700 MHz | 21 of 21 | 5.79 | 11.7 | −2.72 |
 
-All 36 tilts change, 24 upward and 12 downward, by up to 9.4°, with resulting tilts between 0.6° and 19.2°. No tilt reaches a bound, so the bounds are not active at the recommendation. The 700 MHz layer moves furthest on average and toward the horizon (mean −1.6°), which is consistent with extending the coverage layer, whereas 2600 MHz nets out near zero (−0.2°) through large opposing per-sector moves, accompanied by the load shifts of Section VI-E. Because movement is unpenalized, the recommendation corresponds to a 36-antenna RET change request. The tilt movement of the other Pareto-optimal configurations was not analyzed, so whether the front contains a comparable option with less movement remains open.
+All 63 tilts change, 36 upward and 27 downward, by up to 11.9°, with resulting tilts between 0.1° and 19.8°. No tilt reaches a bound, so the bounds are not active at the recommendation. The 700 MHz layer moves furthest toward the horizon on average (mean −2.7°), which is consistent with extending the coverage layer, whereas 2600 MHz nets out near zero (−0.5°) through large opposing per-sector moves, accompanied by the load shifts of Section VI-E. Because movement is unpenalized, the recommendation corresponds to a 63-antenna RET change request. The tilt movement of the other Pareto-optimal configurations was not analyzed, so whether the front contains a comparable option with less movement remains open.
 
 ### G. Computational Cost
 
@@ -536,60 +538,61 @@ All 36 tilts change, 24 upward and 12 downward, by up to 9.4°, with resulting t
 
 | Method | Evaluations | Recommended evaluation | Ray tracing [min] | Wall clock [min] |
 |---|---:|---:|---:|---:|
-| MORBO | 73 | 66 | 2.85 | 7.24 |
-| Random search | 73 | 65 | 2.87 | 3.42 |
+| MORBO | 73 | 68 | 5.69 | 10.50 |
+| Random search | 73 | 7 | 8.24 | 9.54 |
 
-Ray tracing costs approximately 2.4 s per full-network evaluation for both methods. The additional wall-clock time of MORBO is incurred outside the ray tracer, in GP fitting and acquisition optimization. A complete joint optimization of 36 tilts therefore requires minutes of commodity compute in this setting. This covers the simulation only; field validation of the selected configuration comes on top of it.
+Ray tracing costs about 4.7 s per full-network evaluation in MORBO's run and 6.8 s in random search's; the cost depends on the configurations evaluated, and why it differs between them was not investigated. MORBO spends a further 4.8 min outside the ray tracer, in GP fitting and acquisition optimization, against 1.3 min for random search. A complete joint optimization of 63 tilts therefore requires about ten minutes of commodity compute in this setting. This covers the simulation only; field validation of the selected configuration comes on top of it.
 
 ## VII. Discussion
 
 ### A. Implications for RAN Operation
 
-Subject to the limitations below, the results suggest three possible changes to tilt-optimization practice. First, joint optimization can complement trial-and-error with selection among simulated alternatives: a single run produced 18 Pareto-optimal configurations, each accompanied by its full KPI vector and per-antenna tilt deltas, from which an engineer can select according to operational priorities. Second, the recommended configuration moves all bands jointly: it uptilts the coverage layer on average while making opposing per-sector moves on the capacity layer, and load shifts across sectors and frequency layers accordingly. Whether a band-by-band procedure would reach a similar configuration was not tested. Third, the per-sector impact ranking, computed here for the recommendation only, could inform a staged rollout plan with an explicit monitoring order.
+Subject to the limitations below, the results suggest three possible changes to tilt-optimization practice. First, joint optimization can complement trial-and-error with selection among simulated alternatives: a single run produced six Pareto-optimal configurations, each accompanied by its full KPI vector and per-antenna tilt deltas, from which an engineer can select according to operational priorities. Second, the recommended configuration moves all bands jointly: it uptilts the coverage layer on average while making opposing per-sector moves on the capacity layer, and load shifts across sectors and frequency layers accordingly. Whether a band-by-band procedure would reach a similar configuration was not tested. Third, the per-sector impact ranking, computed here for the recommendation only, could inform a staged rollout plan with an explicit monitoring order.
 
-In the studied layout, however, tilt optimization barely changed the coverage-hole rate and did not close the holes that carry demand; a large share of hole tiles have no propagation path to any sector in the ray tracer as configured. In such a setting, tilt search appears better directed at weak coverage, SINR and inter-layer load balance. With diffraction disabled, it remains open whether the demand that no layer reaches is truly unreachable or an artefact of the propagation settings; only in the former case is it a site-planning problem rather than a tilt-tuning one.
+In the studied layout, tilt optimization lowered the coverage-hole and overlap rates together, but the hole-rate gain is under a point at the recommendation: most of the hole area lies more than 1 km from every site, where the hole rate is 17.4 % against 0.94 % within 1 km, and 3,996 hole tiles have no propagation path to any sector in the ray tracer as configured. Tilt search therefore acts mainly on weak coverage, overlap, SINR and inter-layer load balance near the sites, while the distant holes are a site-planning problem. With diffraction disabled, it remains open how many of the no-path tiles are truly unreachable rather than an artefact of the propagation settings.
 
 ### B. Limitations and Threats to Validity
 
 - **Single, uncalibrated scenario.** One scene, one UE realization and one layout were studied; no result has been validated on a held-out scenario or calibrated against drive-test measurements. The simulator is not a digital twin of any deployed network.
 - **Propagation settings.** Diffraction and diffuse scattering are disabled, which can turn shadowed tiles into no-path holes; the hole findings depend on this choice.
-- **Partial SMa layout.** The layout follows the SMa inter-site distance and mast height [11] but uses 4 of its 19 sites, over an urban rather than suburban scene. UEs lie on a single outdoor plane at 1.5 m; the indoor, multi-floor UE distribution of SMa is not modelled. The incumbent is a uniform 10° configuration rather than an operator-tuned one.
-- **Limited baselines.** MORBO is compared only with random search and a uniform 10° incumbent. Neither an operator-tuned configuration, a band-by-band procedure nor another optimizer, such as an evolutionary algorithm or reinforcement learning, was evaluated. The benefit of joint over band-by-band optimization is therefore not isolated.
-- **Equal evaluations, not equal time.** The methods are compared at 73 evaluations each; MORBO took about twice the wall-clock time, and a comparison at equal wall-clock time was not run.
+- **Partial UMa layout.** The layout follows the UMa inter-site distance and mast height [11] but uses 7 of its 19 sites, so most of the 6.2 × 6.5 km scene lies beyond the first tier and its holes are out of any tilt's reach. UEs lie on a single outdoor plane at 1.5 m; the indoor, multi-floor UE distribution of UMa is not modelled. The incumbent is the uniform 12° calibration tilt rather than an operator-tuned configuration.
+- **Antenna model.** 3GPP specifies the 12° incumbent as an electrical downtilt, whereas the simulator tilts the whole array, side and back lobes included. The $8 \times 8$ array with uniform weights has its first vertical null about 14.5° off boresight; at tilts of roughly 14° to 18° that null sweeps the cell edge, so results for sectors tilted into that range partly reflect the antenna model rather than the network.
+- **Limited baselines.** MORBO is compared only with random search and the uniform 12° incumbent. Neither an operator-tuned configuration, a band-by-band procedure nor another optimizer, such as an evolutionary algorithm or reinforcement learning, was evaluated. The benefit of joint over band-by-band optimization is therefore not isolated.
+- **Equal evaluations, not equal time.** The methods are compared at 73 evaluations each; MORBO took about a tenth more wall-clock time, and a comparison at equal wall-clock time was not run.
 - **No ablation.** The contribution of the GP models, as opposed to local perturbation within a trust region, was not separated.
-- **Synthetic traffic and SINR biases.** The traffic is synthetic, and hotspots are placed where building volume is high, so the demand on hole tiles depends on that placement rule. SINR assumes every co-band sector transmits at full power, which is pessimistic at low load, and omits a receiver noise figure, which is optimistic.
+- **Synthetic traffic and SINR biases.** The traffic is synthetic, and hotspots are placed where building volume is high, so the demand on hole tiles depends on that placement rule; one of the three hotspots lies 1.9 km from the nearest site. SINR assumes every co-band sector transmits at full power, which is pessimistic at low load, and omits a receiver noise figure, which is optimistic.
 - **Idealized serving rule.** UEs attach to the sector-band with the highest equal-share Shannon rate, so the inter-layer load results describe this rule, not a deployed band-selection policy. Mobility and handover are not modelled.
 - **Single seed per method.** No confidence interval, significance test or repeatability measure is available for Tables IV and VI.
-- **Winner's curse and solver noise.** All evaluations share one solver seed, and each recommendation is the best of 73 under that noise realization, so its scores are biased upward. Solver noise per KPI is unmeasured; changes of a tenth of a point in the hole rate may lie within it.
-- **Reference-point dependence.** Hypervolume is computed against the origin; a reference point at the incumbent, or a selection restricted to configurations dominating the incumbent, could yield a different recommendation.
-- **Algorithmic configuration.** A single trust region was used and the budget of 73 evaluations in 36 dimensions is small; MORBO was still improving late in the budget. The original method's default number of trust regions was not evaluated.
-- **Objective–KPI mismatch on overlap.** The separation objective is a soft per-tile product over bands, whereas the all-band overlap KPI counts any crowded band; the recommendation improves the former while the latter worsens.
-- **Demand-agnostic area objectives.** Coverage and separation are tile-uniform; the hole-rate reduction occurred on low-demand tiles, and the share of UE reports on hole tiles rose slightly (Table IX).
+- **Winner's curse and solver noise.** All evaluations share one solver seed, and each recommendation is the best of 73 under that noise realization, so its scores are biased upward. Solver noise per KPI is unmeasured; hole-rate changes of about a point may lie within it.
+- **Reference-point dependence.** Hypervolume is computed against the origin; a reference point at the incumbent, or a selection restricted to configurations dominating the incumbent, could yield a different recommendation. Here the choice is close: MORBO's recommendation and the shared initial-design point that random search recommends differ in hypervolume contribution by about 0.1 %.
+- **Algorithmic configuration.** A single trust region was used and the budget of 73 evaluations in 63 dimensions is small; MORBO's recommendation is its 68th evaluation, so it was still improving at the end of the budget. The original method's default number of trust regions was not evaluated.
+- **Objective–KPI mismatch on overlap.** The separation objective is a soft per-tile product over bands, whereas the all-band overlap KPI counts any crowded band. Both improve under MORBO's recommendation, but random search's raises separation while the all-band overlap rate worsens, so improving one does not guarantee the other.
+- **Demand-agnostic area objectives.** Coverage and separation are tile-uniform; that the share of UE reports on hole tiles fell here (Table IX) follows from where this population's demand lies, not from the objectives.
 - **Simplified capacity model.** Rates are equal-share Shannon bounds without scheduling, MCS limits or mobility. Inter-band interference is absent by construction, and cell-edge throughput is 0 Mbit/s in every configuration because more than 5 % of UE reports lie on hole tiles.
-- **Unpenalized movement.** The recommendation moves every antenna (Table XII), which may exceed a practical RET change window.
+- **Unpenalized movement.** The recommendation moves all 63 tilts (Table XII), which may exceed a practical RET change window.
 
 ## VIII. Conclusion and Future Work
 
-This paper formulated the joint configuration of electrical tilts across all sectors and bands of a multi-band network as a 36-dimensional, three-objective black-box problem evaluated by an uncalibrated ray-traced network simulator, and compared MORBO with Sobol random search under a matched evaluation budget and seed. Table XIV summarizes the outcome against the assessment criteria.
+This paper formulated the joint configuration of tilts across all sectors and bands of a multi-band network as a 63-dimensional, three-objective black-box problem evaluated by an uncalibrated ray-traced network simulator, and compared MORBO with Sobol random search under a matched evaluation budget and seed. Table XIV summarizes the outcome against the assessment criteria.
 
 *Table XIV. Summary against the assessment criteria, seed 42. Hypervolume is against the origin on unnormalized objectives.*
 
 | Criterion | Random search | MORBO |
 |---|---|---|
-| 1. Hypervolume | +3.4 % over incumbent | **+6.9 % over incumbent** |
-| 2. Reported KPIs, hole rate excluded | 2 better, 3 worse; overlap +13.9 points | **4 better, 1 worse**; overlap +1.7 points |
-| 3. Search effectiveness | Best hole rate 4.26 %; 9 Pareto points | **Exceeds random search's final hypervolume by evaluation 25** (margin 0.0016); 18 Pareto points, all trust-region proposals |
-| 4. Layer and demand effects | Weakens the 700 MHz layer (−2.4 dB median RSRP) | Weak coverage reduced by area and demand; 2600 MHz hole rate +1.3 points; hole-tile demand share +0.18 points |
-| 5. Cost | 73 evaluations, 3.4 min | 73 evaluations, 7.2 min |
+| 1. Hypervolume | +21.6 % over incumbent, +0.0004 over the shared initial design | **+28.3 % over incumbent**, +0.0971 over the shared initial design |
+| 2. Reported KPIs | 5 better, 1 worse; overlap +4.6 points | **6 better, 0 worse**; overlap −3.2 points |
+| 3. Search effectiveness | Recommendation is an initial-design point; no evaluation lowers both hole and overlap rate | **Exceeds random search's final hypervolume by evaluation 25**; 32 evaluations lower both hole and overlap rate; 5 of 6 Pareto points are trust-region proposals |
+| 4. Layer and demand effects | Lowest hole rate by area and demand; all-band overlap rises | Weak coverage reduced by area and demand; every band's overlap falls; hole-tile demand share −1.8 points |
+| 5. Cost | 73 evaluations, 9.5 min | 73 evaluations, 10.5 min |
 
 The principal conclusions are:
 
-1. In the studied layout, the uniform 10° incumbent already has a hole rate of 4.40 % before any optimization, and 1,876 of its 4,445 hole tiles receive no propagation path in the ray tracer as configured, without diffraction or diffuse scattering.
-2. Across the evaluated configurations, the hole rate changed little in this geometry: the lowest value found was 4.15 %, and MORBO's recommendation attains 4.30 %. That recommendation, biased upward as the best of 73 under one noise realization, attains 4.8 points less weak coverage, 1.6–2.4 dB higher median SINR per band and 4.5 Mbit/s higher mean throughput. Its costs are 1.7 points more all-band co-band overlap, 1.3 points more 2600 MHz hole area, 0.18 points more UE reports on hole tiles and 1.8 dB lower median served SINR on 700 MHz.
-3. At an equal number of evaluations and on one seed per method, MORBO reached a larger hypervolume than random search in about twice the wall-clock time. Leaving out the hole rate, its recommendation improved four of six network KPIs against random search's two. Whether this margin holds across seeds, or at equal wall-clock time, is untested.
-4. For this synthetic population, the area-based hole rate understates the service deficit: about 16 % of UE reports lie on hole tiles in every configuration. One demand hotspot, placed by the generator where building volume is high, is centred where the ray tracer finds no propagation path.
+1. In the studied layout, the uniform 12° incumbent has a hole rate of 14.7 % before any optimization, 17.4 % beyond 1 km of a site and 0.94 % within it, and 3,996 of its 14,818 hole tiles receive no propagation path in the ray tracer as configured, without diffraction or diffuse scattering.
+2. MORBO's recommendation, biased upward as the best of 73 under one noise realization, lowers the hole rate by 0.83 points and the all-band overlap rate by 3.2 points, and attains 11.6 points less weak coverage, 3.2–4.4 dB higher median SINR per band and 16.2 Mbit/s higher mean throughput, with no network KPI worse than the incumbent's.
+3. At an equal number of evaluations and on one seed per method, MORBO reached a larger hypervolume than random search in about a tenth more wall-clock time; random search added almost nothing beyond the shared initial design. Whether this margin holds across seeds, or at equal wall-clock time, is untested.
+4. For this synthetic population, the area-based hole rate understates the service deficit: between 14 % and 18 % of UE reports lie on hole tiles in every configuration. One demand hotspot, placed by the generator where building volume is high, is centred 1.9 km from the nearest site, and its centre remains a hole under every recommended configuration.
 
-Future work will (i) quantify solver noise by re-tracing recommendations under multiple solver seeds; (ii) execute multiple search seeds per method to obtain confidence intervals and significance tests; (iii) weight the coverage objective by demand, or report a demand-weighted hole rate alongside it; (iv) extend the layout to the full 19-site SMa grid with indoor, multi-floor UEs; (v) introduce a tilt-movement penalty or constraint so that recommendations fit practical RET change windows; (vi) compare against an operator-tuned configuration and further optimizers; and (vii) incorporate a scheduler-level capacity model and validate the approach against operator measurements.
+Future work will (i) quantify solver noise by re-tracing recommendations under multiple solver seeds; (ii) execute multiple search seeds per method to obtain confidence intervals and significance tests; (iii) raise the evaluation budget in proportion to the 63 dimensions; (iv) weight the coverage objective by demand, or report a demand-weighted hole rate alongside it; (v) extend the layout to the full 19-site UMa grid with indoor, multi-floor UEs, and model electrical tilt with the parametric antenna pattern of TR 38.901; (vi) introduce a tilt-movement penalty or constraint so that recommendations fit practical RET change windows; (vii) compare against an operator-tuned configuration and further optimizers; and (viii) incorporate a scheduler-level capacity model and validate the approach against operator measurements.
 
 ---
 
@@ -615,7 +618,7 @@ Future work will (i) quantify solver noise by re-tracing recommendations under m
 
 [10] J. Hoydis, F. Aït Aoudia, S. Cammerer, M. Nimier-David, N. Binder, G. Marcus, and A. Keller, "Sionna RT: Differentiable ray tracing for radio propagation modeling," in *Proc. IEEE Globecom Workshops*, 2023.
 
-[11] 3GPP TR 38.901 V19.2.0 (ETSI TR 138 901 V19.2.0, 2026-02), *Study on channel model for frequencies from 0.5 to 100 GHz*, Table 7.2-5, evaluation parameters for SMa scenarios.
+[11] 3GPP TR 38.901 V19.2.0 (ETSI TR 138 901 V19.2.0, 2026-02), *Study on channel model for frequencies from 0.5 to 100 GHz*, Table 7.2-1 (evaluation parameters for UMa scenarios) and Table 7.8-1 (large-scale calibration parameters).
 
 [12] 3GPP TS 38.101-1, *NR; User Equipment (UE) radio transmission and reception; Part 1: Range 1 Standalone*, Table 5.3.2-1.
 
@@ -636,3 +639,5 @@ Future work will (i) quantify solver noise by re-tracing recommendations under m
 [20] C. Hvarfner, E. O. Hellsten, and L. Nardi, "Vanilla Bayesian optimization performs great in high dimensions," in *Proc. International Conference on Machine Learning (ICML)*, PMLR 235, 2024.
 
 [21] D. Golovin and Q. Zhang, "Random hypervolume scalarizations for provable multi-objective black box optimization," in *Proc. International Conference on Machine Learning (ICML)*, PMLR 119, 2020.
+
+[22] 3GPP TS 37.320, *Radio measurement collection for Minimization of Drive Tests (MDT); Overall description; Stage 2*, Release 19, Annex A.
