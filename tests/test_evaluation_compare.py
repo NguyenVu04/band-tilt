@@ -184,88 +184,149 @@ def test_coverage_comparison_of_nothing_is_empty() -> None:
 
 def _run(
     method: str,
-    seed: int,
     coverage: list[float],
     phases: list[str] | None = None,
+    nodes: list[str] | None = None,
     throughput: list[float] | None = None,
 ) -> Run:
-    """A run whose coverage objective per evaluation is ``coverage``, row 0 the incumbent.
+    """A run whose coverage per evaluation is ``coverage``, row 0 the incumbent.
 
-    The other objectives are 1 throughout, so the hypervolume is the best coverage.
+    Separation and the objectives other than coverage are constant, so a
+    hypervolume is set by the best coverage. Tilts equal the row number.
     """
     n = len(coverage)
+    holes = [1.0 - value for value in coverage]
     history = pd.DataFrame(
         {
             "iteration": range(n),
             "phase": phases or ["incumbent"] + ["init"] * (n - 1),
-            "hole_rate": [0.1] * n,
+            "generation_node": nodes or ["attached"] + ["Sobol"] * (n - 1),
+            "seconds": [6.0] * n,
+            "hole_rate": holes,
             "weak_rate": [0.1] * n,
-            "overlap_rate": [0.3] * n,
+            "overlap_rate": [0.5] * n,
             "overlap_neighbor_mean": [0.45] * n,
             "rsrp_p50_dbm": [-95.0] * n,
             "rsrp_p05_dbm": [-108.0] * n,
             "sinr_p50_db": [8.0] * n,
             "sinr_p05_db": [-3.0] * n,
             "estimated_throughput_p05_mbps": [1.0] * n,
-            "estimated_throughput_p50_mbps": throughput or [5.0] * n,
+            "estimated_throughput_p50_mbps": throughput or [2.0] * n,
             "estimated_throughput_mean_mbps": [6.0] * n,
             "coverage_objective": coverage,
             "separation_objective": [1.0] * n,
             "throughput_objective": [1.0] * n,
+            "tilt_c0_hi": np.arange(n, dtype=float),
         }
     )
-    best = int(np.argmax(coverage))
-    kpi = {name: float(history.loc[best, name]) for name in MEASURE_NAMES}
-    incumbent = {name: float(history.loc[0, name]) for name in MEASURE_NAMES}
     meta = {
-        "best_iteration": best,
-        "best_kpi": kpi,
-        "incumbent_kpi": incumbent,
-        "config": {"optim": {"seed": seed}},
+        "incumbent_kpi": {name: float(history.loc[0, name]) for name in MEASURE_NAMES},
+        "config": {"optim": {"seed": 42}, "seed": 42},
+        "wall_clock_seconds": 60.0 * n,
     }
-    return Run(method, f"run{seed}", Path("."), history, pd.DataFrame(), meta)
-
-
-def test_seed_summary_interval_brackets_the_mean() -> None:
-    """Two seeds give a finite interval centred on the mean winner."""
-    runs = [
-        _run("morbo", 0, [0.5, 0.8], throughput=[5.0, 8.0]),
-        _run("morbo", 1, [0.5, 0.6], throughput=[5.0, 6.0]),
-    ]
-    table = compare.seed_summary(runs).set_index("kpi")
-    assert table.index.tolist() == list(compare.SEARCH_MEASURES)
-    name = "estimated_throughput_p50_mbps"
-    assert table.loc[name, "mean"] == pytest.approx(7.0)
-    low, high = table.loc[name, ["ci95_low", "ci95_high"]]
-    assert low < 7.0 < high
-    assert table.loc[name, "direction"] == "maximise"
-    assert table.loc[name, "verdict"] == compare.BETTER
+    return Run(method, f"{method}-run", Path("."), history, meta)
 
 
 def test_hypervolume_table_separates_the_design_from_the_search() -> None:
-    """The design ends at the first ``search`` row; the search adds 0.9 - 0.5."""
+    """The design is the incumbent and the Sobol rows; on the KPIs, HV = coverage * 0.5 * 2."""
     phases = ["incumbent", "init", "search", "search"]
-    row = compare.hypervolume_table([_run("morbo", 0, [0.1, 0.5, 0.9, 0.7], phases)]).iloc[0]
+    nodes = ["attached", "Sobol", "MORBO", "MORBO"]
+    table = compare.hypervolume_table([_run("morbo", [0.1, 0.5, 0.9, 0.7], phases, nodes)])
+    row = table.set_index("measures").loc["objectives"]
     assert row["incumbent_hv"] == pytest.approx(0.1)
     assert row["initial_design_hv"] == pytest.approx(0.5)
     assert row["final_hv"] == pytest.approx(0.9)
     assert row["pareto_points"] == 1
-    assert row["best_iteration"] == 2
+    assert table.set_index("measures").loc["kpis", "final_hv"] == pytest.approx(0.9)
 
 
-def test_paired_method_gain_pairs_by_seed() -> None:
-    """A seed only one method ran is left out of the pairs; the gain is in hypervolume."""
-    runs = [
-        _run("morbo", 0, [0.5, 0.9]),
-        _run("random", 0, [0.5, 0.7]),
-        _run("morbo", 1, [0.5, 0.8]),
-        _run("random", 1, [0.5, 0.7]),
-        _run("morbo", 2, [0.5, 0.9]),
+def test_pick_is_the_largest_hypervolume_contribution_on_the_kpis() -> None:
+    """Row 2 alone has the best coverage at equal separation and throughput."""
+    frame = compare.candidates([_run("morbo", [0.1, 0.5, 0.9, 0.7])])
+    assert compare.pick(frame) == 2
+
+
+def test_method_pick_never_returns_the_incumbent() -> None:
+    """The incumbent alone holds the top coverage, yet a proposed row is chosen."""
+    frame = compare.candidates([_run("morbo", [0.9, 0.5, 0.7, 0.6])])
+    assert compare.pick(frame) == 0
+    assert compare.method_pick(frame, "morbo") == 2
+
+
+def test_search_budget_counts_phases_and_checks_the_shared_design() -> None:
+    """Same incumbent and Sobol tilts in both runs; restarts and search are MORBO's own."""
+    phases = ["incumbent", "init", "init", "search"]
+    morbo = _run(
+        "morbo", [0.1, 0.5, 0.6, 0.9], phases, ["attached", "Sobol", "MORBO restart", "MORBO"]
+    )
+    random = _run("random", [0.1, 0.5, 0.4, 0.3], ["incumbent", "init", "search", "search"])
+    table = compare.search_budget([morbo, random]).set_index("method")
+    assert table.loc["morbo", ["incumbent", "initial_design", "restarts", "search"]].tolist() == [
+        1,
+        1,
+        1,
+        1,
     ]
-    row = compare.paired_method_gain(runs).iloc[0]
-    assert row["n_pairs"] == 2
-    assert row["mean_gain"] == pytest.approx(0.15)
-    assert row["method_better"] == 2
+    assert table.loc["random", ["incumbent", "initial_design", "restarts", "search"]].tolist() == [
+        1,
+        1,
+        0,
+        2,
+    ]
+    assert table["evaluations"].tolist() == [4, 4]
+    assert table["shared_design_identical"].all()
+    assert table.loc["random", "shared_design_max_gap"] == pytest.approx(0.0)
+
+
+def test_cliffs_delta_is_one_when_every_pair_favours_x() -> None:
+    """All of x above all of y is +1, the reverse -1, identical samples 0."""
+    assert compare.cliffs_delta(np.array([3.0, 4.0]), np.array([1.0, 2.0])) == 1.0
+    assert compare.cliffs_delta(np.array([1.0, 2.0]), np.array([3.0, 4.0])) == -1.0
+    assert compare.cliffs_delta(np.array([1.0, 2.0]), np.array([1.0, 2.0])) == 0.0
+
+
+def test_method_tests_leave_out_the_shared_design() -> None:
+    """Only the search rows are compared: MORBO's 0.8, 0.9 against random's 0.3, 0.4."""
+    phases = ["incumbent", "init", "search", "search"]
+    morbo = _run("morbo", [0.1, 0.99, 0.8, 0.9], phases, ["attached", "Sobol", "MORBO", "MORBO"])
+    random = _run("random", [0.1, 0.99, 0.3, 0.4], phases)
+    row = (
+        compare.method_tests(compare.candidates([morbo, random]))
+        .set_index("kpi")
+        .loc["coverage_rate"]
+    )
+    assert row["n_method"] == 2
+    assert row["median_method"] == pytest.approx(0.85)
+    assert row["cliffs_delta"] == 1.0
+
+
+def test_set_coverage_is_asymmetric() -> None:
+    """(2, 2) dominates (1, 1), not (3, 0); nothing of b dominates (2, 2)."""
+    a = np.array([[2.0, 2.0]])
+    b = np.array([[1.0, 1.0], [3.0, 0.0]])
+    assert compare.set_coverage(a, b) == pytest.approx(0.5)
+    assert compare.set_coverage(b, a) == pytest.approx(0.0)
+
+
+def test_pareto_tilts_takes_the_shared_design_once_and_ranks_by_contribution() -> None:
+    """Coverage and throughput trade off; the incumbent and design row come from one run."""
+    phases = ["incumbent", "init", "search"]
+    morbo = _run(
+        "morbo", [0.5, 0.6, 0.9], phases, ["attached", "Sobol", "MORBO"], throughput=[2.0, 3.0, 1.0]
+    )
+    random = _run("random", [0.5, 0.6, 0.7], phases, throughput=[2.0, 3.0, 2.5])
+    front = compare.pareto_tilts([morbo, random], [])
+    assert len(front) == len(
+        front.drop_duplicates(["coverage_rate", "estimated_throughput_p50_mbps"])
+    )
+    assert set(zip(front["method"], front["iteration"], strict=True)) == {
+        ("morbo", 1),
+        ("morbo", 2),
+        ("random", 2),
+    }
+    assert front["rank"].tolist() == [1, 2, 3]
+    assert front["hv_contribution"].is_monotonic_decreasing
+    assert "tilt_c0_hi" in front.columns
 
 
 def test_pareto_front_reads_each_column_in_its_direction() -> None:
@@ -273,17 +334,6 @@ def test_pareto_front_reads_each_column_in_its_direction() -> None:
     frame = pd.DataFrame({"hole_rate": [0.1, 0.2, 0.1, 0.05], "sinr_p50_db": [9.0, 9.0, 9.0, 5.0]})
     mask = compare.pareto_front(frame, ["hole_rate", "sinr_p50_db"])
     assert mask.tolist() == [True, False, True, True]
-
-
-def test_sample_efficiency_is_nan_past_a_runs_length() -> None:
-    """A three-evaluation run has no value at a budget of four."""
-    runs = [_run("morbo", 0, [0.1, 0.5, 0.3, 0.9]), _run("random", 0, [0.1, 0.4, 0.2])]
-    table = compare.sample_efficiency(
-        compare.convergence(runs), kpis=[compare.HYPERVOLUME], budgets=[2]
-    ).set_index("budget")
-    assert table.loc[2, "morbo"] == pytest.approx(0.5)
-    assert table.loc[4, "morbo"] == pytest.approx(0.9)
-    assert np.isnan(table.loc[4, "random"])
 
 
 def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
@@ -300,55 +350,6 @@ def test_overlap_neighbour_summary_counts_covered_tiles_only() -> None:
     assert row["mean_neighbours_covered"] == pytest.approx(2.0)
     assert row["mean_neighbours_all"] == pytest.approx(1.0)
     assert row["share_2_neighbours"] == pytest.approx(1.0)
-
-
-def _capacity_cfg() -> DictConfig:
-    """The thresholds the KPIs ``band_kpis`` reports read."""
-    return OmegaConf.create(
-        {"kpi": {"hole_dbm": -120.0, "weak_dbm": -90.0, "overlap_margin_db": 6.0}}
-    )
-
-
-def test_band_kpis_reads_each_layer_through_the_same_definitions() -> None:
-    """Tile 1 is a hole on 'hi' and covered on 'lo', so the map has no hole at all.
-
-    The ``all`` row is the whole map, which is what a run's own KPI vector
-    measures; a band row is the same function given one band's layers.
-    """
-    rsrp = np.array([[[[-80.0, -130.0]]], [[[-85.0, -95.0]]]])
-    served = pd.DataFrame(
-        {
-            "t_index": [0, 0, 0, 0],
-            "band": [0, 1, 1, -1],
-            "tx": [0, 0, 0, -1],
-            "estimated_throughput_mbps": [2.0, 4.0, 6.0, 0.0],
-        }
-    )
-    config = compare.Configuration(
-        rsrp=rsrp,
-        sinr=np.full(rsrp.shape, 10.0),
-        served=served,
-        demand=np.zeros((1, 2)),
-    )
-    table = compare.band_kpis({"incumbent": config}, ["hi", "lo"], _capacity_cfg())
-    table = table.set_index("band")
-
-    assert table.index.tolist() == [compare.ALL_BANDS, "hi", "lo"]
-    assert table.loc[compare.ALL_BANDS, "hole_rate"] == pytest.approx(0.0)
-    assert table.loc["hi", "hole_rate"] == pytest.approx(0.5)
-    assert table.loc["lo", "hole_rate"] == pytest.approx(0.0)
-    # Throughput is over every report, the unserved one at 0, and network-wide only.
-    assert table.loc[compare.ALL_BANDS, "estimated_throughput_p50_mbps"] == pytest.approx(3.0)
-    assert table.loc[compare.ALL_BANDS, "estimated_throughput_mean_mbps"] == pytest.approx(3.0)
-    assert table.loc[["hi", "lo"], "estimated_throughput_mean_mbps"].isna().all()
-    # SINR 10 dB everywhere, so every covered tile of a band reads 10 dB. The
-    # strongest layer across bands is not reported.
-    assert table.loc["lo", "sinr_p50_db"] == pytest.approx(10.0)
-    assert np.isnan(table.loc[compare.ALL_BANDS, "sinr_p50_db"])
-    assert np.isnan(table.loc[compare.ALL_BANDS, "rsrp_p05_dbm"])
-    # One sector per band has no co-band neighbour; the count is network-wide only.
-    assert table.loc[compare.ALL_BANDS, "overlap_neighbor_mean"] == pytest.approx(0.0)
-    assert table.loc[["hi", "lo"], "overlap_neighbor_mean"].isna().all()
 
 
 def test_coverage_by_area_and_demand_weighs_every_map_by_the_incumbents_demand(

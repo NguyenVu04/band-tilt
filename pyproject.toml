@@ -53,9 +53,6 @@ viz = ["matplotlib>=3.9"]
 notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29", "pip>=24.0"]
 dev = ["pytest>=9.1", "ruff>=0.16", "pre-commit>=3.8"]
 
-# The live what-if app in demo/; it also needs `rt` and a CUDA GPU.
-demo = ["streamlit>=1.64"]
-
 [build-system]
 requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"

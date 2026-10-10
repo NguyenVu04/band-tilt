@@ -14,7 +14,7 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[1]
 _CONSUMERS = sorted(
     path
-    for path in [*(_ROOT / "src").rglob("*.py"), _ROOT / "demo" / "app.py"]
+    for path in (_ROOT / "src").rglob("*.py")
     if (_ROOT / "src" / "scenario") not in path.parents
 )
 

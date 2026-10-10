@@ -50,15 +50,11 @@ density:
   # Least distance between hotspot centres [m].
   min_hotspot_distance_m: 500.0
 
-# Multi-band sectors on nodes laid out in `shape` about the scene centre.
+# Multi-band sectors on five nodes: the corners of an axis-aligned square and
+# its centre, about the scene centre (src/scenario/layout.py NODE_OFFSETS).
 layout:
-  # Node geometry (src/scenario/layout.py SHAPES): triangle (centre node and
-  # three around it at 120 deg), square, square_centre or hexagon (centre node
-  # and its six first-tier neighbours).
-  shape: hexagon
-  # Inter-site distance between nearest nodes [m]. UMa, TR 38.901 (Rel-19)
-  # Table 7.2-1: ISD 500 m, 200-500 m allowed (Note 1).
-  node_spacing_m: 500.0
+  # Distance from the centre node to each corner node [m].
+  node_spacing_m: 1732.0
   # Sectors per node, evenly spaced in azimuth.
   sectors_per_node: 3
   # Azimuth of the first sector [deg].

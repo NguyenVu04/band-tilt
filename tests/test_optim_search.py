@@ -63,7 +63,6 @@ _CONFIG = {
         "output": {
             "dir": "outputs/optim",
             "deliverable_dir": "reports/outputs",
-            "save_radio_map": False,
         },
         "seed": 0,
         "tilt_resolution_deg": 0.1,
@@ -379,23 +378,21 @@ def test_write_run_persists_every_artifact(make_cfg, evaluator, tmp_path: Path) 
     """A run directory must be readable without the session that produced it."""
     cfg = make_cfg("random")
     history = run_search(evaluator, cfg)
-    best_index = history.best_index()
     written = write_run(
         history,
         LocalRunWriter(tmp_path),
         cfg,
         method="random",
-        best_index=best_index,
         extra={"scenario_id": "scn_test"},
     )
-    assert set(written) == {"history", "best_tilt", "run"}
+    assert set(written) == {"history", "run"}
     for locator in written.values():
         assert Path(locator).is_file()
 
     run = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
     assert run["scenario_id"] == "scn_test"
     assert run["n_evaluations"] == len(history)
-    assert run["best_kpi"] == history.results[best_index].kpi.as_dict()
+    assert run["incumbent_kpi"] == history.results[0].kpi.as_dict()
     assert run["config"]["kpi"]["capacity"]["max_admission_utilisation"] == 0.8
 
 

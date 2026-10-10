@@ -8,7 +8,6 @@ whole search-publish-archive path runs in a test.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -57,7 +56,7 @@ _CONFIG = {
         # `random` rather than `morbo`: deterministic in the seed, no model, and
         # it still exercises the whole publish path.
         "method": {"name": "random", "budget": {"n_init": 4, "n_iter": 6}},
-        "output": {"dir": "", "deliverable_dir": "", "save_radio_map": False},
+        "output": {"dir": "", "deliverable_dir": ""},
         "seed": 0,
         "tilt_resolution_deg": 0.1,
     },
@@ -70,9 +69,7 @@ class StubEvaluator:
 
     space: TiltSpace
     seen: list[np.ndarray] = field(default_factory=list)
-    keep_rsrp: bool = False
     scenario_id: str = "scn_test"
-    archived: list[np.ndarray] = field(default_factory=list)
 
     def __enter__(self) -> StubEvaluator:
         """A context manager, because the run uses one."""
@@ -106,21 +103,7 @@ class StubEvaluator:
                 throughput_objective=float(1.0 + np.mean(unit)),
             ),
             seconds=1.0,
-            rsrp=np.zeros((1, 1, 1, 1)) if self.keep_rsrp else None,
         )
-
-    def write_radio_map(self, path: str | Path, result: EvaluationResult) -> Path:
-        """Archive the winner's map, refusing a result that carries none.
-
-        The refusal is the point: it is what proves the run flipped ``keep_rsrp``
-        before re-solving, rather than archiving an empty map.
-        """
-        if result.rsrp is None:
-            raise ValueError("this result carries no radio map")
-        self.archived.append(result.tilt_deg.copy())
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_bytes(b"")
-        return Path(path)
 
 
 @pytest.fixture
@@ -198,14 +181,13 @@ def test_choose_lists_the_incumbent_only_when_it_is_on_the_front() -> None:
     assert sorted(choose(on_front)) == [0, 1]
 
 
-def test_one_run_searches_publishes_and_archives(cfg, space, stub) -> None:
-    """A single command leaves a directory a comparison can load."""
+def test_one_run_searches_and_publishes(cfg, space, stub) -> None:
+    """A single command leaves a directory a comparison can load, and solves nothing extra."""
     history, directory = run(cfg)
     loaded = run_store.load(directory)
 
-    # save_radio_map is off, so nothing is re-solved.
     assert len(stub.seen) == len(history)
-    assert loaded.meta["best_kpi"] == history.results[loaded.best_index].kpi.as_dict()
+    assert loaded.n_evaluations == len(history)
 
 
 def test_run_json_records_the_code_and_packages_it_ran_with(cfg, stub) -> None:
@@ -227,14 +209,13 @@ def test_every_published_kpi_came_from_the_evaluator(cfg, space, stub) -> None:
         assert tilts in solved
 
 
-def test_the_recommended_row_is_the_run_json_winner(cfg, stub) -> None:
+def test_the_recommended_row_is_the_largest_contribution(cfg, stub) -> None:
     """`choose` and `best_index` must not be able to name different solutions."""
-    _history, directory = run(cfg)
+    history, directory = run(cfg)
     published = pd.read_parquet(directory / "solutions.parquet")
-    meta = run_store.load(directory).meta
 
     assert published["recommended"].sum() == 1
-    assert published.loc[published["recommended"], "iteration"].item() == meta["best_iteration"]
+    assert published.loc[published["recommended"], "iteration"].item() == history.best_index()
 
 
 def test_the_run_publishes_a_shortlist_to_choose_from(cfg, stub) -> None:
@@ -261,15 +242,3 @@ def test_the_incumbent_delta_compares_two_measurements(cfg, space, stub) -> None
         loaded.incumbent_kpi.as_dict()
         == StubEvaluator(space).evaluate(space.baseline).kpi.as_dict()
     )
-
-
-def test_archiving_the_winners_map_costs_exactly_one_extra_solve(cfg, stub) -> None:
-    """The winner is re-solved once for its map, and that solve is not an evaluation."""
-    cfg.optim.output.save_radio_map = True
-    history, directory = run(cfg)
-    best_index = history.best_index()
-
-    assert len(stub.seen) == len(history) + 1
-    assert len(stub.archived) == 1
-    assert np.allclose(stub.archived[0], history.results[best_index].tilt_deg)
-    assert run_store.load(directory).meta["n_evaluations"] == len(history)

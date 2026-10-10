@@ -108,6 +108,12 @@ same day, again at the maintainer's direction, section 1 of 0002 was rewritten
 in place when the per-band utility `lambda e^(1 - lambda)` was replaced by the
 strongest sector's share of the band's received power.
 
+On 2026-10-10, again at the maintainer's direction, decision 1 of 0004 was
+rewritten in place and the record retitled and renamed from
+`0004-uma-hexagon-layout-calibration-tilt-and-hole-threshold.md` when the
+hexagon gave way to five nodes on a square and its centre; decisions on stored
+radio maps and the evaluation's three KPIs were added to it.
+
 Prefer superseding. Rewriting loses the shape of the original argument, which
 is the thing these records exist to preserve.
 
@@ -119,7 +125,7 @@ is the thing these records exist to preserve.
 | [0001](0001-turbo-on-a-weighted-kpi-score.md) | TuRBO on a weighted KPI score | Superseded by 0003 | 2026-09-13 | 2026-09-14 |
 | [0002](0002-contraharmonic-objective-and-kpi-set.md) | A contraharmonic, strength-aware objective, max-throughput sector selection, and the reported KPI set | Proposed; sections 1 and 3 superseded by 0003 | 2026-09-22 | 2026-10-03 |
 | [0003](0003-three-objectives-and-morbo.md) | Coverage and separation searched by MORBO, recommended by hypervolume contribution | Accepted | 2026-10-07 | 2026-10-08 |
-| [0004](0004-uma-hexagon-layout-calibration-tilt-and-hole-threshold.md) | UMa hexagon layout, the 3GPP calibration tilt as incumbent, and a −110 dBm hole threshold | Proposed | 2026-10-09 | — |
+| [0004](0004-square-centre-layout-calibration-tilt-and-hole-threshold.md) | Square-with-centre layout, the 3GPP calibration tilt as incumbent, and a −110 dBm hole threshold | Proposed | 2026-10-09 | 2026-10-10 |
 
 Every other record is deleted and lives in Git history. Numbers were reused
 on 2026-09-22 and 2026-09-28; see above.

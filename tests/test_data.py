@@ -173,11 +173,11 @@ _LIES = {
     ),
     "retuned carrier": (
         lambda a: _radio(a, band_hz=np.array([1.8e9])),
-        "npz band_hz matches the configured frequencies",
+        "radio map band_hz matches the configured frequencies",
     ),
     "SINR without RSRP NaN": (
         _sinr_nan_where_rsrp_is_not,
-        "npz sinr_db is NaN exactly where rsrp_dbm is",
+        "radio map sinr_db is NaN exactly where rsrp_dbm is",
     ),
     "no scenario_id": (
         lambda a: _manifest_without(a, "scenario_id"),
@@ -191,13 +191,13 @@ _LIES = {
         lambda a: _manifest_without(a, "time", "interval_s"),
         "manifest carries scenario_id, grid and time",
     ),
-    "npz without n_rows": (
+    "radio map without n_rows": (
         lambda a: _radio_without(a, "n_rows"),
-        "npz carries the arrays the contract reads",
+        "radio map carries the arrays the contract reads",
     ),
-    "npz without rsrp": (
+    "radio map without rsrp": (
         lambda a: _radio_without(a, "rsrp_dbm"),
-        "npz carries the arrays the contract reads",
+        "radio map carries the arrays the contract reads",
     ),
     "text origin_x": (
         lambda a: _manifest_with(a, origin_x="west"),
@@ -205,7 +205,7 @@ _LIES = {
     ),
     "half-tile centre offset": (
         lambda a: _radio(a, tile_centre=_tile_centres(offset=5.0)),
-        "npz tile_centre matches the manifest grid",
+        "radio map tile_centre matches the manifest grid",
     ),
     "t_s after its interval": (
         lambda a: _ue(a, t_s=[5000.0, 10.0, 20.0]),
@@ -228,7 +228,7 @@ def test_centres_on_the_manifest_grid_pass(artifacts, cfg) -> None:
     """The solver's own tile centres agree with the grid the UEs were binned into."""
     checks = schema.verify(_radio(artifacts, tile_centre=_tile_centres()), cfg)
     assert checks["holds"].all(), checks[~checks["holds"]]
-    assert "npz tile_centre matches the manifest grid" in checks["check"].tolist()
+    assert "radio map tile_centre matches the manifest grid" in checks["check"].tolist()
 
 
 def test_an_unreadable_sector_table_says_why(artifacts, cfg) -> None:
@@ -250,7 +250,7 @@ def test_a_map_solved_at_other_tilts_fails_the_contract(artifacts, cfg) -> None:
     """The map must be the one the sector table's baseline tilts produce."""
     checks = schema.verify(_radio(artifacts, tilt_deg=np.array([[9.0]])), cfg)
     failed = checks.loc[~checks["holds"], "check"].tolist()
-    assert failed == ["npz tilt_deg equals the sector table's baseline tilts"]
+    assert failed == ["radio map tilt_deg equals the sector table's baseline tilts"]
 
 
 def test_build_ue_types_and_sorts_without_dropping_a_row(artifacts) -> None:

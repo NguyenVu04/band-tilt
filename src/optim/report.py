@@ -10,11 +10,6 @@ so the recommended row is published with the trade-offs it was chosen from
 rather than alone. The incumbent is listed only when it is on the front; every
 delta is still measured against it. Every measure here is the search's own,
 over every UE.
-
-This lives in ``src/optim/`` and not ``src/evaluation/`` on purpose:
-:mod:`src.evaluation` states that it re-solves nothing and imports neither
-Sionna-RT nor :mod:`src.optim.evaluator`, and that boundary is what lets a
-comparison run on a machine with no GPU.
 """
 
 from __future__ import annotations
@@ -130,7 +125,6 @@ def publish(
         writer,
         cfg,
         method=method,
-        best_index=best_index,
         extra={
             "n_solutions_offered": len(picks),
             "solutions": str(shortlist),

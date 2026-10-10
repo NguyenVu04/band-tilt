@@ -151,7 +151,7 @@ class History:
         return [result.kpi for result in self.results]
 
     def frame(self) -> pd.DataFrame:
-        """One row per evaluation: provenance, every measure, every tilt.
+        """One row per evaluation: provenance, every measure, the per-band KPIs, every tilt.
 
         Raises:
             ValueError: When nothing has been recorded.
@@ -170,6 +170,9 @@ class History:
         )
         for name in MEASURE_NAMES:
             frame[name] = [getattr(result.kpi, name) for result in self.results]
+        bands = pd.DataFrame([result.band_kpi for result in self.results])
+        for column in bands.columns:
+            frame[column] = bands[column].to_numpy(dtype=float)
         for index, column in enumerate(self.space.parameter_names):
             frame[column] = tilts[:, index]
         return frame
@@ -199,7 +202,6 @@ def write_run(
     cfg: DictConfig,
     *,
     method: str,
-    best_index: int,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Write every artifact of one run. Returns the locators, keyed by name.
@@ -214,28 +216,21 @@ def write_run(
         writer: Where the artifacts go.
         cfg: The composed config, recorded whole.
         method: The search that produced the history.
-        best_index: The row to report as the winner.
         extra: Merged into the run document, for whatever the caller knows and
             this function does not.
     """
     frame = history.frame()
-    best = history.results[best_index]
     # Row zero is the committed incumbent every delta is measured against; the
     # SearchMethod contract puts it there.
     incumbent = history.results[0].kpi
 
-    written = {
-        "history": writer.write_frame("history", frame),
-        "best_tilt": writer.write_frame("best_tilt", history.tilt_table(best.tilt_deg)),
-    }
+    written = {"history": writer.write_frame("history", frame)}
 
     written["run"] = writer.write_json(
         "run",
         {
             "method": method,
             "n_evaluations": len(history),
-            "best_iteration": int(best_index),
-            "best_kpi": best.kpi.as_dict(),
             "incumbent_kpi": incumbent.as_dict(),
             "ray_tracing_seconds": float(frame["seconds"].sum()),
             "config": OmegaConf.to_container(cfg, resolve=True),

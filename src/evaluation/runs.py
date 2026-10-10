@@ -4,38 +4,21 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
-from src.data.load import load_npz
 from src.optim.objective import KpiVector
 
 # Written beside every run by src.optim.history.write_run.
-_TABLES = ("history", "best_tilt")
-_RADIO_MAP = "best_radio_map.npz"
+_TABLES = ("history",)
 
-# Settings that define what a radio map IS rather than what it cost. Two maps
-# that differ on any of them are not two results, they are two experiments.
-_SOLVER_KEYS = (
-    "samples_per_tx",
-    "max_depth",
-    "los",
-    "specular_reflection",
-    "diffuse_reflection",
-    "refraction",
-    "diffraction",
-    "edge_diffraction",
-    "diffraction_lit_region",
-    "rr_depth",
-    "rr_prob",
-    "power_dbm",
-)
-_GRID_KEYS = ("n_rows", "n_cols", "tile_size_m", "origin_x", "origin_y", "ue_height_m")
+# The config blocks that define what a measurement IS rather than what it cost:
+# the scene and solver, the antennas and the UE plane. Two runs that differ on
+# any of them are not two results, they are two experiments.
+_SIMULATION_KEYS = ("input", "ue", "scene", "radio_map", "antenna")
 
 
 class RunError(Exception):
@@ -52,7 +35,6 @@ class Run:
         directory: Where it lives.
         history: One row per search evaluation; see
             :meth:`src.optim.history.History.frame`.
-        best_tilt: The deliverable table, one row per sector-band.
         meta: The parsed ``run.json``.
     """
 
@@ -60,7 +42,6 @@ class Run:
     run_id: str
     directory: Path
     history: pd.DataFrame
-    best_tilt: pd.DataFrame
     meta: dict[str, Any]
 
     @property
@@ -74,19 +55,9 @@ class Run:
         return len(self.history)
 
     @property
-    def best_index(self) -> int:
-        """Row of ``history`` with the largest hypervolume contribution: the recommendation."""
-        return int(self.meta["best_iteration"])
-
-    @property
     def incumbent_kpi(self) -> KpiVector:
         """The committed tilts' measures."""
         return KpiVector.from_mapping(self.meta["incumbent_kpi"])
-
-    @property
-    def best_kpi(self) -> KpiVector:
-        """The winner's measures."""
-        return KpiVector.from_mapping(self.meta["best_kpi"])
 
     @property
     def seed(self) -> int:
@@ -107,20 +78,6 @@ class Run:
     def ray_tracing_seconds(self) -> float:
         """Simulator time, summed over every evaluation."""
         return float(self.history["seconds"].sum())
-
-    @cached_property
-    def radio_map(self) -> dict[str, np.ndarray]:
-        """The winner's radio map, in the schema the simulation stage writes.
-
-        Raises:
-            RunError: When the archive is missing.
-        """
-        path = self.directory / _RADIO_MAP
-        if not path.is_file():
-            raise RunError(
-                f"No {path}. The run was written with optim.output.save_radio_map=false."
-            )
-        return load_npz(path)
 
 
 def load(directory: str | Path) -> Run:
@@ -148,7 +105,6 @@ def load(directory: str | Path) -> Run:
         run_id=directory.name,
         directory=directory,
         history=tables["history"],
-        best_tilt=tables["best_tilt"],
         meta=meta,
     )
 
@@ -168,112 +124,54 @@ def discover(root: str | Path) -> list[Run]:
     return runs
 
 
-def latest_per_method_and_seed(runs: list[Run]) -> list[Run]:
-    """The newest run of each (method, seed), ordered by method then seed.
+def latest_per_method(runs: list[Run]) -> list[Run]:
+    """The newest run of each method, ordered by method.
 
     Newest by run id, which is a UTC timestamp, so lexical order is
     chronological order.
-
-    Raises:
-        KeyError: When a run's config snapshot records no ``optim.seed``.
     """
-    latest: dict[tuple[str, int], Run] = {}
-    for run in sorted(runs, key=lambda run: run.run_id):
-        latest[(run.method, run.seed)] = run
-    return [latest[key] for key in sorted(latest)]
+    latest = {run.method: run for run in sorted(runs, key=lambda run: run.run_id)}
+    return [latest[method] for method in sorted(latest)]
 
 
-def baseline_map(cfg: DictConfig) -> dict[str, np.ndarray]:
-    """The committed configuration's radio map, as the before of before-and-after.
-
-    No separate artifact is needed: row 0 of every run's history is the
-    committed tilt, and evaluating it reproduces this file.
-
-    Raises:
-        RunError: When the simulation stage has not been run.
-    """
-    path = Path(cfg.simulation.output.radio_map_file)
-    if not path.is_file():
-        raise RunError(f"No {path}. Run `task simulation:radio` first.")
-    return load_npz(path)
-
-
-def verify(runs: list[Run], baseline: dict[str, np.ndarray]) -> pd.DataFrame:
-    """Check every run may be compared against the baseline and each other.
+def verify(runs: list[Run], cfg: DictConfig, scenario_id: str) -> pd.DataFrame:
+    """Check every run may be compared with the others and with the current config.
 
     Returns one row per check, with ``holds`` and the offenders. Mirrors
     :func:`src.data.schema.verify` so the two read alike.
 
-    The ray-tracing settings, the grid and the KPI definition each change what
-    a stored result measures. Plotting two maps that disagree on any of them on
-    one axis would produce a difference that is not attributable to tilt, which
-    is the only thing this project varies.
+    Each run's ``run.json`` snapshot is checked against ``cfg``: the scenario,
+    the simulation blocks and the KPI definition each change what a stored
+    measurement means, and the evaluation re-traces under ``cfg``. A difference
+    on any of them would not be attributable to tilt, which is the only thing
+    this project varies.
     """
     checks: list[dict[str, Any]] = []
 
     def record(check: str, offenders: list[str]) -> None:
         checks.append({"check": check, "holds": not offenders, "offenders": ", ".join(offenders)})
 
-    expected_scenario = str(baseline["scenario_id"])
     record(
-        "every run optimized the baseline's scenario",
-        [run.label for run in runs if run.scenario_id != expected_scenario],
+        "every run optimized the current scenario",
+        [run.label for run in runs if run.scenario_id != scenario_id],
     )
-
-    # A run saved without its map cannot be compared on the map's contents;
-    # name it here rather than failing every check below.
-    mapped = [run for run in runs if (run.directory / _RADIO_MAP).is_file()]
-    record(
-        "every run kept its radio map",
-        [run.label for run in runs if not (run.directory / _RADIO_MAP).is_file()],
-    )
-
-    for key in _GRID_KEYS:
+    current = OmegaConf.to_container(cfg.simulation, resolve=True)
+    for key in _SIMULATION_KEYS:
         record(
-            f"grid {key} matches the baseline",
-            [
-                run.label
-                for run in mapped
-                if not np.array_equal(np.asarray(run.radio_map[key]), np.asarray(baseline[key]))
-            ],
+            f"simulation.{key} matches the current config",
+            [run.label for run in runs if run.meta["config"]["simulation"][key] != current[key]],
         )
-
-    for key in _SOLVER_KEYS:
-        record(
-            f"solver {key} matches the baseline",
-            [
-                run.label
-                for run in mapped
-                if not np.array_equal(np.asarray(run.radio_map[key]), np.asarray(baseline[key]))
-            ],
-        )
-
+    # The sector table lives outside the config snapshot, so its PRB limits,
+    # which set every throughput, are compared as recorded.
+    reference = runs[0].meta["max_prb"] if runs else None
     record(
-        "bands match the baseline, in order",
-        [
-            run.label
-            for run in mapped
-            if [str(label) for label in run.radio_map["band_label"]]
-            != [str(label) for label in baseline["band_label"]]
-        ],
+        "sector PRB limits agree across runs",
+        [run.label for run in runs if run.meta["max_prb"] != reference],
     )
-    # A band keeps its name when its carrier is retuned, so the labels agreeing
-    # does not make two maps the same network.
+    kpi = OmegaConf.to_container(cfg.kpi, resolve=True)
     record(
-        "band carrier frequencies match the baseline, in order",
-        [
-            run.label
-            for run in mapped
-            if not np.array_equal(
-                np.asarray(run.radio_map["band_hz"]), np.asarray(baseline["band_hz"])
-            )
-        ],
-    )
-    definitions = [(run.label, _kpi_definition(run)) for run in runs]
-    reference = definitions[0][1] if definitions else None
-    record(
-        "KPI definition agrees across runs",
-        [label for label, values in definitions if values != reference],
+        "kpi matches the current config",
+        [run.label for run in runs if run.meta["config"]["kpi"] != kpi],
     )
     return pd.DataFrame(checks, columns=["check", "holds", "offenders"])
 
@@ -294,29 +192,3 @@ def require(checks: pd.DataFrame) -> None:
         + "\nThese runs did not measure the same thing. Re-run them against one "
         "scenario at one fidelity, or compare them separately."
     )
-
-
-def _kpi_definition(run: Run) -> dict[str, Any]:
-    """Everything a reported measure reads, from the run's own ``run.json``.
-
-    The thresholds, the capacity model and each sector's PRB limit (recorded by
-    :func:`src.optim.run.run`): two runs that differ on any one did not measure
-    the same thing. ``capacity`` sets the PRB share behind the estimated
-    throughput.
-
-    ``scs_hz`` and ``temperature`` set the per-RE noise floor behind every SINR,
-    and SINR and ``scs_hz`` set the throughput of one PRB. ``bandwidth`` fixes
-    ``max_prb``. None is stored in the archive, so the run document is the
-    only place they can be checked.
-    """
-    config = run.meta["config"]
-    kpi = config["kpi"]
-    radio_map = config["simulation"]["radio_map"]
-    return {
-        **{key: kpi[key] for key in ("hole_dbm", "weak_dbm", "overlap_margin_db")},
-        "capacity": kpi["capacity"],
-        "max_prb": run.meta["max_prb"],
-        "bandwidth": {band["name"]: band["bandwidth"] for band in radio_map["bands"]},
-        "scs_hz": {band["name"]: band["scs_hz"] for band in radio_map["bands"]},
-        "temperature": radio_map["temperature"],
-    }

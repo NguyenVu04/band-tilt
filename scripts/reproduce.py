@@ -1,13 +1,13 @@
 """Rerun every stage and notebook, then zip what the report is written from.
 
-Entry point for ``task reproduce``. Notebooks 00-02 build the scenario, radio
-map and UE table; each method and seed is searched by ``src.optim.run``;
-notebooks 03a, 03b and 04 then find those runs on disk instead of searching
-again. Needs a CUDA GPU and every extra (``task setup``).
+Entry point for ``task reproduce``. Notebooks 00-02 build the scenario and UE
+table; each method is searched once by ``src.optim.run``; notebooks 03a, 03b
+and 04 then find those runs on disk instead of searching again. Needs a CUDA
+GPU and every extra (``task setup``).
 
 Usage::
 
-    uv run python scripts/reproduce.py --seeds 42,43,44 optim.budget.n_iter=200
+    uv run python scripts/reproduce.py optim.budget.n_iter=200
 """
 
 from __future__ import annotations
@@ -88,51 +88,36 @@ def bundle(path: Path, sources: list[Path]) -> None:
 def main() -> None:
     """Parse the arguments, run every stage in order, and always write the bundle."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--seeds", help="comma-separated search seeds; default optim.seed")
     parser.add_argument("--methods", default="morbo,random", help="comma-separated methods")
     parser.add_argument("--bundle", type=Path, help="zip to write; default under outputs/")
     parser.add_argument("overrides", nargs="*", help="Hydra overrides for every stage")
     args = parser.parse_args()
 
     cfg = load_config(overrides=args.overrides)
-    seeds = [int(s) for s in (args.seeds or str(cfg.optim.seed)).split(",")]
     methods = args.methods.split(",")
     stamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
     out_dir = ROOT / "outputs" / "reproduce" / stamp
     bundle_path = args.bundle or out_dir.with_suffix(".zip")
     runs_dir = Path(cfg.optim.output.dir)
 
-    # The notebooks read their overrides and seeds from these (cell 1 of each).
-    env = {
-        **os.environ,
-        "BAND_TILT_OVERRIDES": " ".join(args.overrides),
-        "BAND_TILT_SEEDS": " ".join(map(str, seeds)),
-    }
+    # The notebooks read their overrides from this (cell 1 of each).
+    env = {**os.environ, "BAND_TILT_OVERRIDES": " ".join(args.overrides)}
     if run_store.discover(runs_dir):
-        # Notebook 03a reuses a run with the same method and seed whatever its budget.
-        print(f"WARNING {runs_dir} already holds runs; matching (method, seed) runs are reused.")
+        # Notebooks 03a and 03b reuse a run of the same method whatever its budget.
+        print(f"WARNING {runs_dir} already holds runs; a method with a run is not searched again.")
 
     try:
         for name in ("00_simulation", "01_eda", "02_preprocessing"):
             notebook(name, out_dir / "notebooks", env)
-        for seed in seeds:
-            for method in methods:
-                done = {(r.method, r.seed) for r in run_store.discover(runs_dir)}
-                if (method, seed) in done:
-                    print(f"\n=== skip {method} seed {seed}: a finished run is on disk")
-                    continue
-                run_stage(
-                    f"{method} seed {seed}",
-                    [
-                        sys.executable,
-                        "-m",
-                        "src.optim.run",
-                        f"optim/method={method}",
-                        f"optim.seed={seed}",
-                        *args.overrides,
-                    ],
-                    env,
-                )
+        for method in methods:
+            if method in {r.method for r in run_store.discover(runs_dir)}:
+                print(f"\n=== skip {method}: a finished run is on disk")
+                continue
+            run_stage(
+                method,
+                [sys.executable, "-m", "src.optim.run", f"optim/method={method}", *args.overrides],
+                env,
+            )
         for name in ("03a_baseline", "03b_morbo", "04_evaluation"):
             notebook(name, out_dir / "notebooks", env)
     finally:
@@ -148,7 +133,6 @@ def main() -> None:
                 Path(cfg.simulation.input.sectors_file),
                 Path(cfg.simulation.input.manifest_file),
                 Path(cfg.scenario.output.record_file),
-                Path(cfg.simulation.output.radio_map_file),
                 Path(cfg.data.output.ue_file),
             ],
         )

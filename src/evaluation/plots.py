@@ -94,7 +94,7 @@ def coverage_maps(
     Args:
         before: Best-server RSRP of the incumbent, ``[n_rows, n_cols]``.
         after: Best-server RSRP of the other configuration.
-        radio: Any radio-map archive, for the grid extent.
+        radio: Any radio map of the scenario, for the grid extent.
         cfg: Composed config; reads ``kpi.hole_dbm``.
         sectors: Optional sector table with ``x`` and ``y``.
         name: Key of the second configuration, for its title.
@@ -206,7 +206,7 @@ def map_row(
 
     Args:
         panels: Title to ``[n_rows, n_cols]`` raster, drawn in order.
-        radio: Any radio-map archive, for the grid extent.
+        radio: Any radio map of the scenario, for the grid extent.
         colorbar_label: Colour bar label, with units.
         vmin: Lower limit; the data minimum when None.
         vmax: Upper limit; the data maximum when None.
@@ -312,139 +312,69 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
     return figure
 
 
-def kpi_comparison(summary: pd.DataFrame, names: Sequence[str], title: str) -> Figure:
-    """Each measure's value for the incumbent and each method's recommendation, one panel each.
-
-    Values, not changes: every panel is on its measure's own scale and states
-    whether it is maximised. No error bars: the seed interval is in the
-    scoreboard table.
-
-    Args:
-        summary: :func:`src.evaluation.compare.seed_summary` output.
-        names: The measures to draw, each a ``kpi`` of ``summary``.
-        title: The figure title.
-    """
-    keys = ["incumbent", *dict.fromkeys(summary["method"])]
-    positions = np.arange(len(keys))
-    columns = min(len(names), 4)
-    rows = -(-len(names) // columns)
-    figure, axes = plt.subplots(
-        rows,
-        columns,
-        figsize=(3.4 * columns, 3.4 * rows),
-        constrained_layout=True,
-        squeeze=False,
-    )
-    for axis in axes.ravel()[len(names) :]:
-        axis.set_visible(False)
-    for axis, name in zip(axes.ravel(), names, strict=False):
-        part = summary[summary["kpi"] == name].set_index("method")
-        values = [part["incumbent"].iloc[0], *(part.loc[key, "mean"] for key in keys[1:])]
-        bars = axis.bar(
-            positions, values, width=0.6, color=[COLOURS.get(key) for key in keys], zorder=2
-        )
-        axis.bar_label(bars, fmt="%.4g", fontsize=7, padding=2)
-        axis.margins(y=0.15)
-        axis.set_xticks(positions, [label(key) for key in keys], fontsize=7)
-        axis.set_title(f"{label(name)} ({compare.direction(name)})", fontsize=8)
-    figure.suptitle(title)
-    return figure
-
-
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Hypervolume of every evaluation so far: mean over seeds, with the min–max range.
+    """Hypervolume of every evaluation so far: on the search objectives, and on the KPIs.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
     """
-    part = frame[frame["kpi"] == compare.HYPERVOLUME]
-    figure, axis = plt.subplots(figsize=(9.0, 5.0), constrained_layout=True)
-    for method, group in part.groupby("method", sort=False):
-        stats = group.groupby("iteration")["value"].agg(["mean", "min", "max"])
-        colour = COLOURS.get(str(method))
-        n_seeds = group["seed"].nunique()
-        axis.plot(
-            stats.index, stats["mean"], lw=1.8, color=colour, label=f"{label(method)} (n={n_seeds})"
-        )
-        axis.fill_between(stats.index, stats["min"], stats["max"], color=colour, alpha=0.2)
-    axis.set_xlabel("Evaluations")
-    axis.set_ylabel("Hypervolume so far (higher is better)")
-    axis.set_title("Search progress")
-    axis.legend()
+    titles = {
+        "objectives": "Search objectives",
+        "kpis": "Coverage, separation and median throughput",
+    }
+    figure, axes = plt.subplots(1, 2, figsize=(13.0, 4.8), constrained_layout=True)
+    for axis, (measures, title) in zip(axes, titles.items(), strict=True):
+        part = frame[frame["measures"] == measures]
+        for method, group in part.groupby("method", sort=False):
+            axis.plot(
+                group["iteration"],
+                group["value"],
+                lw=1.8,
+                color=COLOURS.get(str(method)),
+                label=label(method),
+            )
+        axis.set_xlabel("Evaluations")
+        axis.set_ylabel("Hypervolume so far (higher is better)")
+        axis.set_title(title)
+        axis.legend()
+    figure.suptitle("Search progress")
     return figure
 
 
-def tilt_movement_plot(best_tilt: pd.DataFrame, name: str) -> Figure:
-    """Where every sector-band ended up, and how far it moved.
+def tradeoff_scatter(
+    frame: pd.DataFrame, x: str, y: str, picks: dict[str, int] | None = None
+) -> Figure:
+    """Every evaluated configuration on two KPIs, each method's front and its pick.
 
-    Args:
-        best_tilt: A run's ``best_tilt`` table.
-        name: Key of the configuration, for the title.
-    """
-    figure, axes = plt.subplots(1, 2, figsize=(13.0, 5.0), constrained_layout=True)
-
-    for band, group in best_tilt.groupby("band", observed=True):
-        axes[0].scatter(
-            group["current_tilt_deg"], group["optimized_tilt_deg"], s=45, label=label(band)
-        )
-    values = best_tilt[["current_tilt_deg", "optimized_tilt_deg"]].to_numpy()
-    limits = [values.min() - 1.0, values.max() + 1.0]
-    axes[0].plot(limits, limits, color="0.7", ls="--", lw=1, label="No change")
-    axes[0].set_xlabel("Current tilt [°]")
-    axes[0].set_ylabel("Proposed tilt [°]")
-    axes[0].set_title("Proposed against current tilt")
-    axes[0].legend(fontsize=8, title="Band")
-
-    # Band in table order, then sector; a stable sort keeps the table's sector order.
-    bands = list(dict.fromkeys(best_tilt["band"]))
-    order = best_tilt.sort_values("band", key=lambda s: s.map(bands.index), kind="stable")
-    axes[1].barh(
-        range(len(order)),
-        order["delta_tilt_deg"],
-        color=["tab:blue" if value < 0 else "tab:orange" for value in order["delta_tilt_deg"]],
-    )
-    axes[1].set_yticks(
-        range(len(order)),
-        [
-            f"{sector} {label(band)}"
-            for sector, band in zip(order["sector"], order["band"], strict=True)
-        ],
-        fontsize=6,
-    )
-    axes[1].invert_yaxis()
-    axes[1].axvline(0, color="0.4", lw=1)
-    axes[1].set_xlabel("Tilt change [°] (negative: uptilt, positive: downtilt)")
-    axes[1].set_title("Tilt change per sector and band")
-    figure.suptitle(f"Recommended antenna tilt changes — {label(name)}")
-    return figure
-
-
-def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
-    """Every evaluated configuration on two measures, each method's pick and the 2-D Pareto front.
+    Points on a method's three-KPI front (``on_front``) are outlined; the
+    dashed line joins the configurations no other beats on this pair alone.
 
     Args:
         frame: :func:`src.evaluation.compare.candidates` output.
         x: Measure on the horizontal axis.
         y: Measure on the vertical axis.
+        picks: Method to the ``frame`` row of its largest hypervolume
+            contribution, drawn as a star.
     """
     figure, axis = plt.subplots(figsize=(8.0, 5.5), constrained_layout=True)
     for method, group in frame.groupby("method", sort=False):
         colour = COLOURS.get(str(method))
-        searched = group[group["iteration"] > 0]
+        searched = group[group["phase"] != "incumbent"]
         axis.scatter(searched[x], searched[y], s=14, alpha=0.4, color=colour, label=label(method))
-        # From every row: when the incumbent wins, it is the pick.
-        pick = group[group["recommended"]]
-        axis.scatter(pick[x], pick[y], marker="*", s=260, color=colour, edgecolor="black", zorder=4)
-    axis.scatter(
-        [],
-        [],
-        marker="*",
-        s=260,
-        color="white",
-        edgecolor="black",
-        label="Recommended per method",
-    )
-    incumbent = frame[frame["iteration"] == 0].iloc[0]
+        front = searched[searched["on_front"]]
+        axis.scatter(front[x], front[y], s=30, facecolor="none", edgecolor=colour, lw=1.2)
+    for method, row in (picks or {}).items():
+        axis.scatter(
+            frame.loc[row, x],
+            frame.loc[row, y],
+            marker="*",
+            s=260,
+            color=COLOURS.get(method),
+            edgecolor="black",
+            zorder=4,
+            label=f"{label(method)}: largest hypervolume contribution",
+        )
+    incumbent = frame[frame["phase"] == "incumbent"].iloc[0]
     axis.scatter(
         incumbent[x],
         incumbent[y],
@@ -456,9 +386,8 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
         label=label("incumbent"),
     )
     front = frame[compare.pareto_front(frame, [x, y])].sort_values(x)
-    axis.plot(
-        front[x], front[y], color="0.2", ls="--", lw=1.2, marker="o", ms=4, label="Pareto front"
-    )
+    axis.plot(front[x], front[y], color="0.2", ls="--", lw=1.0, label="Pareto front of this pair")
+    axis.scatter([], [], s=30, facecolor="none", edgecolor="0.3", label="On the three-KPI front")
     axis.set_xlabel(f"{label(x)} ({compare.direction(x)})")
     axis.set_ylabel(f"{label(y)} ({compare.direction(y)})")
     axis.set_title(f"{label(x)} against {label(y)}")
@@ -466,14 +395,14 @@ def tradeoff_scatter(frame: pd.DataFrame, x: str, y: str) -> Figure:
     return figure
 
 
-def tilt_delta_heatmap(best_tilt: pd.DataFrame, name: str) -> Figure:
+def tilt_delta_heatmap(table: pd.DataFrame, name: str) -> Figure:
     """Tilt change per sector and band on one diverging scale.
 
     Args:
-        best_tilt: A run's ``best_tilt`` table.
+        table: :func:`src.evaluation.compare.tilt_table` output.
         name: Key of the configuration, for the title.
     """
-    table = best_tilt.astype({"sector": str, "band": str})
+    table = table.astype({"sector": str, "band": str})
     sectors = list(dict.fromkeys(table["sector"]))
     bands = list(dict.fromkeys(table["band"]))
     grid = table.pivot(index="sector", columns="band", values="delta_tilt_deg")
@@ -505,7 +434,7 @@ def coverage_class_maps(
 
     Args:
         rasters: Configuration key to its radio map's ``rsrp_dbm``.
-        radio: Any radio-map archive, for the grid extent.
+        radio: Any radio map of the scenario, for the grid extent.
         cfg: Composed config; reads ``kpi.hole_dbm`` and ``kpi.weak_dbm``.
         sectors: Optional sector table with ``x`` and ``y``.
     """
@@ -547,7 +476,7 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
     """One panel per KPI, grouped bars over bands, one bar per configuration.
 
     Args:
-        table: :func:`src.evaluation.compare.band_kpis` output.
+        table: :func:`src.evaluation.compare.band_table` output.
         kpis: Which measures to draw, in panel order.
     """
     keys = list(dict.fromkeys(table["configuration"]))
@@ -562,8 +491,7 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
     for axis in flat[len(kpis) :]:
         axis.set_visible(False)
     for axis, name in zip(flat, kpis, strict=False):
-        # A band row with no value for this KPI, e.g. RSRP on the all-band row, gets no slot.
-        bands = list(dict.fromkeys(table.loc[table[name].notna(), "band"]))
+        bands = list(dict.fromkeys(table["band"]))
         positions = np.arange(len(bands))
         for offset, key in enumerate(keys):
             mine = table[table["configuration"] == key].set_index("band")[name]
@@ -577,5 +505,148 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
         axis.set_xticks(positions, [label(band) for band in bands], fontsize=8)
         axis.set_title(label(name), fontsize=9)
     flat[0].legend(fontsize=8)
-    figure.suptitle("Reported KPIs per frequency layer")
+    figure.suptitle("KPIs per frequency layer")
+    return figure
+
+
+def band_tradeoff(frame: pd.DataFrame, band_labels: Sequence[str]) -> Figure:
+    """Coverage rate against separation rate on each band alone, every candidate.
+
+    Args:
+        frame: :func:`src.evaluation.compare.candidates` output, with the
+            ``<kpi>_<band>`` columns the search recorded.
+        band_labels: The bands, one panel each.
+    """
+    figure, axes = plt.subplots(
+        1,
+        len(band_labels),
+        figsize=(4.6 * len(band_labels), 4.4),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    incumbent = frame[frame["phase"] == "incumbent"].iloc[0]
+    for axis, band in zip(axes[0], band_labels, strict=True):
+        x, y = f"coverage_rate_{band}", f"separation_rate_{band}"
+        for method, group in frame.groupby("method", sort=False):
+            searched = group[group["phase"] != "incumbent"]
+            axis.scatter(
+                searched[x],
+                searched[y],
+                s=12,
+                alpha=0.4,
+                color=COLOURS.get(str(method)),
+                label=label(method),
+            )
+        axis.scatter(
+            incumbent[x],
+            incumbent[y],
+            marker="X",
+            s=120,
+            color=COLOURS["incumbent"],
+            edgecolor="black",
+            zorder=5,
+            label=label("incumbent"),
+        )
+        axis.set_xlabel(label("coverage_rate"))
+        axis.set_ylabel(label("separation_rate"))
+        axis.set_title(label(band))
+    axes[0, 0].legend(fontsize=8)
+    figure.suptitle("Coverage against separation per frequency layer, every candidate")
+    return figure
+
+
+def interval_throughput_plot(table: pd.DataFrame, interval_s: float) -> Figure:
+    """p05, median and mean throughput by time of day, with the UEs per interval on a second axis.
+
+    Intervals are folded onto one day: the line is the mean over days of each
+    time-of-day slot and the band its interquartile range, so the diurnal load
+    cycle reads through the interval-to-interval noise.
+
+    Args:
+        table: :func:`src.evaluation.compare.interval_throughput` output.
+        interval_s: Interval length, from the scenario manifest.
+    """
+    statistics = ("throughput_p05_mbps", "throughput_p50_mbps", "throughput_mean_mbps")
+    hours = (table["t_index"] % round(86400.0 / interval_s)) * interval_s / 3600.0
+    figure, axes = plt.subplots(
+        len(statistics), 1, figsize=(12.0, 8.5), sharex=True, constrained_layout=True
+    )
+    ues = table.assign(hour=hours).drop_duplicates("t_index").groupby("hour")["ues"].mean()
+    for axis, name in zip(axes, statistics, strict=True):
+        for key, group in table.assign(hour=hours).groupby("configuration", sort=False):
+            by_slot = group.groupby("hour")[name]
+            colour = COLOURS.get(str(key))
+            axis.plot(by_slot.mean().index, by_slot.mean(), lw=1.6, color=colour, label=label(key))
+            axis.fill_between(
+                by_slot.mean().index,
+                by_slot.quantile(0.25),
+                by_slot.quantile(0.75),
+                color=colour,
+                alpha=0.15,
+                lw=0,
+            )
+        density = axis.twinx()
+        density.plot(ues.index, ues.to_numpy(), color="0.45", lw=1.0, ls="--", label=label("ues"))
+        density.set_ylabel(label("ues"), color="0.4")
+        density.grid(False)
+        axis.set_ylabel(label(name))
+    axes[0].legend(fontsize=8, loc="upper left")
+    figure.legend(
+        [plt.Line2D([], [], color="0.45", ls="--")],
+        [f"{label('ues')} (right axis)"],
+        loc="upper right",
+        fontsize=8,
+    )
+    axes[-1].set_xlabel("Time of day [h]")
+    axes[-1].set_xticks(range(0, 25, 3))
+    figure.suptitle("Estimated throughput by time of day: mean over days, interquartile band")
+    return figure
+
+
+def throughput_vs_load(table: pd.DataFrame, statistic: str = "throughput_p50_mbps") -> Figure:
+    """One interval's throughput statistic against the UEs in it, per configuration.
+
+    Args:
+        table: :func:`src.evaluation.compare.interval_throughput` output.
+        statistic: The column to draw.
+    """
+    figure, axis = plt.subplots(figsize=(8.0, 5.0), constrained_layout=True)
+    for key, group in table.groupby("configuration", sort=False):
+        means = group.groupby("ues")[statistic].mean()
+        colour = COLOURS.get(str(key))
+        axis.scatter(group["ues"], group[statistic], s=8, alpha=0.25, color=colour)
+        axis.plot(
+            means.index, means.to_numpy(), color=colour, lw=1.8, marker="o", ms=3, label=label(key)
+        )
+    axis.set_xlabel(label("ues"))
+    axis.set_ylabel(label(statistic))
+    axis.set_title(f"{label(statistic)} against interval load (line: mean per UE count)")
+    axis.legend(fontsize=8)
+    return figure
+
+
+def cdf_plot(samples: dict[str, np.ndarray], xlabel: str, title: str) -> Figure:
+    """Empirical CDF of each configuration's samples on one axis.
+
+    Args:
+        samples: Configuration key to its values; NaN values are dropped.
+        xlabel: Horizontal axis label, with units.
+        title: The figure title.
+    """
+    figure, axis = plt.subplots(figsize=(8.0, 5.0), constrained_layout=True)
+    for key, values in samples.items():
+        values = np.sort(np.asarray(values, dtype=float)[np.isfinite(values)])
+        axis.step(
+            values,
+            np.arange(1, values.size + 1) / max(values.size, 1),
+            where="post",
+            color=COLOURS.get(key),
+            lw=1.6,
+            label=label(key),
+        )
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel("Share of UE reports at or below")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title(title)
+    axis.legend(fontsize=8)
     return figure

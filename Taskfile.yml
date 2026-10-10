@@ -98,19 +98,8 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.scenario.run {{.CLI_ARGS}}
 
-  simulation:radio:
-    desc: 'Stage 2 - ray-trace the clean radio map, one solve per band'
-    cmds:
-      - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
-
-  simulation:
-    desc: 'Run the two simulation stages in order'
-    cmds:
-      - task: simulation:scenario
-      - task: simulation:radio
-
   preprocess:
-    desc: 'Verify the simulation output and write the processed tables (notebook 02)'
+    desc: 'Ray-trace and verify the simulation inputs, write the processed tables (notebook 02) - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.data.build {{.CLI_ARGS}}
 
@@ -131,27 +120,22 @@ tasks:
         cmd: uv run python -m {{.PKG}}.optim.run optim/method={{.ITEM}} {{.CLI_ARGS}}
 
   evaluate:
-    desc: 'Compare the newest run of each method, write reports/ (notebook 04)'
+    desc: 'Compare the newest run of each method, write reports/ (notebook 04) - needs a GPU'
     cmds:
       - uv run python -m {{.PKG}}.evaluation.run {{.CLI_ARGS}}
 
   pipeline:
     desc: 'Every stage in order: simulation, preprocess, optim, evaluate'
     cmds:
-      - task: simulation
+      - task: simulation:scenario
       - task: preprocess
       - task: optim
       - task: evaluate
 
   reproduce:
-    desc: 'Rerun every stage and notebook and zip the results, e.g. task reproduce -- --seeds 42,43 optim.budget.n_iter=200 - needs a GPU'
+    desc: 'Rerun every stage and notebook and zip the results, e.g. task reproduce -- optim.budget.n_iter=200 - needs a GPU'
     cmds:
       - uv run python scripts/reproduce.py {{.CLI_ARGS}}
-
-  demo:
-    desc: 'Live what-if app: edit tilts, ray-trace, compare KPIs (needs a CUDA GPU)'
-    cmds:
-      - uv run streamlit run demo/app.py --browser.gatherUsageStats false {{.CLI_ARGS}}
 
   dvc:init:
     desc: Initialise DVC in this repository

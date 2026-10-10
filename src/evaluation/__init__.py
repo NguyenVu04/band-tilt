@@ -1,10 +1,12 @@
 """Read optimization runs back, compare them, and visualize what changed.
 
-Everything here works from artifacts on disk — the run directories under
-``outputs/optim/`` and the baseline ``radio_map.npz``. Nothing re-solves, so
-this package imports neither Sionna-RT nor ``src.optim.evaluator``, and a
-comparison costs seconds on a machine with no GPU.
+The comparison reads the run directories under ``outputs/optim/``. No radio map
+is stored, so :mod:`run` re-traces the few configurations it maps through
+:class:`src.optim.evaluator.Evaluator`, which needs a CUDA GPU; everything over
+the candidates themselves reads ``history.parquet`` alone.
 
+The evaluation's KPIs are coverage rate, separation rate and median estimated
+throughput (:data:`compare.EVALUATION_KPIS`), not the objectives the search maximised.
 Every UE counts here, as it did in the search.
 
 Modules, each with one reason to change:
@@ -16,8 +18,8 @@ Modules, each with one reason to change:
     Spatial reductions over a radio map: coverage classes, the demand raster,
     what changed between two maps.
 ``compare``
-    The tables: before against after, method against method, how far antennas
-    moved.
+    The tables: configuration against configuration, method against method,
+    the Pareto front and its tilts.
 ``plots``
     The figures, following the conventions ``notebooks/01_eda.ipynb``
     established.

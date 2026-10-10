@@ -3,8 +3,8 @@
 Entry point for ``task bo``, ``task baseline`` and each method ``task optim``
 loops over. Every candidate is ray
 traced at the configured fidelity, with no surrogate, so every KPI this writes
-is a measurement and the run it produces is complete: a named winner and its
-shortlist, the winner's radio map, and the two tables an operator chooses from.
+is a measurement and the run it produces is complete: the history, its Pareto
+shortlist, and the two tables an operator chooses from.
 The UE KPIs count every UE (``data.output.ue_file``).
 
 Needs a CUDA GPU and the ``rt`` extra.
@@ -45,9 +45,6 @@ def output_directory(cfg: DictConfig, method: str) -> Path:
 def run(cfg: DictConfig) -> tuple[History, Path]:
     """Search the tilt space with the selected method, then publish the result.
 
-    Besides :func:`src.optim.report.publish`'s artifacts, writes the winner's
-    radio map when ``optim.output.save_radio_map`` is set.
-
     Returns the history and the directory written to.
     """
     method = str(cfg.optim.method.name)
@@ -60,13 +57,6 @@ def run(cfg: DictConfig) -> tuple[History, Path]:
         # throughput was measured under are recorded with the run.
         max_prb = {sector.name: sector.max_prb for sector in evaluator.space.sectors}
         history = run_search(evaluator, cfg)
-        if bool(cfg.optim.output.save_radio_map):
-            # Re-solved, not kept during the search: a long run's maps do not fit
-            # in memory. Same solver seed as the search, but GPU ray tracing is not
-            # bit-reproducible, so a tile can differ. Not appended to the history.
-            evaluator.keep_rsrp = True
-            result = evaluator.evaluate(history.results[history.best_index()].tilt_deg)
-            evaluator.write_radio_map(directory / "best_radio_map.npz", result)
 
     publish(
         history,

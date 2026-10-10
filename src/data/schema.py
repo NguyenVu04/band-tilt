@@ -22,7 +22,7 @@ from src.simulation.radio import baseline_tilts
 
 _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
-_MAP = "radio_map.npz"
+_MAP = "src/simulation/radio.py"
 _UE = "ue_positions.csv"
 _SECTORS = "sectors.csv"
 
@@ -110,7 +110,10 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         record("manifest grid and time values are numbers", _MANIFEST, _numeric(manifest))
     missing_arrays = [key for key in _RADIO_KEYS if key not in artifacts.radio]
     record(
-        "npz carries the arrays the contract reads", _MAP, not missing_arrays, len(missing_arrays)
+        "radio map carries the arrays the contract reads",
+        _MAP,
+        not missing_arrays,
+        len(missing_arrays),
     )
     sectors: tuple[Sector, ...] = ()
     sector_source = _SECTORS
@@ -131,17 +134,17 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
     rsrp, sinr = artifacts.radio["rsrp_dbm"], artifacts.radio.get("sinr_db")
 
     record(
-        "npz tx_name matches the sector table",
+        "radio map tx_name matches the sector table",
         _SECTORS,
         artifacts.tx_names == [sector.name for sector in sectors],
     )
     record(
-        "npz band_label matches the configured bands",
+        "radio map band_label matches the configured bands",
         _CONFIG,
         artifacts.band_labels == [str(entry.name) for entry in bands],
     )
     record(
-        "npz band_hz matches the configured frequencies",
+        "radio map band_hz matches the configured frequencies",
         _CONFIG,
         "band_hz" in artifacts.radio
         and np.array_equal(
@@ -150,32 +153,32 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         ),
     )
     record(
-        "npz scenario_id matches the manifest",
+        "radio map scenario_id matches the manifest",
         _MANIFEST,
         str(artifacts.radio["scenario_id"]) == artifacts.scenario_id,
     )
     record(
-        "npz grid matches the manifest grid",
+        "radio map grid matches the manifest grid",
         _MANIFEST,
         all(float(artifacts.radio[key]) == float(grid[key]) for key in _GRID_KEYS),
     )
     record(
-        "npz ue_height_m matches the config",
+        "radio map ue_height_m matches the config",
         _CONFIG,
         float(artifacts.radio["ue_height_m"]) == float(cfg.simulation.ue.height_m),
     )
     if "tile_centre" in artifacts.radio:
         record(
-            "npz tile_centre matches the manifest grid",
+            "radio map tile_centre matches the manifest grid",
             _MANIFEST,
             _centres_match(artifacts.radio["tile_centre"], grid, n_rows, n_cols),
         )
     sinr_shape = sinr is not None and sinr.shape == rsrp.shape
-    record("npz sinr_db has the shape of rsrp_dbm", _MAP, sinr_shape)
+    record("radio map sinr_db has the shape of rsrp_dbm", _MAP, sinr_shape)
     if sinr_shape:
         # The solver defines SINR exactly where a path reached the tile.
         record(
-            "npz sinr_db is NaN exactly where rsrp_dbm is",
+            "radio map sinr_db is NaN exactly where rsrp_dbm is",
             _MAP,
             *_count(np.isnan(sinr) != np.isnan(rsrp)),
         )
@@ -244,7 +247,7 @@ def verify(artifacts: Artifacts, cfg: DictConfig) -> pd.DataFrame:
         except KeyError:
             configured = np.empty(0)
         tilts_match = tilt_deg.shape == configured.shape and bool(np.allclose(tilt_deg, configured))
-    record("npz tilt_deg equals the sector table's baseline tilts", _SECTORS, tilts_match)
+    record("radio map tilt_deg equals the sector table's baseline tilts", _SECTORS, tilts_match)
 
     return table()
 

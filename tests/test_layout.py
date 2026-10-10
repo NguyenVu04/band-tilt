@@ -5,68 +5,40 @@ import math
 
 import pytest
 
-from src.scenario.layout import SHAPES, LayoutSpec, max_spacing, node_positions
+from src.scenario.layout import LayoutSpec, max_spacing, node_positions
 from src.simulation.scene import SceneBounds
 
 BOUNDS = SceneBounds(min_x=0.0, max_x=1000.0, min_y=-200.0, max_y=800.0, min_z=0.0, max_z=50.0)
 
 
-def test_every_corner_is_one_spacing_from_the_centre_node():
-    """The spacing is the inter-site distance; the corners are sqrt(3) of it apart."""
-    *corners, centre = node_positions(BOUNDS, 400.0)
+def test_four_corners_of_a_square_are_one_spacing_from_the_centre_node():
+    """The spacing is centre-to-corner; adjacent corners are sqrt(2) of it apart."""
+    *corners, centre = node_positions(BOUNDS, 300.0)
 
-    assert len(corners) == 3
+    assert len(corners) == 4
     assert centre == pytest.approx((500.0, 300.0))
     for corner in corners:
-        assert math.dist(corner, centre) == pytest.approx(400.0)
-    for (ax, ay), (bx, by) in itertools.combinations(corners, 2):
-        assert math.dist((ax, ay), (bx, by)) == pytest.approx(400.0 * math.sqrt(3.0))
-    assert sum(x for x, _ in corners) / 3 == pytest.approx(500.0)
-    assert sum(y for _, y in corners) / 3 == pytest.approx(300.0)
+        assert math.dist(corner, centre) == pytest.approx(300.0)
+    sides = sorted(math.dist(a, b) for a, b in itertools.combinations(corners, 2))
+    assert sides[:4] == pytest.approx([300.0 * math.sqrt(2.0)] * 4)
+    assert sum(x for x, _ in corners) / 4 == pytest.approx(500.0)
+    assert sum(y for _, y in corners) / 4 == pytest.approx(300.0)
 
 
-def test_largest_fitting_triangle_stays_inside_the_scene():
-    """The spacing the fit check allows keeps every corner within the bounds."""
-    spacing = min(BOUNDS.width_m / math.sqrt(3.0), BOUNDS.depth_m / 2.0)
+def test_largest_fitting_spacing_keeps_every_node_inside_the_scene():
+    """At the spacing the fit check allows every node is in bounds, and just past it fails."""
+    spacing = max_spacing(BOUNDS)
     for x, y in node_positions(BOUNDS, spacing):
         assert BOUNDS.min_x - 1e-9 <= x <= BOUNDS.max_x + 1e-9
         assert BOUNDS.min_y - 1e-9 <= y <= BOUNDS.max_y + 1e-9
-
-
-@pytest.mark.parametrize(("shape", "count"), [("square", 4), ("square_centre", 5), ("hexagon", 7)])
-def test_every_shape_is_centred_with_nearest_nodes_one_spacing_apart(shape, count):
-    """The spacing is the nearest-neighbour inter-site distance, about the scene centre."""
-    nodes = node_positions(BOUNDS, 200.0, shape)
-
-    assert len(nodes) == count
-    assert sum(x for x, _ in nodes) / count == pytest.approx(500.0)
-    assert sum(y for _, y in nodes) / count == pytest.approx(300.0)
-    nearest = [min(math.dist(a, b) for b in nodes if b is not a) for a in nodes]
-    assert nearest == pytest.approx([200.0] * count)
-
-
-@pytest.mark.parametrize("shape", sorted(SHAPES))
-def test_largest_fitting_spacing_keeps_every_shape_inside_the_scene(shape):
-    """At the spacing the fit check allows every node is in bounds, and just past it fails."""
-    spacing = max_spacing(BOUNDS, shape)
-    for x, y in node_positions(BOUNDS, spacing, shape):
-        assert BOUNDS.min_x - 1e-9 <= x <= BOUNDS.max_x + 1e-9
-        assert BOUNDS.min_y - 1e-9 <= y <= BOUNDS.max_y + 1e-9
     with pytest.raises(ValueError, match="node_spacing_m"):
-        node_positions(BOUNDS, spacing + 1.0, shape)
-
-
-def test_triangle_wider_than_the_scene_is_rejected():
-    """A spacing whose top corner leaves the scene fails and names the config key."""
-    with pytest.raises(ValueError, match="node_spacing_m"):
-        node_positions(BOUNDS, 501.0)
+        node_positions(BOUNDS, spacing + 1.0)
 
 
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
         ("sectors_per_node", 0, "sectors_per_node"),
-        ("shape", "circle", "scenario.layout.shape"),
         ("node_spacing_m", 0.0, "node_spacing_m"),
         ("snap_radius_m", -1.0, "snap_radius_m"),
         ("clearance_radius_m", -1.0, "clearance_radius_m"),
@@ -76,7 +48,6 @@ def test_a_layout_no_node_could_be_placed_under_is_rejected(field, value, match)
     """A zero-sector or negative-radius layout fails at the config, not as an empty table."""
     good = dict(
         node_spacing_m=400.0,
-        shape="triangle",
         sectors_per_node=3,
         azimuth_offset_deg=0.0,
         mast_height_m=25.0,

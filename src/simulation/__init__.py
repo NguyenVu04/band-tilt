@@ -1,18 +1,16 @@
 """Sionna-RT side of the pipeline: loading scenes, and the radio maps.
 
-One stage, a ``python -m`` entry point, reads the files ``simulation.input``
-names, whether the synthetic generator wrote them or real data supplies them:
-
-``radio``
-    Reads the manifest and the sector table, places the transmitters, and
-    ray-traces one clean radio map per band.
+``radio`` reads the files ``simulation.input`` names, whether the synthetic
+generator wrote them or real data supplies them, places the transmitters, and
+ray-traces one clean radio map per band. Nothing stores the map: every consumer
+re-traces the configuration it needs.
 
 The population moves over time; the map does not, and does not need to. Tilt
 and geometry are fixed for the whole scenario, so an interval changes only
 where the UEs stand, and every interval reads the same map. That is what makes
 a hundred snapshots cost what one costs.
 
-The scenario and radio stages are separate because the radio map is a function
+The scenario stage and the radio solve are separate because the radio map is a function
 of tilt and must be re-solved for every tilt configuration, while the geometry
 and the UE positions must *not* move when tilt does. Fused into one run, every
 tilt change would redraw the UEs and the KPIs would stop being a function of

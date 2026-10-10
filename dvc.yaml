@@ -1,6 +1,7 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 # Each stage calls the same src/ functions as its notebook.
-# Evaluation (notebook 04, `task evaluate`) has no stage: it reads finished runs.
+# Evaluation (notebook 04, `task evaluate`) has no stage: it reads finished runs
+# and re-traces the configurations it analyses.
 # `params` list only the settings that change a stage's output.
 
 stages:
@@ -35,33 +36,8 @@ stages:
       - data/scenes/hanoi/scenario.json
       - data/scenes/hanoi/synthetic.json
 
-  # Baseline radio map, one ray-trace per band (notebook 00). Needs a CUDA GPU.
-  simulation_radio:
-    cmd: python -m src.simulation.radio
-    deps:
-      - src/simulation/radio.py
-      - src/simulation/materials.py
-      - src/simulation/seeds.py
-      - src/simulation/transmitter.py
-      - src/simulation/scene.py
-      - src/core/sector.py
-      - data/scenes/hanoi/scene.xml
-      - data/scenes/hanoi/mesh
-      - data/scenes/hanoi/scenario.json
-      - data/scenes/hanoi/sectors.csv
-    params:
-      - configs/config.yaml:
-          - seed
-      - configs/simulation.yaml:
-          - input
-          - ue
-          - scene
-          - radio_map
-          - antenna
-    outs:
-      - data/interim/radio_map.npz
-
-  # Verify the inputs and radio map, and write the typed UE table (notebook 02).
+  # Ray-trace the inputs' radio map in memory, verify it and the inputs, and
+  # write the typed UE table (notebook 02). Needs a CUDA GPU.
   preprocessing:
     cmd: python -m src.data.build
     deps:
@@ -69,15 +45,23 @@ stages:
       - src/data/load.py
       - src/data/schema.py
       - src/simulation/radio.py
+      - src/simulation/materials.py
+      - src/simulation/seeds.py
+      - src/simulation/transmitter.py
+      - src/simulation/scene.py
       - src/core
+      - data/scenes/hanoi/scene.xml
+      - data/scenes/hanoi/mesh
       - data/external/ue_positions.csv
       - data/scenes/hanoi/sectors.csv
       - data/scenes/hanoi/scenario.json
-      - data/interim/radio_map.npz
     params:
+      - configs/config.yaml:
+          - seed
       - configs/simulation.yaml:
           - input
           - ue
+          - scene
           - radio_map
           - antenna
     outs:

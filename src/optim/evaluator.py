@@ -24,8 +24,8 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.kpi.capacity import CapacitySpec
-from src.optim.objective import KpiVector, evaluate_kpis
+from src.kpi.capacity import CapacitySpec, serve_intervals
+from src.optim.objective import KpiVector, band_kpis, evaluate_kpis
 from src.optim.space import TiltSpace
 from src.simulation import radio, seeds
 
@@ -46,6 +46,7 @@ class EvaluationResult:
             when the evaluator was asked not to retain it. Every map of a long
             run does not fit in memory and the run does not need them.
         sinr: The solver's SINR in dB, same shape, retained alongside ``rsrp``.
+        band_kpi: :func:`src.optim.objective.band_kpis` of the map.
     """
 
     tilt_deg: np.ndarray
@@ -53,6 +54,7 @@ class EvaluationResult:
     seconds: float
     rsrp: np.ndarray | None = None
     sinr: np.ndarray | None = None
+    band_kpi: dict[str, float] = field(default_factory=dict)
 
 
 class ObjectiveEvaluator(Protocol):
@@ -168,7 +170,10 @@ class Evaluator:
         )
         seconds = time.perf_counter() - started
 
-        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg, spec=self._capacity)
+        served = serve_intervals(
+            rsrp, sinr, self.band_labels, self._ue, self.cfg, spec=self._capacity
+        )
+        kpi = evaluate_kpis(rsrp, sinr, self.band_labels, self._ue, self.cfg, served=served)
 
         return EvaluationResult(
             tilt_deg=tilt_deg,
@@ -176,13 +181,11 @@ class Evaluator:
             seconds=seconds,
             rsrp=rsrp if self.keep_rsrp else None,
             sinr=sinr if self.keep_rsrp else None,
+            band_kpi=band_kpis(rsrp, served, self.band_labels, self.cfg),
         )
 
-    def write_radio_map(self, path: str | Path, result: EvaluationResult) -> Path:
-        """Archive one result's radio map with :func:`src.simulation.radio.write_radio_map`.
-
-        Same schema as the baseline map, so the KPIs, the plots and
-        :mod:`src.data` read an optimized map exactly as they read that one.
+    def radio_map(self, result: EvaluationResult) -> dict[str, np.ndarray]:
+        """One result's radio map in :func:`src.simulation.radio.radio_map`'s schema.
 
         Raises:
             ValueError: When the result carries no map, which means the
@@ -190,13 +193,11 @@ class Evaluator:
         """
         if result.rsrp is None or result.sinr is None or self._centres is None:
             raise ValueError(
-                "this result carries no radio map. Build the Evaluator with keep_rsrp=True, "
-                "or re-evaluate the winning tilt with one that does."
+                "this result carries no radio map. Build the Evaluator with keep_rsrp=True."
             )
 
         setup = self._setup
-        return radio.write_radio_map(
-            path,
+        return radio.radio_map(
             rsrp=result.rsrp,
             sinr=result.sinr,
             bands=setup.bands,

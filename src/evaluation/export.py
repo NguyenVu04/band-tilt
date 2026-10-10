@@ -16,7 +16,7 @@ from src.utils.plotting import label
 
 # Columns whose values are keys too, so a band or KPI reads the same in a cell
 # as in a header.
-_KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration")
+_KEY_COLUMNS = ("kpi", "method", "reference", "band", "configuration", "measures")
 
 
 def readable(frame: pd.DataFrame) -> pd.DataFrame:

@@ -18,25 +18,12 @@ from src.scenario.grid import GridSpec, Raster, disc_offsets
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneBounds
 
-
-def _ring(count: int, radius: float, start_deg: float) -> list[tuple[float, float]]:
-    """``count`` evenly spaced points at ``radius``, counter-clockwise from ``start_deg``."""
-    angles = (math.radians(start_deg + index * 360.0 / count) for index in range(count))
-    return [(radius * math.cos(angle), radius * math.sin(angle)) for angle in angles]
-
-
-# Node offsets from the scene centre in units of node_spacing_m, which is the
-# nearest-neighbour inter-site distance in every shape, as ISD is in TR 38.901
-# Section 7.2. Outer nodes first, then any centre node.
-SHAPES = {
-    # A centre site and three alternate first-tier neighbours on a hexagonal
-    # grid; the corners are sqrt(3) apart.
-    "triangle": [*_ring(3, 1.0, 90.0), (0.0, 0.0)],
-    "square": _ring(4, math.sqrt(0.5), 45.0),
-    "square_centre": [*_ring(4, 1.0, 45.0), (0.0, 0.0)],
-    # A centre site and its whole first tier.
-    "hexagon": [*_ring(6, 1.0, 90.0), (0.0, 0.0)],
-}
+# Node offsets from the scene centre in units of node_spacing_m: four corners of
+# an axis-aligned square, then the centre node, each corner one spacing from it.
+NODE_OFFSETS = [
+    *((math.cos(math.radians(a)), math.sin(math.radians(a))) for a in (45.0, 135.0, 225.0, 315.0)),
+    (0.0, 0.0),
+]
 
 
 @dataclass(frozen=True)
@@ -44,8 +31,7 @@ class LayoutSpec:
     """Where the nodes go, and how their masts are mounted.
 
     Attributes:
-        node_spacing_m: Inter-site distance between nearest nodes.
-        shape: Node geometry, a key of :data:`SHAPES`.
+        node_spacing_m: Distance from the centre node to each corner node.
         sectors_per_node: Sectors per node, at evenly spaced azimuths.
         azimuth_offset_deg: Rotation applied to every node's sector fan.
         mast_height_m: Height of the mast above the ground it stands on.
@@ -61,7 +47,6 @@ class LayoutSpec:
     """
 
     node_spacing_m: float
-    shape: str
     sectors_per_node: int
     azimuth_offset_deg: float
     mast_height_m: float
@@ -74,16 +59,12 @@ class LayoutSpec:
 
         Raises:
             ValueError: When the node spacing, mast height or sectors per node
-                is not positive, the shape is unknown, a radius is negative, or
-                the free fraction is outside ``[0, 1]``.
+                is not positive, a radius is negative, or the free fraction is
+                outside ``[0, 1]``.
         """
         if self.node_spacing_m <= 0:
             raise ValueError(
                 f"scenario.layout.node_spacing_m must be positive, got {self.node_spacing_m}"
-            )
-        if self.shape not in SHAPES:
-            raise ValueError(
-                f"scenario.layout.shape must be one of {sorted(SHAPES)}, got {self.shape!r}"
             )
         if self.sectors_per_node < 1:
             raise ValueError(
@@ -107,7 +88,6 @@ class LayoutSpec:
         layout = cfg.scenario.layout
         return cls(
             node_spacing_m=float(layout.node_spacing_m),
-            shape=str(layout.shape),
             sectors_per_node=int(layout.sectors_per_node),
             azimuth_offset_deg=float(layout.azimuth_offset_deg),
             mast_height_m=float(layout.mast_height_m),
@@ -134,18 +114,16 @@ def default_max_prb(cfg: DictConfig) -> dict[str, int]:
     return {str(band): int(value) for band, value in entries.items()}
 
 
-def node_positions(
-    bounds: SceneBounds, spacing_m: float, shape: str = "triangle"
-) -> list[tuple[float, float]]:
-    """Return each node's ideal ``(x, y)``: ``SHAPES[shape]`` scaled about the scene centre.
+def node_positions(bounds: SceneBounds, spacing_m: float) -> list[tuple[float, float]]:
+    """Return each node's ideal ``(x, y)``: :data:`NODE_OFFSETS` scaled about the scene centre.
 
     Raises:
-        ValueError: When the shape at this spacing does not fit inside the scene.
+        ValueError: When the layout at this spacing does not fit inside the scene.
     """
-    largest = max_spacing(bounds, shape)
+    largest = max_spacing(bounds)
     if spacing_m > largest:
         raise ValueError(
-            f"the {shape} node layout at "
+            "the node layout at "
             f"scenario.layout.node_spacing_m={spacing_m} does not fit the "
             f"{bounds.width_m:.1f} x {bounds.depth_m:.1f} m scene. Lower the spacing to at "
             f"most {largest:.1f} m."
@@ -153,15 +131,15 @@ def node_positions(
 
     centre_x = 0.5 * (bounds.min_x + bounds.max_x)
     centre_y = 0.5 * (bounds.min_y + bounds.max_y)
-    return [(centre_x + spacing_m * x, centre_y + spacing_m * y) for x, y in SHAPES[shape]]
+    return [(centre_x + spacing_m * x, centre_y + spacing_m * y) for x, y in NODE_OFFSETS]
 
 
-def max_spacing(bounds: SceneBounds, shape: str) -> float:
-    """The largest ``node_spacing_m`` at which ``shape``, centred on the scene, stays inside it."""
+def max_spacing(bounds: SceneBounds) -> float:
+    """The largest ``node_spacing_m`` at which the layout, centred on the scene, stays inside it."""
     half_width, half_depth = 0.5 * bounds.width_m, 0.5 * bounds.depth_m
     return min(
         half / abs(unit)
-        for x, y in SHAPES[shape]
+        for x, y in NODE_OFFSETS
         for half, unit in ((half_width, x), (half_depth, y))
         if unit
     )
@@ -176,7 +154,7 @@ def generate_layout(
     default_tilt: dict[str, Tilt],
     max_prb: dict[str, int],
 ) -> pd.DataFrame:
-    """Lay the nodes out in ``spec.shape``, each on open ground.
+    """Lay the nodes out as :data:`NODE_OFFSETS`, each on open ground.
 
     Returns the sector table (:data:`src.core.sector.SECTOR_COLUMNS`):
     ``spec.sectors_per_node`` sectors for every node. Nodes whose ideal
@@ -192,13 +170,13 @@ def generate_layout(
     to diverge, since one tilt per sector-band pair is what is being optimized.
 
     Raises:
-        ValueError: When the shape does not fit inside the scene, or when a
+        ValueError: When the layout does not fit inside the scene, or when a
             node finds no open ground within ``spec.snap_radius_m``. Both are
             config changes rather than something to snap away, and neither may
             be answered by placing a mast on a building.
     """
     sectors: list[Sector] = []
-    positions = node_positions(bounds, spec.node_spacing_m, spec.shape)
+    positions = node_positions(bounds, spec.node_spacing_m)
     for node_index, (ideal_x, ideal_y) in enumerate(positions):
         x, y, z = _mount(
             mi_scene,

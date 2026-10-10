@@ -6,7 +6,7 @@
 # Folder under data/scenes/ holding scene.xml, its mesh/, the sector table and the manifest.
 scene_name: hanoi
 
-# The files the radio stage, preprocessing and the search read.
+# The files the radio solve, preprocessing, the search and the evaluation read.
 input:
   # Scene XML path, or a bundled Sionna-RT scene name.
   scene_file: data/scenes/${simulation.scene_name}/scene.xml
@@ -86,7 +86,3 @@ antenna:
     horizontal_spacing: 0.5
     pattern: "dipole"
     polarization: "V"
-
-# Radio-map output.
-output:
-  radio_map_file: data/interim/radio_map.npz

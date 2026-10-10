@@ -18,6 +18,7 @@ from src.optim.objective import (
     MEASURE_NAMES,
     OBJECTIVE_NAMES,
     KpiVector,
+    band_kpis,
     best_by_hvc,
     coverage_objective,
     hypervolume,
@@ -181,6 +182,22 @@ def test_solver_round_off_does_not_reach_the_objectives(cfg) -> None:
     for objective in (coverage_objective, separation_objective):
         moved = objective(_map([[-105.0 + 1e-9, -108.0]]), cfg)
         assert moved == objective(_map([[-105.0, -108.0]]), cfg)
+
+
+def test_band_kpis_read_each_band_alone() -> None:
+    """Tile 1 is a hole on 'hi' only; 'lo' has two sectors within the margin on tile 0."""
+    cfg = OmegaConf.create({"kpi": {"hole_dbm": -120.0, "overlap_margin_db": 6.0}})
+    rsrp = _tiles([[-80.0, -130.0], [-85.0, -88.0]], [[-130.0, -130.0], [-95.0, -140.0]])
+    served = pd.DataFrame(
+        {"band": [0, 1, 1, -1], "estimated_throughput_mbps": [2.0, 4.0, 6.0, 0.0]}
+    )
+    kpis = band_kpis(rsrp, served, ["hi", "lo"], cfg)
+    assert kpis["coverage_rate_hi"] == pytest.approx(0.5)
+    assert kpis["coverage_rate_lo"] == pytest.approx(1.0)
+    assert kpis["separation_rate_hi"] == pytest.approx(1.0)
+    assert kpis["separation_rate_lo"] == pytest.approx(0.5)
+    assert kpis["estimated_throughput_p50_mbps_lo"] == pytest.approx(5.0)
+    assert kpis["served_share_hi"] == pytest.approx(0.25)
 
 
 def test_throughput_is_the_mean_log_with_an_unserved_ue_at_zero() -> None:

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 from src.evaluation import runs as run_store
 from src.optim.objective import MEASURE_NAMES
@@ -29,35 +30,25 @@ KPI = {
     "throughput_objective": 3.0,
 }
 
-
-def radio_archive(**overrides: object) -> dict[str, np.ndarray]:
-    """A radio map carrying every key `verify` compares."""
-    archive = {
-        "rsrp_dbm": np.full((1, 1, 2, 3), -80.0, dtype=np.float32),
-        "band_label": np.array(["b700"]),
-        "band_hz": np.array([700000000]),
-        "scenario_id": np.array("scn_test"),
-        "n_rows": np.array(2),
-        "n_cols": np.array(3),
-        "tile_size_m": np.array(20.0),
-        "origin_x": np.array(0.0),
-        "origin_y": np.array(0.0),
-        "ue_height_m": np.array(1.5),
-        "samples_per_tx": np.array(1000),
-        "max_depth": np.array(5),
-        "los": np.array(True),
-        "specular_reflection": np.array(True),
-        "diffuse_reflection": np.array(False),
-        "refraction": np.array(True),
-        "diffraction": np.array(False),
-        "edge_diffraction": np.array(False),
-        "diffraction_lit_region": np.array(True),
-        "rr_depth": np.array(-1),
-        "rr_prob": np.array(0.95),
-        "power_dbm": np.array(4.85),
-    }
-    archive.update({key: np.array(value) for key, value in overrides.items()})
-    return archive
+CONFIG = {
+    "kpi": {
+        "hole_dbm": -120.0,
+        "weak_dbm": -90.0,
+        "overlap_margin_db": 6.0,
+        "capacity": {"max_admission_utilisation": 0.8},
+    },
+    "simulation": {
+        "input": {"scene_file": "scene.xml"},
+        "ue": {"height_m": 1.5},
+        "scene": {"merge_shapes": True},
+        "radio_map": {
+            "temperature": 298.15,
+            "samples_per_tx": 1000,
+            "bands": [{"name": "b700", "bandwidth": 10000000, "scs_hz": 15000}],
+        },
+        "antenna": {"power_rs": 4.85},
+    },
+}
 
 
 def make_run(
@@ -66,13 +57,11 @@ def make_run(
     run_id: str,
     *,
     n: int = 3,
-    seed: int = 0,
-    max_admission_utilisation: float = 0.8,
-    bandwidth: int = 10000000,
-    scs_hz: int = 15000,
-    **radio: object,
+    scenario_id: str = "scn_test",
+    max_prb: int = 106,
+    edit=None,
 ) -> Path:
-    """Write a run directory the way src.optim.history does."""
+    """Write a run directory the way src.optim.history does; ``edit`` changes its config."""
     directory = root / method / run_id
     directory.mkdir(parents=True)
 
@@ -85,48 +74,34 @@ def make_run(
         }
     )
     history.to_parquet(directory / "history.parquet", index=False)
-    pd.DataFrame(
-        {
-            "sector": ["n0s0", "n0s0"],
-            "band": ["b700", "b2600"],
-            "current_tilt_deg": [4.0, 8.0],
-            "optimized_tilt_deg": [6.0, 8.0],
-            "delta_tilt_deg": [2.0, 0.0],
-        }
-    ).to_parquet(directory / "best_tilt.parquet", index=False)
-
-    np.savez_compressed(directory / "best_radio_map.npz", **radio_archive(**radio))
+    config = copy.deepcopy(CONFIG) | {"optim": {"seed": 0}}
+    if edit:
+        edit(config)
     (directory / "run.json").write_text(
         json.dumps(
             {
                 "method": method,
                 "n_evaluations": n,
-                "best_iteration": 0,
-                "best_kpi": KPI,
                 "incumbent_kpi": KPI,
-                "scenario_id": str(radio.get("scenario_id", "scn_test")),
-                "max_prb": {"n0s0": {"b700": 106}},
+                "scenario_id": scenario_id,
+                "max_prb": {"n0s0": {"b700": max_prb}},
                 "wall_clock_seconds": 120.0,
-                "config": {
-                    "optim": {"seed": seed},
-                    "kpi": {
-                        "hole_dbm": -120.0,
-                        "weak_dbm": -90.0,
-                        "overlap_margin_db": 6.0,
-                        "capacity": {"max_admission_utilisation": max_admission_utilisation},
-                    },
-                    "simulation": {
-                        "radio_map": {
-                            "temperature": 298.15,
-                            "bands": [{"name": "b700", "bandwidth": bandwidth, "scs_hz": scs_hz}],
-                        },
-                    },
-                },
+                "config": config,
             }
         ),
         encoding="utf-8",
     )
     return directory
+
+
+def verify(runs):
+    """:func:`run_store.verify` against :data:`CONFIG` and its scenario."""
+    return run_store.verify(runs, OmegaConf.create(CONFIG), "scn_test")
+
+
+def failed(checks: pd.DataFrame) -> list[str]:
+    """The names of the checks that do not hold."""
+    return checks.loc[~checks["holds"], "check"].tolist()
 
 
 def test_load_reads_tables_and_metadata(tmp_path) -> None:
@@ -142,12 +117,6 @@ def test_load_reads_tables_and_metadata(tmp_path) -> None:
     assert run.wall_clock_seconds == pytest.approx(120.0)
 
 
-def test_radio_map_comes_from_the_run_directory(tmp_path) -> None:
-    """The winner's map is the archive beside run.json."""
-    run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))
-    assert run.radio_map["rsrp_dbm"].shape == (1, 1, 2, 3)
-
-
 def test_load_rejects_a_directory_that_is_not_a_run(tmp_path) -> None:
     """The output root is shared scratch."""
     (tmp_path / "empty").mkdir()
@@ -158,7 +127,7 @@ def test_load_rejects_a_directory_that_is_not_a_run(tmp_path) -> None:
 def test_load_rejects_an_unfinished_run(tmp_path) -> None:
     """A half-written run must not read as a result."""
     directory = make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
-    (directory / "best_tilt.parquet").unlink()
+    (directory / "history.parquet").unlink()
     with pytest.raises(run_store.RunError, match="did not finish"):
         run_store.load(directory)
 
@@ -173,108 +142,68 @@ def test_discover_skips_strays_and_orders_by_id(tmp_path) -> None:
     assert [run.run_id for run in found] == ["2026-01-01_00-00-00", "2026-01-02_00-00-00"]
 
 
-def test_latest_per_method_and_seed_keeps_one_run_per_seed(tmp_path) -> None:
-    """A rerun replaces its seed's earlier run; another seed is kept beside it."""
-    make_run(tmp_path, "morbo", "2026-01-01_00-00-00", seed=0)
-    make_run(tmp_path, "morbo", "2026-01-09_00-00-00", seed=0)
-    make_run(tmp_path, "morbo", "2026-01-02_00-00-00", seed=1)
-    make_run(tmp_path, "random", "2026-01-05_00-00-00", seed=0)
+def test_latest_per_method_keeps_the_newest_run_of_each(tmp_path) -> None:
+    """A rerun replaces its method's earlier run."""
+    make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
+    make_run(tmp_path, "morbo", "2026-01-09_00-00-00")
+    make_run(tmp_path, "random", "2026-01-05_00-00-00")
 
-    latest = run_store.latest_per_method_and_seed(run_store.discover(tmp_path))
-    assert [(run.method, run.seed, run.run_id) for run in latest] == [
-        ("morbo", 0, "2026-01-09_00-00-00"),
-        ("morbo", 1, "2026-01-02_00-00-00"),
-        ("random", 0, "2026-01-05_00-00-00"),
+    latest = run_store.latest_per_method(run_store.discover(tmp_path))
+    assert [(run.method, run.run_id) for run in latest] == [
+        ("morbo", "2026-01-09_00-00-00"),
+        ("random", "2026-01-05_00-00-00"),
     ]
 
 
 def test_verify_passes_when_everything_matches(tmp_path) -> None:
     """The happy path must not raise."""
-    runs = [run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))]
-    checks = run_store.verify(runs, radio_archive())
+    checks = verify([run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00"))])
     assert checks["holds"].all()
     run_store.require(checks)  # must not raise
 
 
-def test_verify_names_a_run_saved_without_its_radio_map(tmp_path) -> None:
-    """``save_radio_map=false`` is a failed check, not an exception from inside verify."""
-    directory = make_run(tmp_path, "morbo", "2026-01-01_00-00-00")
-    (directory / "best_radio_map.npz").unlink()
-    checks = run_store.verify([run_store.load(directory)], radio_archive())
-    failed = checks.loc[~checks["holds"], "check"].tolist()
-    assert failed == ["every run kept its radio map"]
-
-
 def test_verify_catches_a_different_scenario(tmp_path) -> None:
     """Two scenarios are two experiments, not two results."""
-    runs = [
-        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
-    ]
-    checks = run_store.verify(runs, radio_archive())
-    failed = checks[~checks["holds"]]["check"].tolist()
-    assert "every run optimized the baseline's scenario" in failed
+    run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="other"))
+    assert failed(verify([run])) == ["every run optimized the current scenario"]
 
 
 def test_verify_catches_a_different_fidelity(tmp_path) -> None:
-    """A map solved at another sample count is a different experiment."""
-    runs = [run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", samples_per_tx=99))]
-    checks = run_store.verify(runs, radio_archive())
-    assert (
-        "solver samples_per_tx matches the baseline" in checks[~checks["holds"]]["check"].tolist()
-    )
+    """A run solved at another sample count is a different experiment."""
+
+    def edit(config):
+        config["simulation"]["radio_map"]["samples_per_tx"] = 99
+
+    run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", edit=edit))
+    assert failed(verify([run])) == ["simulation.radio_map matches the current config"]
 
 
 def test_verify_catches_a_different_capacity_model(tmp_path) -> None:
     """Throughput depends on kpi.capacity, so a changed PRB share is another measurement."""
+
+    def edit(config):
+        config["kpi"]["capacity"]["max_admission_utilisation"] = 1.0
+
+    run = run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", edit=edit))
+    checks = verify([run])
+    assert failed(checks) == ["kpi matches the current config"]
+    assert checks.loc[~checks["holds"], "offenders"].tolist() == ["random/2026-01-01_00-00-00"]
+
+
+def test_verify_catches_different_prb_limits(tmp_path) -> None:
+    """The sector table is outside the config snapshot, so its recorded PRB limits are compared."""
     runs = [
         run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
-        run_store.load(
-            make_run(tmp_path, "random", "2026-01-01_00-00-00", max_admission_utilisation=1.0)
-        ),
+        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", max_prb=52)),
     ]
-    checks = run_store.verify(runs, radio_archive())
-    failed = checks[~checks["holds"]]
-    assert failed["check"].tolist() == ["KPI definition agrees across runs"]
-    assert failed["offenders"].tolist() == ["random/2026-01-01_00-00-00"]
-
-
-def test_verify_catches_a_retuned_carrier(tmp_path) -> None:
-    """A band keeps its name when its carrier moves, so the label cannot carry this."""
-    runs = [
-        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", band_hz=[3500000000]))
-    ]
-    checks = run_store.verify(runs, radio_archive())
-    failed = checks[~checks["holds"]]["check"].tolist()
-    assert "band carrier frequencies match the baseline, in order" in failed
-
-
-def test_verify_catches_a_different_bandwidth(tmp_path) -> None:
-    """Bandwidth fixes max_prb, so it sets the estimated throughput."""
-    runs = [
-        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
-        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", bandwidth=40000000)),
-    ]
-    checks = run_store.verify(runs, radio_archive())
-    assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]
-
-
-def test_verify_catches_a_different_scs(tmp_path) -> None:
-    """SCS sets the per-RE noise floor and the PRB bandwidth, so SINR and the throughput."""
-    runs = [
-        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00")),
-        run_store.load(make_run(tmp_path, "random", "2026-01-01_00-00-00", scs_hz=30000)),
-    ]
-    checks = run_store.verify(runs, radio_archive())
-    assert checks[~checks["holds"]]["check"].tolist() == ["KPI definition agrees across runs"]
+    assert failed(verify(runs)) == ["sector PRB limits agree across runs"]
 
 
 def test_require_names_the_offender(tmp_path) -> None:
     """An error that does not say who failed is not actionable."""
-    runs = [
-        run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="scn_other"))
-    ]
+    run = run_store.load(make_run(tmp_path, "morbo", "2026-01-01_00-00-00", scenario_id="other"))
     with pytest.raises(run_store.RunError, match="morbo/2026-01-01_00-00-00"):
-        run_store.require(run_store.verify(runs, radio_archive()))
+        run_store.require(verify([run]))
 
 
 def test_a_single_evaluation_run_still_loads(tmp_path) -> None:

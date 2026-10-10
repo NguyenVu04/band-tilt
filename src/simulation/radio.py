@@ -1,10 +1,10 @@
 """Ray-trace one clean radio map per band.
 
-Reads the manifest and the sector table named in ``simulation.input`` and writes
+Reads the manifest and the sector table named in ``simulation.input`` and returns
 RSRP and SINR on the manifest's grid, both per resource element, as the
-solver's :class:`sionna.rt.RadioMap` reports them. Nothing here draws or
-redraws the UEs: a map must describe the population already on disk, whoever
-produced it.
+solver's :class:`sionna.rt.RadioMap` reports them. Nothing is written: every
+consumer re-traces the map it needs. Nothing here draws or redraws the UEs: a
+map must describe the population already on disk, whoever produced it.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import hydra
 import numpy as np
 from omegaconf import DictConfig
 
@@ -24,7 +23,6 @@ from src.core.sector import Sector, read_sectors, require_bands
 from src.simulation import materials, seeds, transmitter
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneSpec
-from src.tracking import log_stage
 
 # A tile no ray reached is unknown, not weak: NaN keeps it out of every
 # reduction instead of competing with the finite values a weak path leaves.
@@ -214,8 +212,11 @@ def solve_bands(
     return np.stack(rsrp_maps), np.stack(sinr_maps), centres, elapsed
 
 
-def solve(cfg: DictConfig) -> Path:
-    """Solve every band's radio map and write them. Returns the output path."""
+def solve(cfg: DictConfig) -> dict[str, np.ndarray]:
+    """Solve every band's radio map at the sector table's tilts, in :func:`radio_map`'s schema.
+
+    Side effect: ray-traces on the GPU and prints one line per band.
+    """
     setup = RadioSetup.from_config(cfg)
     sectors = read_sectors(cfg.simulation.input.sectors_file)
     _check_tilt_table(sectors, setup.bands)
@@ -235,8 +236,7 @@ def solve(cfg: DictConfig) -> Path:
             f"tiles reached {served.mean():6.1%}  best server {span}"
         )
 
-    path = write_radio_map(
-        cfg.simulation.output.radio_map_file,
+    result = radio_map(
         rsrp=rsrp,
         sinr=sinr,
         bands=setup.bands,
@@ -249,8 +249,8 @@ def solve(cfg: DictConfig) -> Path:
         scenario_id=setup.scenario_id,
         centres=centres,
     )
-    print(f"radio map: {path}  shape {rsrp.shape} [band, tx, row, col]")
-    return path
+    print(f"radio map: shape {rsrp.shape} [band, tx, row, col]")
+    return result
 
 
 def baseline_tilts(sectors: tuple[Sector, ...], band_names: Sequence[str]) -> np.ndarray:
@@ -264,8 +264,7 @@ def baseline_tilts(sectors: tuple[Sector, ...], band_names: Sequence[str]) -> np
     )
 
 
-def write_radio_map(
-    path: str | Path,
+def radio_map(
     *,
     rsrp: np.ndarray,
     sinr: np.ndarray,
@@ -278,23 +277,18 @@ def write_radio_map(
     power_dbm: float,
     scenario_id: str,
     centres: np.ndarray,
-) -> Path:
-    """Write one radio map archive; the one schema every map in the project uses.
+) -> dict[str, np.ndarray]:
+    """One radio map as named arrays; the one schema every map in the project uses.
 
     ``rsrp`` and ``sinr`` are ``[n_band, n_tx, n_rows, n_cols]`` in dBm and dB.
-    Creates the parent directory. Returns the path.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
+    arrays = dict(
         rsrp_dbm=rsrp.astype(np.float32),
         sinr_db=sinr.astype(np.float32),
         band_hz=np.array([band.frequency_hz for band in bands]),
         band_label=np.array([band.name for band in bands]),
         # One tilt per sector-band pair, [band, tx], matching rsrp_dbm's leading
-        # two axes. This is the configuration the map was solved at, so a stored
-        # map carries the decision vector that produced it.
+        # two axes: the configuration the map was solved at.
         tilt_deg=baseline_tilts(sectors, [band.name for band in bands]),
         tx_name=np.array([sector.name for sector in sectors]),
         origin_x=grid_meta["origin_x"],
@@ -304,10 +298,7 @@ def write_radio_map(
         n_rows=grid_meta["n_rows"],
         ue_height_m=height_m,
         scenario_id=scenario_id,
-        # The ray-tracing settings define what this ground truth IS, not merely
-        # what it cost, so they travel with it. Without them a stray archive
-        # cannot be told apart from one solved at a different fidelity, and two
-        # such files must never be mixed into one dataset.
+        # The ray-tracing settings define what the map measures, so they travel with it.
         samples_per_tx=solver_spec.samples_per_tx,
         max_depth=solver_spec.max_depth,
         los=solver_spec.los,
@@ -326,7 +317,7 @@ def write_radio_map(
         # every RSRP lookup while leaving the file entirely plausible.
         tile_centre=centres,
     )
-    return path
+    return {key: np.asarray(value) for key, value in arrays.items()}
 
 
 def solve_band(
@@ -503,13 +494,3 @@ def read_manifest(cfg: DictConfig) -> dict[str, Any]:
             f"No scenario manifest at {path}. Run `task simulation:scenario`, or supply one."
         )
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-@hydra.main(version_base=None, config_path="../../configs", config_name="config")
-def main(cfg: DictConfig) -> None:
-    """Solve the radio maps. Entry point for ``task simulation:radio``."""
-    log_stage(cfg, "simulation_radio", groups=["simulation"], outputs=[solve(cfg)])
-
-
-if __name__ == "__main__":
-    main()

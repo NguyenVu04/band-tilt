@@ -1,4 +1,4 @@
-"""Read the simulation inputs and the radio map, and write processed tables as Parquet."""
+"""Read the simulation inputs, ray-trace their radio map, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -12,15 +12,10 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.simulation.radio import read_manifest
+from src.simulation import radio
 
-# Each artifact's ``simulation`` config block, and what to run when it is
-# missing. The inputs come from the generator or from real data.
-_SOURCES = {
-    "ue_file": ("input", "Run `task simulation:scenario`, or supply it"),
-    "manifest_file": ("input", "Run `task simulation:scenario`, or supply it"),
-    "radio_map_file": ("output", "Run `task simulation:radio`"),
-}
+# The ``simulation.input`` files read here; the generator or real data supplies them.
+_INPUTS = ("ue_file", "manifest_file", "sectors_file")
 
 
 @dataclass(frozen=True)
@@ -30,7 +25,7 @@ class Artifacts:
     Attributes:
         ue: ``simulation.input.ue_file`` as read, before any typing.
             Every UE, including those no transmitter reaches.
-        radio: Every array in ``simulation.output.radio_map_file``, keyed as written.
+        radio: The radio map at the sector table's tilts, :func:`src.simulation.radio.solve`.
         manifest: The parsed ``simulation.input.manifest_file``.
     """
 
@@ -60,34 +55,29 @@ class Artifacts:
 
 
 def load_artifacts(cfg: DictConfig) -> Artifacts:
-    """Read the UE table and manifest of ``simulation.input`` and the radio map.
+    """Read the UE table and manifest of ``simulation.input`` and ray-trace their radio map.
 
-    Read-only: the artifacts are regenerated or re-supplied, never edited in place.
+    Read-only: the inputs are regenerated or re-supplied, never edited in place.
+    Side effect: ray-traces every band on the GPU.
 
     Raises:
-        FileNotFoundError: When a file is missing, naming what produces it.
+        FileNotFoundError: When an input is missing.
     """
-    paths = {key: Path(cfg.simulation[block][key]) for key, (block, _) in _SOURCES.items()}
-    for key, path in paths.items():
+    for key in _INPUTS:
+        path = Path(cfg.simulation.input[key])
         if not path.is_file():
-            raise FileNotFoundError(f"No {path}. {_SOURCES[key][1]}.")
+            raise FileNotFoundError(f"No {path}. Run `task simulation:scenario`, or supply it.")
 
     return Artifacts(
-        ue=pd.read_csv(paths["ue_file"]),
-        radio=load_npz(paths["radio_map_file"]),
-        manifest=read_manifest(cfg),
+        ue=pd.read_csv(cfg.simulation.input.ue_file),
+        radio=radio.solve(cfg),
+        manifest=radio.read_manifest(cfg),
     )
 
 
 def grid_shape(radio: dict[str, Any]) -> tuple[int, int]:
     """A radio map's grid ``(n_rows, n_cols)``."""
     return int(radio["n_rows"]), int(radio["n_cols"])
-
-
-def load_npz(path: str | Path) -> dict[str, np.ndarray]:
-    """Every array of an ``.npz`` archive, read eagerly so the file is closed, pickles refused."""
-    with np.load(path, allow_pickle=False) as archive:
-        return {key: archive[key] for key in archive.files}
 
 
 def save(frame: pd.DataFrame, path: str | Path) -> Path:

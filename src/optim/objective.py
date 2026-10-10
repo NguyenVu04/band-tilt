@@ -70,6 +70,14 @@ OBJECTIVE_NAMES = ("coverage_objective", "separation_objective", "throughput_obj
 # Everything measured per candidate: the column order of every table.
 MEASURE_NAMES = (*KPI_NAMES, *OBJECTIVE_NAMES)
 
+# Measured on each band alone, as ``<name>_<band>`` columns (:func:`band_kpis`).
+BAND_KPI_NAMES = (
+    "coverage_rate",
+    "separation_rate",
+    "estimated_throughput_p50_mbps",
+    "served_share",
+)
+
 # The measures where larger is better. Named once, so no call site re-decides a
 # sign; the rest are minimised.
 MAXIMISED = frozenset(
@@ -255,6 +263,37 @@ def ue_kpis(served: pd.DataFrame) -> dict[str, float]:
         "estimated_throughput_p50_mbps": throughput_percentile_mbps(served, MEDIAN_PERCENTILE),
         "estimated_throughput_mean_mbps": throughput_mean_mbps(served),
     }
+
+
+def band_kpis(
+    rsrp: np.ndarray, served: pd.DataFrame, band_labels: Sequence[str], cfg: DictConfig
+) -> dict[str, float]:
+    """:data:`BAND_KPI_NAMES` on each band alone, keyed ``<name>_<band>``.
+
+    Coverage rate is ``1 - hole_rate`` and separation rate ``1 - overlap_rate``
+    of the band's slice of the map, the same functions the network KPIs use.
+    The median throughput and the served share count the UE reports the
+    serving rule put on the band; the median is NaN when the band serves none.
+
+    Args:
+        rsrp: RSRP in dBm, shape ``[n_band, n_tx, n_rows, n_cols]``.
+        served: :func:`src.kpi.capacity.serve_intervals` of this map.
+        band_labels: Band names aligned to axis 0 of ``rsrp``.
+        cfg: Composed config; reads ``cfg.kpi``.
+    """
+    throughput = ue_throughput_mbps(served)
+    serving_band = served["band"].to_numpy()
+    out: dict[str, float] = {}
+    for index, band in enumerate(band_labels):
+        layers = rsrp[index : index + 1]
+        on_band = serving_band == index
+        out[f"coverage_rate_{band}"] = 1.0 - hole_rate_of(max_rsrp(layers), cfg)
+        out[f"separation_rate_{band}"] = 1.0 - overlap_rate_of(overlap_neighbors(layers, cfg))
+        out[f"estimated_throughput_p50_mbps_{band}"] = (
+            float(np.median(throughput[on_band])) if on_band.any() else float("nan")
+        )
+        out[f"served_share_{band}"] = float(on_band.mean()) if on_band.size else 0.0
+    return out
 
 
 def evaluate_kpis(

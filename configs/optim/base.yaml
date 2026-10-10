@@ -6,8 +6,6 @@ output:
   dir: outputs/optim
   # Latest deliverable per method, overwritten each run.
   deliverable_dir: reports/outputs
-  # Save the winner's radio map with the run.
-  save_radio_map: true
 
 seed: ${seed}
 

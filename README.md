@@ -71,11 +71,11 @@ Eleven reported KPIs - the hole, weak and
 overlap rates, overlapping neighbours per covered tile, the median and
 5th-percentile best-server RSRP and SINR, and the 5th-percentile, median and mean
 estimated UE throughput - are measured for every
-candidate through [`src/kpi/`](src/kpi/). The evaluation reports seven of them
-over all bands and the coverage, overlap, RSRP and SINR measures per band; best-server
-RSRP and SINR are per band only, since the strongest layer across bands is not
-one a UE is measured on. The search maximises three objectives jointly, coverage,
-separation and throughput ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
+candidate through [`src/kpi/`](src/kpi/), together with the coverage rate, separation rate,
+median throughput and served share of each band alone. The evaluation reads every configuration
+on three KPIs, coverage rate, separation rate and median estimated throughput
+(`EVALUATION_KPIS` in `src/evaluation/compare.py`), and reports the Pareto front they
+span. The search maximises three objectives jointly, coverage, separation and throughput ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). With `R_bs`
 band `b`'s strongest sector at tile `g`, `i` every other co-band sector, `R` in
 linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
 
@@ -87,7 +87,8 @@ linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
   report, `R_u` in Mbit/s and 0 for a UE no layer reaches.
 
 A run is ranked by hypervolume against the origin, and its recommended
-configuration is the evaluated point with the largest hypervolume contribution.
+configuration is the evaluated point with the largest hypervolume contribution. The
+evaluation picks each method's configuration the same way on its three KPIs.
 [`src/kpi/capacity.py`](src/kpi/capacity.py) connects each interval's UEs in
 report-time order, each to the sector-band above `kpi.hole_dbm` where an equal
 share of `kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit,
@@ -145,9 +146,10 @@ flowchart TB
 
 Solid arrows are implemented and run today; dashed arrows are the intended
 design, not yet built. `src/kpi/` sits downstream of the simulator, so every
-score in a run comes from one implementation. `src/evaluation/` reads run
-directories off disk and re-solves nothing, which is what lets a comparison run
-on a machine with no GPU. Every stage's entry point, and only the entry point,
+score in a run comes from one implementation. No radio map is stored: preprocessing
+ray-traces the committed tilts to verify the inputs, and `src/evaluation/` reads run
+directories off disk and re-traces only the configurations it maps, so it needs a GPU
+too. Every stage's entry point, and only the entry point,
 logs its params, metrics and small artifacts to MLflow through `src/tracking.py`.
 
 ### Components
@@ -173,7 +175,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the sector table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
-| Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the radio map against it but copies nothing — no external data needed |
+| Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the radio map traced from it but copies nothing — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP models, Thompson sampling and box decompositions MORBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/morbo/search.py`](src/optim/methods/morbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
@@ -188,7 +190,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Python | `>=3.11,<3.14` | capped: hydra-core 1.3.x cannot build its argparse parser on 3.14 |
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
-| CUDA GPU | — | needed for `task simulation:scenario` and `task simulation:radio`; Sionna-RT ray tracing is impractically slow without one |
+| CUDA GPU | — | needed for `task simulation:scenario`, `task preprocess`, the searches and `task evaluate`; Sionna-RT ray tracing is impractically slow without one |
 | Sionna-RT scene | — | `data/scenes/<scene_name>/scene.xml`, not in Git; see [External dependencies](#external-dependencies) |
 
 ### Install
@@ -229,7 +231,7 @@ uv run pytest
 ```
 
 `tests/` covers `src/scenario/`'s density, region, traffic, node-layout and grid
-logic, `src/simulation/`'s seed-stream and radio-map-archive logic, the KPIs, `src/data/`'s schema contract, UE-table build and sector-table round trip, and `src/optim/` and
+logic, `src/simulation/`'s seed-stream and radio-map schema logic, the KPIs, `src/data/`'s schema contract, UE-table build and sector-table round trip, and `src/optim/` and
 `src/evaluation/` — the parts most worth pinning down by hand-computed fixtures. `src/core/`'s sector and UE-table contracts
 are covered through `tests/test_data.py`, and `tests/test_architecture.py` keeps every
 module outside `src/scenario/` from importing it; see
@@ -253,7 +255,7 @@ composed by `src.config.load_config` into one `cfg` with `cfg.scenario`,
 | Group | File | Holds |
 |---|---|---|
 | `scenario` | [`configs/scenario.yaml`](configs/scenario.yaml) | the synthetic generator only: grid, UE population, traffic, the node/sector layout and tilt bounds, the generator-record path. Nothing outside `src/scenario` reads it, so real data can replace the generator |
-| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays, the radio-map output path |
+| `simulation` | [`configs/simulation.yaml`](configs/simulation.yaml) | the `input` files every stage reads (scene, UE table, sector table, manifest), the UE height, Mitsuba variant, radio-map solver settings and bands, antenna arrays |
 | `kpi` | [`configs/kpi.yaml`](configs/kpi.yaml) | KPI thresholds and the placeholder `capacity` block (the usable PRB share) for the serving rule and the estimated throughput. The objectives have no block of their own: coverage and separation read `hole_dbm`, throughput reads the serving rule ([ADR 0003](docs/adr/0003-three-objectives-and-morbo.md)). The column order is `KPI_NAMES` in [`src/optim/objective.py`](src/optim/objective.py) |
 | `data` | [`configs/data.yaml`](configs/data.yaml) | output path only: the processed UE table |
 
@@ -272,7 +274,7 @@ notebook). Its `mlflow` block holds `enabled`,
 `MLFLOW_ALLOW_FILE_STORE` is set. Artifacts still land in `./mlruns/`. Both are
 gitignored.
 
-Override from the command line, e.g. `task simulation:radio -- seed=7`.
+Override from the command line, e.g. `task simulation:scenario -- seed=7`.
 
 Environment variables, from `.env.example`:
 
@@ -297,22 +299,21 @@ same functions in `src/`, so they cannot diverge on what they compute. Notebook
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation` (`simulation:scenario` → `simulation:radio`) |
+| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation:scenario` |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the UE table | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baseline: random search | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` |
 | 5 — MORBO | [`03b_morbo`](notebooks/03b_morbo.ipynb) | `task bo` |
-| 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, writes `reports/`) |
+| 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, re-traces what it maps, writes `reports/`) |
 
 ```bash
 task pipeline           # every stage below, in order
-task simulation         # the two simulation stages, in order
+task simulation:scenario  # the scenario: UEs, layout, manifest (GPU)
 task preprocess         # verify and type the UE table
 task optim              # optimize with every method (GPU)
 task evaluate           # compare the newest run of each method
 task mlflow             # browse the tracked runs
 task lab                # start JupyterLab
-task demo               # live what-if app: edit tilts, ray-trace, compare KPIs (GPU)
 task dvc:repro          # simulation through optimization via DVC, skipping what's unchanged
 ```
 
@@ -360,11 +361,11 @@ The default MORBO and random-search budget is the incumbent plus 8 + 64
 evaluations, 73 in all. A run records its ray-tracing and wall-clock seconds in `run.json`, beside the
 Git commit and the numpy, scipy, torch, botorch, gpytorch and sionna-rt versions
 (`provenance`); `task evaluate` tabulates the seconds in
-`reports/tables/04_evaluation/method_cost.csv`.
+`reports/tables/04_evaluation/search_budget.csv`.
 
 The search counts every UE in `data/processed/ue.parquet`.
-A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history,
-`best_tilt.parquet`, `best_radio_map.npz`, `run.json` and `solutions.parquet`
+A run writes `outputs/optim/<method>/<timestamp>/` — the per-candidate history
+(every measure, the per-band KPIs and every tilt), `run.json` and `solutions.parquet`
 (the solutions offered for choice). `src/evaluation/` compares those.
 
 The solutions offered are the whole Pareto front, largest hypervolume
@@ -376,7 +377,10 @@ offered only when it is on the front.
 per offered solution, every KPI and objective, and each one's delta against
 the incumbent — and `tilt_options_<method>.csv`, the tilt table each of those
 becomes. The largest hypervolume contribution marks the first row
-`recommended`. A comparison has MORBO and random search in it and nothing else.
+`recommended`. Both rank by the search objectives. `task evaluate` adds
+`pareto_tilts.csv`: the combined front of both methods on coverage rate,
+separation rate and median throughput, one row per configuration with its KPIs
+and every sector-band tilt, for an engineer to choose from.
 
 Each notebook opens in Colab from the badge in its first cell; the bootstrap
 cell clones the repository and installs what Colab does not ship.
@@ -388,7 +392,7 @@ cell clones the repository and installs what Colab does not ship.
 ```
 band-tilt/
 ├── configs/       Hydra config groups — every tunable
-├── data/          gitignored; scenario, radio map and UE artifacts (DVC not yet initialised — see External dependencies)
+├── data/          gitignored; scenario and UE artifacts (DVC not yet initialised — see External dependencies)
 ├── docs/          report.md (the study's results) and adr/, the architecture decision records
 ├── notebooks/     one per pipeline phase, 00 through 04
 ├── outputs/       gitignored; one directory per optimization run
@@ -404,13 +408,13 @@ band-tilt/
 | Area | State |
 |---|---|
 | `src/core/` — the `Sector` / `Tilt` data model | Implemented |
-| `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation`) |
+| `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation:scenario`, then `radio.solve` wherever a map is needed) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, MORBO on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
-| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads artifacts only — it never re-solves |
+| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Re-traces the incumbent and each method's chosen configuration |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
 | `task pipeline` | Chains every stage. Its stages have been run in order end to end against one scenario, including `task evaluate` on real runs |
 | CI | None. `task lint` and `task test` run locally only. |
@@ -419,9 +423,9 @@ band-tilt/
 
 | Gap | Consequence |
 |---|---|
-| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world, under one solver seed |
+| Only one scenario is on disk | The intended between-scenario train/validation/test split cannot be made yet. Every optimized configuration is therefore tuned and scored on the same world |
 | The capacity model is a simplification | The serving rule and estimated throughput in [`src/kpi/capacity.py`](src/kpi/capacity.py) use a Shannon rate with no MCS cap, an equal PRB share with no scheduler, and full-load co-band SINR. Noise is kT over one subcarrier spacing, per resource element like RSRP, with no receiver noise figure modelled. Every throughput figure inherits these, the throughput objective included |
-| No held-out re-evaluation | `src/evaluation/` compares runs already on disk. Nothing re-solves an optimized tilt on an unseen scenario, so no number here measures transfer |
+| No held-out re-evaluation | `src/evaluation/` compares runs already on disk and re-traces on the same scenario. Nothing evaluates an optimized tilt on an unseen scenario, so no number here measures transfer |
 
 ### Standards
 
@@ -443,12 +447,12 @@ task check
 
 | Tier | Scope | Command | Where it runs |
 |---|---|---|---|
-| Unit | `src/scenario/`'s density, region, traffic, node-layout and grid logic; `src/simulation/`'s seed-stream and radio-map-archive logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
+| Unit | `src/scenario/`'s density, region, traffic, node-layout and grid logic; `src/simulation/`'s seed-stream and radio-map schema logic; `src/data/`'s contract and build; the KPIs and the capacity model; `src/optim/`'s space, objective, searches and publishing; `src/evaluation/`; `src/tracking.py` against a temporary SQLite store — all against synthetic fixtures | `task test` | pre-commit, locally |
 | Single test | One behaviour | `uv run pytest tests/test_kpi.py -k <name>` | locally |
 
 **There is no coverage gate and no CI.** `tests/` currently covers
 `src/scenario/`'s `density.py`, `sample.py` (region), `traffic.py`,
-`layout.py` (node positions) and `grid.py`, `src/simulation/`'s `seeds.py` and the `radio.py` archive, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
+`layout.py` (node positions) and `grid.py`, `src/simulation/`'s `seeds.py` and the `radio.py` map schema, `src/data/`, `src/kpi/`, `src/optim/`, `src/evaluation/`
 and `src/tracking.py`. `src/core/`'s sector table is covered by `tests/test_data.py`; `src/evaluation/run.py` has no tests yet.
 
 The one rule the tests hold to: **no test touches Sionna-RT, a GPU, or a real
