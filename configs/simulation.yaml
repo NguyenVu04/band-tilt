@@ -86,3 +86,8 @@ antenna:
     horizontal_spacing: 0.5
     pattern: "dipole"
     polarization: "V"
+
+# The baseline radio map, traced once by `task simulation:radio` and stored with
+# its scene: GPU ray tracing is not bit-reproducible, so nothing re-traces it.
+output:
+  radio_map_file: data/scenes/${simulation.scene_name}/radio_map.npz

@@ -38,7 +38,7 @@ def build_ue(artifacts: Artifacts) -> pd.DataFrame:
     """The UE population, typed, with no row dropped.
 
     A UE no transmitter reaches stays in: the serving rule counts it as not
-    served, and the throughput KPIs count it at 0 Mbit/s.
+    served, and the throughput KPIs count it at 0 Mbps.
 
     Returns:
         One row per UE per interval: the contract columns, any optional ones

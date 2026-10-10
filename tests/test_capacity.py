@@ -76,7 +76,7 @@ def test_the_prb_rate_follows_the_shannon_formula() -> None:
 
 
 def test_each_ue_takes_the_sector_band_with_the_largest_equal_share(cfg) -> None:
-    """'hi' is worth 1.8 Mbit/s whole, 'lo' 1.08.
+    """'hi' is worth 1.8 Mbps whole, 'lo' 1.08.
 
     The first UE takes 'hi'. The second finds half of 'hi' (0.9) below all of
     'lo' and takes 'lo'. The third finds a third of 'hi' (0.6) above half of
@@ -90,7 +90,7 @@ def test_each_ue_takes_the_sector_band_with_the_largest_equal_share(cfg) -> None
 
 
 def test_the_usable_share_scales_the_pool(cfg) -> None:
-    """Half of 10 PRBs at 180 kbit/s each: 0.9 Mbit/s for a lone UE."""
+    """Half of 10 PRBs at 180 kbit/s each: 0.9 Mbps for a lone UE."""
     cfg.kpi.capacity.max_admission_utilisation = 0.5
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-90.0], [np.nan]]])
@@ -114,7 +114,7 @@ def test_the_earlier_ue_connects_first_and_simultaneous_ones_strongest_first(cfg
 
 
 def test_a_ue_with_no_layer_above_the_hole_threshold_is_not_served(cfg) -> None:
-    """-120 dBm is a hole and no path is no candidate; an unserved UE gets 0 Mbit/s."""
+    """-120 dBm is a hole and no path is no candidate; an unserved UE gets 0 Mbps."""
     spec = capacity.CapacitySpec.from_config(cfg, ["hi", "lo"], 1)
     rsrp = np.array([[[-120.0], [np.nan]], [[np.nan], [-121.0]], [[-119.0], [np.nan]]])
     layer, throughput = capacity._select_serving(rsrp, np.zeros(rsrp.shape), np.zeros(3), spec)

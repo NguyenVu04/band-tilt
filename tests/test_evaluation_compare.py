@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
-from src.evaluation import compare, maps
+from src.evaluation import compare
 from src.evaluation.runs import Run
 from src.optim.objective import MEASURE_NAMES, KpiVector
 
@@ -49,20 +49,6 @@ def test_service_summary_shares_are_of_all_reports() -> None:
     assert summary["share_hi"] == pytest.approx(0.5)
     assert summary["share_lo"] == pytest.approx(0.25)
     assert "sinr_median_db" not in summary
-
-
-def test_tile_median_is_zero_on_a_hole_and_blank_where_nobody_stands() -> None:
-    """Tile (0, 0): 4 and 8 Mbit/s. Tile (0, 1): one unserved report. Tile (0, 2): no report."""
-    served = pd.DataFrame(
-        {
-            "tile_row": [0, 0, 0],
-            "tile_col": [0, 0, 1],
-            "estimated_throughput_mbps": [4.0, 8.0, 0.0],
-        }
-    )
-    median = maps.tile_median(served, "estimated_throughput_mbps", (1, 3))
-    assert median[0, :2].tolist() == pytest.approx([6.0, 0.0])
-    assert np.isnan(median[0, 2])
 
 
 @pytest.fixture

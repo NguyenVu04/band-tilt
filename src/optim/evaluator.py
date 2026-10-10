@@ -4,7 +4,10 @@ The expensive half of every optimization run, and the reason a run is feasible
 at all: the scene and the antenna arrays do not depend on tilt, so they are
 built once at construction and reused for every candidate.
 Only the transmitters are rebuilt per evaluation, which is what
-:func:`src.simulation.radio.solve_bands` already does.
+:func:`src.simulation.radio.solve_bands` already does. The baseline tilt is
+not traced at all: it is scored on the stored map
+(:func:`src.simulation.radio.load`), so every run and the evaluation score the
+same incumbent rather than each its own noisy re-trace.
 
 The UE KPIs count every UE in ``data.output.ue_file``.
 
@@ -41,7 +44,8 @@ class EvaluationResult:
         seconds: Wall clock of :func:`src.simulation.radio.solve_bands` over
             every band, per-band scene setup included. Excludes scoring and
             anything the caller does, so a run can report
-            simulator time apart from model time.
+            simulator time apart from model time. 0 for the baseline, which
+            is read from the stored map.
         rsrp: The radio map, ``[n_band, n_tx, n_rows, n_cols]`` in dBm, or None
             when the evaluator was asked not to retain it. Every map of a long
             run does not fit in memory and the run does not need them.
@@ -92,7 +96,8 @@ class Evaluator:
             because a run keeps every result and the maps do not fit.
         solver_seed: The ray tracer's Monte-Carlo seed; the ``solver`` stream of
             the top-level ``seed`` when None. Reassign it to re-measure a
-            configuration under other solver noise.
+            configuration under other solver noise; the baseline is then
+            traced too, since the stored map holds the default seed's.
     """
 
     cfg: DictConfig
@@ -105,13 +110,16 @@ class Evaluator:
     _ue: pd.DataFrame = field(init=False, repr=False)
     _centres: np.ndarray | None = field(init=False, default=None, repr=False)
     _scene: Any | None = field(init=False, default=None, repr=False)
+    _baseline: dict[str, np.ndarray] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Build the scene and everything else that does not depend on tilt.
 
         Raises:
-            FileNotFoundError: When the scenario manifest or ``data.output.ue_file``
-                is missing.
+            FileNotFoundError: When the scenario manifest, the stored radio map
+                or ``data.output.ue_file`` is missing.
+            ValueError: When the stored radio map is stale; see
+                :func:`src.simulation.radio.load`.
         """
         cfg = self.cfg
         self.space = TiltSpace.from_config(cfg)
@@ -124,6 +132,7 @@ class Evaluator:
             raise FileNotFoundError(f"No UE table at {ue_file}. Run `task preprocess` first.")
         self._ue = pd.read_parquet(ue_file)
         self._capacity = CapacitySpec.from_config(cfg, self.band_labels, len(self.space.sectors))
+        self._baseline = radio.load(cfg)
         self._scene = radio.load_scene(cfg)
 
     def __enter__(self) -> Evaluator:
@@ -163,12 +172,20 @@ class Evaluator:
         tilt_deg = np.array(tilt_deg, dtype=float).reshape(-1)
         sectors = self.space.to_sectors(tilt_deg)
 
-        # Timed around the whole loop, so per-band scene setup counts as simulator time.
-        started = time.perf_counter()
-        rsrp, sinr, self._centres, _elapsed = radio.solve_bands(
-            self._scene, sectors, self._setup, int(self.solver_seed)
-        )
-        seconds = time.perf_counter() - started
+        if np.array_equal(tilt_deg, self.space.baseline) and self.solver_seed == int(
+            self._baseline["solver_seed"]
+        ):
+            rsrp = self._baseline["rsrp_dbm"].astype(float)
+            sinr = self._baseline["sinr_db"].astype(float)
+            self._centres = self._baseline["tile_centre"]
+            seconds = 0.0
+        else:
+            # Timed around the whole loop, so per-band scene setup counts as simulator time.
+            started = time.perf_counter()
+            rsrp, sinr, self._centres, _elapsed = radio.solve_bands(
+                self._scene, sectors, self._setup, int(self.solver_seed)
+            )
+            seconds = time.perf_counter() - started
 
         served = serve_intervals(
             rsrp, sinr, self.band_labels, self._ue, self.cfg, spec=self._capacity

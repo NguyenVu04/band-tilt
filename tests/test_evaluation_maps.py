@@ -71,21 +71,6 @@ def test_change_mask_reports_crossings_not_gradients(cfg: DictConfig) -> None:
     assert maps.change_mask(before, after, cfg).tolist() == [[1, -1, 0, 1]]
 
 
-def test_underserved_needs_both_demand_and_poor_coverage(cfg: DictConfig) -> None:
-    """Dark and empty is not a problem; dark and busy is."""
-    best = np.array([[-130.0, -130.0, -50.0, -50.0]])
-    counts = np.array([[0, 100, 0, 100]])
-    flagged = maps.underserved(rsrp_from(best), counts, cfg, quantile=0.5)
-    assert flagged.tolist() == [[False, True, False, False]]
-
-
-def test_underserved_survives_an_empty_demand_raster(cfg: DictConfig) -> None:
-    """A quantile over nothing must not raise."""
-    best = np.full((2, 2), -130.0)
-    flagged = maps.underserved(rsrp_from(best), np.zeros((2, 2), dtype=int), cfg)
-    assert not flagged.any()
-
-
 def _spec(max_prb: list[list[float]], scs_hz: list[float]):
     """A capacity spec with the whole pool usable and the hole at -120 dBm."""
     from src.kpi import capacity

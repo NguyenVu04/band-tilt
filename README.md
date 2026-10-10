@@ -84,7 +84,7 @@ linear power, and a tile covered when some sector-band is above `kpi.hole_dbm`:
   equal rival halves a band; a band whose strongest sector is not above
   `kpi.hole_dbm` counts 1.
 - **Throughput** `mean_u ln(1 + R_u)` over every UE
-  report, `R_u` in Mbit/s and 0 for a UE no layer reaches.
+  report, `R_u` in Mbps and 0 for a UE no layer reaches.
 
 A run is ranked by hypervolume against the origin, and its recommended
 configuration is the evaluated point with the largest hypervolume contribution. The
@@ -94,7 +94,7 @@ report-time order, each to the sector-band above `kpi.hole_dbm` where an equal
 share of `kpi.capacity.max_admission_utilisation` (0.8) of its PRB limit,
 split over the UEs already there and itself, carries the most Shannon
 throughput. Nobody is refused: a UE with no sector-band above the hole threshold
-is credited 0 Mbit/s, and every other UE's estimated throughput is its
+is credited 0 Mbps, and every other UE's estimated throughput is its
 sector-band's equal share at the end of the interval.
 
 Sionna-RT scores every candidate the search proposes, and
@@ -146,10 +146,12 @@ flowchart TB
 
 Solid arrows are implemented and run today; dashed arrows are the intended
 design, not yet built. `src/kpi/` sits downstream of the simulator, so every
-score in a run comes from one implementation. No radio map is stored: preprocessing
-ray-traces the committed tilts to verify the inputs, and `src/evaluation/` reads run
-directories off disk and re-traces only the configurations it maps, so it needs a GPU
-too. Every stage's entry point, and only the entry point,
+score in a run comes from one implementation. The radio map at the committed tilts is
+traced once (`task simulation:radio`) and stored with its scene as
+`data/scenes/<scene_name>/radio_map.npz`, because GPU ray tracing is not
+bit-reproducible: preprocessing verifies the inputs against it, and the searches and
+`src/evaluation/` score the incumbent from it. `src/evaluation/` reads run directories
+off disk and re-traces only the other configurations it maps, so it needs a GPU. Every stage's entry point, and only the entry point,
 logs its params, metrics and small artifacts to MLflow through `src/tracking.py`.
 
 ### Components
@@ -175,7 +177,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 |---|---|---|---|
 | [Sionna-RT](https://nvlabs.github.io/sionna/) | Loads the scene and ray-traces the radio maps every downstream artifact derives from | **Critical** | `--extra rt`; needs a CUDA GPU to be practical |
 | Scene file | The 3D city geometry the UEs, masts and rays use | **Critical, not in Git** | `simulation.input.scene_file` points at `data/scenes/<scene_name>/scene.xml` (with its `mesh/` folder); `simulation.scene_name` selects the folder, which also holds the sector table, the scenario manifest and the generator record. `data/` is gitignored, so the file must be supplied. Its metadata says `scenegen` generated it for latitude 20.937–20.995, longitude 105.742–105.799. How to obtain it is not documented here |
-| Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the radio map traced from it but copies nothing — no external data needed |
+| Sector layout and tilt bounds | Node position, azimuth, per-band tilt, tilt bounds and PRB limit per sector | Resolved | Generated with the UEs by `task simulation:scenario` from `layout` in [`configs/scenario.yaml`](configs/scenario.yaml) into `simulation.input.sectors_file`, `data/scenes/<scene_name>/sectors.csv` (one row per sector-band, [`src/core/sector.py`](src/core/sector.py)). Every stage reads that file directly; `task preprocess` checks the stored radio map against it but copies nothing — no external data needed |
 | [BoTorch](https://botorch.org/) + GPyTorch | The GP models, Thompson sampling and box decompositions MORBO runs on | **Critical** | `--extra bo`; read by [`src/optim/methods/morbo/search.py`](src/optim/methods/morbo/search.py) |
 | [PyTorch](https://pytorch.org/) | The Sobol engine every method's initial design is drawn from | **Critical** | `--extra torch`, and pulled in transitively by botorch; read by [`src/optim/methods/base.py`](src/optim/methods/base.py). Neither `task sync` nor `task sync:rt` installs it, so a search needs `task setup` |
 | [DVC](https://dvc.org/) | Data and artifact versioning | Optional | `--extra dvc`; see [`dvc.yaml`](dvc.yaml). **Not yet initialised in this repository** — there is no `.dvc/` directory or remote configured; `data/` is presently just gitignored |
@@ -190,7 +192,7 @@ logs its params, metrics and small artifacts to MLflow through `src/tracking.py`
 | Python | `>=3.11,<3.14` | capped: hydra-core 1.3.x cannot build its argparse parser on 3.14 |
 | [uv](https://docs.astral.sh/uv/) | 0.9+ | the only supported installer; `uv.lock` is committed |
 | [Task](https://taskfile.dev/) | 3.x | the task runner; every command below assumes it |
-| CUDA GPU | — | needed for `task simulation:scenario`, `task preprocess`, the searches and `task evaluate`; Sionna-RT ray tracing is impractically slow without one |
+| CUDA GPU | — | needed for `task simulation:scenario`, `task simulation:radio`, the searches and `task evaluate`; Sionna-RT ray tracing is impractically slow without one |
 | Sionna-RT scene | — | `data/scenes/<scene_name>/scene.xml`, not in Git; see [External dependencies](#external-dependencies) |
 
 ### Install
@@ -299,16 +301,17 @@ same functions in `src/`, so they cannot diverge on what they compute. Notebook
 
 | Phase | Notebook | Script |
 |---|---|---|
-| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation:scenario` |
+| 1 — The synthetic network: nodes, traffic, radio map, baseline KPIs | [`00_simulation`](notebooks/00_simulation.ipynb) | `task simulation:scenario`, `task simulation:radio` |
 | 2 — What the data says: band roles, demand against coverage, data quality | [`01_eda`](notebooks/01_eda.ipynb) | — (read-only, writes no data) |
 | 3 — Verify the data and type the UE table | [`02_preprocessing`](notebooks/02_preprocessing.ipynb) | `task preprocess` |
 | 4 — Baseline: random search | [`03a_baseline`](notebooks/03a_baseline.ipynb) | `task baseline` |
 | 5 — MORBO | [`03b_morbo`](notebooks/03b_morbo.ipynb) | `task bo` |
-| 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories, re-traces what it maps, writes `reports/`) |
+| 6 — Results and how far to trust them | [`04_evaluation`](notebooks/04_evaluation.ipynb) | `task evaluate` (the same `src/evaluation/run.py`; reads run directories and the stored baseline map, re-traces the other configurations it maps, writes `reports/`) |
 
 ```bash
 task pipeline           # every stage below, in order
 task simulation:scenario  # the scenario: UEs, layout, manifest (GPU)
+task simulation:radio   # the baseline radio map, stored with the scene (GPU)
 task preprocess         # verify and type the UE table
 task optim              # optimize with every method (GPU)
 task evaluate           # compare the newest run of each method
@@ -408,13 +411,13 @@ band-tilt/
 | Area | State |
 |---|---|
 | `src/core/` — the `Sector` / `Tilt` data model | Implemented |
-| `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation:scenario`, then `radio.solve` wherever a map is needed) |
+| `src/scenario/` and `src/simulation/` — scenario, layout, scene, materials, transmitters, radio map | Implemented; runs end to end for one scenario (`task simulation:scenario`, then `task simulation:radio` stores the baseline map) |
 | `src/data/` — load, schema verification, processed-table build | Implemented (`task preprocess`) and unit-tested |
 | `src/kpi/` — the KPIs (`hole`, `weak`, `overlap`, `quality`, `served`), with `capacity.py` | Implemented and unit-tested (`tests/test_kpi.py`, `tests/test_capacity.py`); scored on every evaluation by `src/optim/evaluator.py` and read by `src/evaluation/maps.py` |
 | `src/utils/` — plotting; `src/config.py` — config loading | Implemented |
 | `notebooks/` — `00_simulation` through `04_evaluation` | All six written and adapted to this project |
 | `src/optim/` | Implemented and unit-tested: the tilt space, the KPI vector, the Sionna-RT evaluator, MORBO on BoTorch, the random-search baseline, and the run that searches, selects and publishes |
-| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Re-traces the incumbent and each method's chosen configuration |
+| `src/evaluation/` | Implemented and unit-tested: loading runs, coverage and demand rasters, comparison tables, figures, export to `reports/`, and `run.py` (`task evaluate`). Reads the incumbent from the stored baseline map and re-traces each method's chosen configuration |
 | `src/tracking.py` — MLflow | Implemented and unit-tested (`tests/test_tracking.py`); called from every stage entry point |
 | `task pipeline` | Chains every stage. Its stages have been run in order end to end against one scenario, including `task evaluate` on real runs |
 | CI | None. `task lint` and `task test` run locally only. |

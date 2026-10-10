@@ -1,4 +1,4 @@
-"""Read the simulation inputs, ray-trace their radio map, and write processed tables as Parquet."""
+"""Read the simulation inputs and the stored radio map, and write processed tables as Parquet."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class Artifacts:
     Attributes:
         ue: ``simulation.input.ue_file`` as read, before any typing.
             Every UE, including those no transmitter reaches.
-        radio: The radio map at the sector table's tilts, :func:`src.simulation.radio.solve`.
+        radio: The stored radio map at the sector table's tilts, :func:`src.simulation.radio.load`.
         manifest: The parsed ``simulation.input.manifest_file``.
     """
 
@@ -55,13 +55,13 @@ class Artifacts:
 
 
 def load_artifacts(cfg: DictConfig) -> Artifacts:
-    """Read the UE table and manifest of ``simulation.input`` and ray-trace their radio map.
+    """Read the UE table and manifest of ``simulation.input`` and the stored radio map.
 
     Read-only: the inputs are regenerated or re-supplied, never edited in place.
-    Side effect: ray-traces every band on the GPU.
 
     Raises:
-        FileNotFoundError: When an input is missing.
+        FileNotFoundError: When an input or the radio map is missing.
+        ValueError: When the radio map is stale; see :func:`src.simulation.radio.load`.
     """
     for key in _INPUTS:
         path = Path(cfg.simulation.input[key])
@@ -70,7 +70,7 @@ def load_artifacts(cfg: DictConfig) -> Artifacts:
 
     return Artifacts(
         ue=pd.read_csv(cfg.simulation.input.ue_file),
-        radio=radio.solve(cfg),
+        radio=radio.load(cfg),
         manifest=radio.read_manifest(cfg),
     )
 

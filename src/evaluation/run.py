@@ -1,10 +1,11 @@
 """Build every evaluation table and figure: the one implementation notebook 04 presents.
 
-Entry point for ``task evaluate``. Reads the newest run of each method and the
-processed UE table, and re-traces the incumbent and each method's largest
-hypervolume contribution on :data:`src.evaluation.compare.EVALUATION_KPIS`, so it
-needs a CUDA GPU. UEs are served from ``data.output.ue_file``, every UE; the
-sectors are read from ``simulation.input.sectors_file``.
+Entry point for ``task evaluate``. Reads the newest run of each method, the
+processed UE table and the stored baseline map (the incumbent), and re-traces each
+method's largest hypervolume contribution on
+:data:`src.evaluation.compare.EVALUATION_KPIS`, so it needs a CUDA GPU. UEs are
+served from ``data.output.ue_file``, every UE; the sectors are read from
+``simulation.input.sectors_file``.
 """
 
 from __future__ import annotations
@@ -20,8 +21,7 @@ from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
 from src.core.sector import read_sectors, site_frame
-from src.data.load import grid_shape
-from src.evaluation import compare, maps, plots
+from src.evaluation import compare, plots
 from src.evaluation import runs as run_store
 from src.evaluation.export import readable, save_table
 from src.kpi.capacity import max_rsrp
@@ -63,9 +63,10 @@ def load_runs(cfg: DictConfig) -> tuple[list[run_store.Run], pd.DataFrame]:
 
 
 def retrace(cfg: DictConfig, tilts: dict[str, np.ndarray]) -> dict[str, dict[str, np.ndarray]]:
-    """Ray-trace each named tilt vector, in :func:`src.simulation.radio.radio_map`'s schema.
+    """Each named tilt vector's radio map, in :func:`src.simulation.radio.radio_map`'s schema.
 
-    Side effect: ray-traces on the GPU.
+    The baseline tilt is read from the stored map; see :class:`Evaluator`.
+    Side effect: ray-traces every other vector on the GPU.
     """
     with Evaluator(cfg, keep_rsrp=True) as evaluator:
         return {name: evaluator.radio_map(evaluator.evaluate(tilt)) for name, tilt in tilts.items()}
@@ -142,10 +143,13 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add("method_tests", compare.method_tests(searched))
     add("front_comparison", compare.front_comparison(searched))
 
-    # Per frequency layer.
+    # Per band.
     per_band = compare.band_table(rows, band_labels)
     add("band_kpis", per_band)
-    add("band_kpi_panels", plots.band_kpi_panels(per_band, BAND_KPI_NAMES))
+    add(
+        "band_kpi_panels",
+        plots.band_kpi_panels(per_band, [k for k in BAND_KPI_NAMES if k != "served_share"]),
+    )
     add("band_tradeoff", plots.band_tradeoff(searched, band_labels))
     service = {
         name: compare.service_summary(c.served, band_labels) for name, c in configurations.items()
@@ -154,12 +158,22 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
 
     # By location: the incumbent against the proposed method's pick.
     shown = ("incumbent", PROPOSED)
-    shape = grid_shape(grid)
     add("coverage_by_area_and_demand", compare.coverage_by_area_and_demand(configurations, cfg))
     add(
         "coverage_class_maps",
         plots.coverage_class_maps(
             {k: configurations[k].rsrp for k in shown}, grid, cfg, sectors=sectors
+        ),
+    )
+    add(
+        "coverage_before_after_all",
+        plots.coverage_maps(
+            *(max_rsrp(configurations[k].rsrp) for k in shown),
+            grid,
+            cfg,
+            sectors=sectors,
+            name=PROPOSED,
+            band="all",
         ),
     )
     for index, band in enumerate(band_labels):
@@ -183,32 +197,39 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
             vmin=0.0,
             cmap="magma",
             sectors=sectors,
+            title="Number of overlapping co-band neighbours per tile",
         ),
     )
+    # serve_intervals keeps the UE table's row order, so its positions align.
+    x, y = ue["x"].to_numpy(), ue["y"].to_numpy()
     throughput = {
-        k: maps.tile_median(configurations[k].served, "estimated_throughput_mbps", shape)
-        for k in shown
+        k: configurations[k].served["estimated_throughput_mbps"].to_numpy() for k in shown
     }
+    hexagon = f"{plots.HEX_SIZE_M:g} m hexagon"
     add(
         "ue_throughput_maps",
-        plots.map_row(
+        plots.throughput_hexbins(
             {label(k): throughput[k] for k in shown},
+            x,
+            y,
             grid,
-            colorbar_label="Median estimated throughput [Mbit/s]",
-            vmin=0.0,
-            cmap="viridis",
+            colorbar_label="Median estimated throughput [Mbps]",
+            title=f"Median estimated UE throughput per {hexagon}",
             sectors=sectors,
         ),
     )
     add(
         "ue_throughput_change_map",
-        plots.map_row(
+        plots.throughput_hexbins(
             {
-                f"{label(PROPOSED)} minus {label('incumbent')}": throughput[PROPOSED]
+                f"Change: {label(PROPOSED)} vs {label('incumbent').lower()}": throughput[PROPOSED]
                 - throughput["incumbent"]
             },
+            x,
+            y,
             grid,
-            colorbar_label="Change in median estimated throughput [Mbit/s]",
+            colorbar_label="Median change in estimated throughput [Mbps]",
+            title=f"Change in estimated UE throughput per {hexagon}",
             symmetric=True,
             sectors=sectors,
         ),
@@ -216,11 +237,7 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add(
         "demand_signal_maps",
         plots.demand_signal_maps(
-            configurations[PROPOSED].rsrp,
-            configurations[PROPOSED].demand,
-            grid,
-            cfg,
-            sectors=sectors,
+            configurations[PROPOSED].rsrp, x, y, grid, sectors=sectors, name=PROPOSED
         ),
     )
 
@@ -228,7 +245,10 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     by_interval = compare.interval_throughput({k: configurations[k] for k in shown})
     add("interval_throughput", by_interval)
     interval_s = float(read_manifest(cfg)["time"]["interval_s"])
-    add("interval_throughput_plot", plots.interval_throughput_plot(by_interval, interval_s))
+    add(
+        "interval_throughput_plot",
+        plots.throughput_by_time_of_day({k: configurations[k].served for k in shown}, interval_s),
+    )
     add("throughput_vs_load", plots.throughput_vs_load(by_interval))
     add(
         "throughput_cdf",
@@ -237,16 +257,8 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
                 k: c.served["estimated_throughput_mbps"].to_numpy()
                 for k, c in configurations.items()
             },
-            "Estimated throughput [Mbit/s]",
-            "Estimated throughput per UE report, unserved at 0",
-        ),
-    )
-    add(
-        "sinr_cdf",
-        plots.cdf_plot(
-            {k: c.served["sinr_db"].to_numpy() for k, c in configurations.items()},
-            "SINR at the serving sector-band [dB]",
-            "Serving SINR per served UE report",
+            "Estimated throughput [Mbps]",
+            "Empirical CDF of estimated UE throughput (unserved UEs at 0 Mbps)",
         ),
     )
 
@@ -260,6 +272,10 @@ def evaluate(cfg: DictConfig, *, in_colab: bool = False) -> dict[str, pd.DataFra
     add(
         "tilt_delta_heatmap",
         plots.tilt_delta_heatmap(compare.tilt_table(rows[PROPOSED], space), PROPOSED),
+    )
+    add(
+        "tilt_change_bars",
+        plots.tilt_change_bars(compare.tilt_table(rows[PROPOSED], space), PROPOSED),
     )
     return results
 

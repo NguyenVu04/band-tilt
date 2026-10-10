@@ -132,6 +132,7 @@ def main() -> None:
                 Path(cfg.simulation.input.ue_file),
                 Path(cfg.simulation.input.sectors_file),
                 Path(cfg.simulation.input.manifest_file),
+                Path(cfg.simulation.output.radio_map_file),
                 Path(cfg.scenario.output.record_file),
                 Path(cfg.data.output.ue_file),
             ],

@@ -213,7 +213,7 @@ def test_a_ue_on_a_hole_is_served_by_nobody_at_zero_throughput(cfg) -> None:
 def test_throughput_statistics_count_an_unserved_ue_as_zero(cfg) -> None:
     """Two UEs split 100 PRBs on tile 0 and a third is on a hole.
 
-    At 0 dB one PRB carries 180 kbit/s, so each served UE gets 9 Mbit/s and the
+    At 0 dB one PRB carries 180 kbit/s, so each served UE gets 9 Mbps and the
     hole UE 0: the statistics are over 0, 9 and 9.
     """
     rsrp = _map([[[-80.0, -130.0]], [[np.nan, np.nan]]])

@@ -2,9 +2,12 @@
 
 Reads the manifest and the sector table named in ``simulation.input`` and returns
 RSRP and SINR on the manifest's grid, both per resource element, as the
-solver's :class:`sionna.rt.RadioMap` reports them. Nothing is written: every
-consumer re-traces the map it needs. Nothing here draws or redraws the UEs: a
-map must describe the population already on disk, whoever produced it.
+solver's :class:`sionna.rt.RadioMap` reports them. The map at the sector table's
+baseline tilts is traced once and stored with its scene
+(``simulation.output.radio_map_file``): GPU ray tracing is not bit-reproducible,
+so every consumer reads that file rather than re-tracing its own copy. Nothing
+here draws or redraws the UEs: a map must describe the population already on
+disk, whoever produced it.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import hydra
 import numpy as np
 from omegaconf import DictConfig
 
@@ -23,10 +27,14 @@ from src.core.sector import Sector, read_sectors, require_bands
 from src.simulation import materials, seeds, transmitter
 from src.simulation import scene as scene_module
 from src.simulation.scene import SceneSpec
+from src.tracking import log_stage
 
 # A tile no ray reached is unknown, not weak: NaN keeps it out of every
 # reduction instead of competing with the finite values a weak path leaves.
 _NO_PATH = np.nan
+
+# What the solver measured, rather than what it was asked to solve.
+_MEASURED = ("rsrp_dbm", "sinr_db", "tile_centre")
 
 # TS 38.101-1 Table 5.3.2-1: FR1 N_RB, keyed by SCS then channel bandwidth, in Hz.
 _N_RB = {
@@ -251,6 +259,59 @@ def solve(cfg: DictConfig) -> dict[str, np.ndarray]:
     )
     print(f"radio map: shape {rsrp.shape} [band, tx, row, col]")
     return result
+
+
+def write(cfg: DictConfig) -> Path:
+    """Solve the baseline map with :func:`solve` and store it.
+
+    Writes ``simulation.output.radio_map_file``, creating its directory. Returns the path.
+    """
+    path = Path(cfg.simulation.output.radio_map_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **solve(cfg))
+    print(f"radio map: {path}")
+    return path
+
+
+def load(cfg: DictConfig) -> dict[str, np.ndarray]:
+    """Read the stored baseline map, checked against the current config and sector table.
+
+    Raises:
+        FileNotFoundError: When the map or the manifest is missing.
+        ValueError: When the map was solved under other settings, tilts,
+            sectors or seed than the current ones, naming the arrays that differ.
+    """
+    path = Path(cfg.simulation.output.radio_map_file)
+    if not path.is_file():
+        raise FileNotFoundError(f"No radio map at {path}. Run `task simulation:radio`.")
+    with np.load(path, allow_pickle=False) as archive:
+        stored = {key: archive[key] for key in archive.files}
+
+    setup = RadioSetup.from_config(cfg)
+    expected = radio_map(
+        rsrp=stored["rsrp_dbm"],
+        sinr=stored["sinr_db"],
+        bands=setup.bands,
+        sectors=read_sectors(cfg.simulation.input.sectors_file),
+        grid_meta=setup.grid_meta,
+        solver_spec=setup.solver,
+        solver_seed=seeds.stream(cfg.seed, "solver"),
+        height_m=setup.height_m,
+        power_dbm=setup.power_dbm,
+        scenario_id=setup.scenario_id,
+        centres=stored["tile_centre"],
+    )
+    stale = [
+        key
+        for key, value in expected.items()
+        if key not in _MEASURED and (key not in stored or not np.array_equal(value, stored[key]))
+    ]
+    if stale:
+        raise ValueError(
+            f"{path} does not match the current config or sector table on {', '.join(stale)}. "
+            "Run `task simulation:radio`."
+        )
+    return stored
 
 
 def baseline_tilts(sectors: tuple[Sector, ...], band_names: Sequence[str]) -> np.ndarray:
@@ -494,3 +555,13 @@ def read_manifest(cfg: DictConfig) -> dict[str, Any]:
             f"No scenario manifest at {path}. Run `task simulation:scenario`, or supply one."
         )
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@hydra.main(version_base=None, config_path="../../configs", config_name="config")
+def main(cfg: DictConfig) -> None:
+    """Solve and store the baseline map. Entry point for ``task simulation:radio``."""
+    log_stage(cfg, "simulation_radio", groups=["simulation"], outputs=[write(cfg)])
+
+
+if __name__ == "__main__":
+    main()

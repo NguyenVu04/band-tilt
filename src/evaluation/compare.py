@@ -172,26 +172,22 @@ def hypervolume_table(runs: list[Run]) -> pd.DataFrame:
 
 
 def convergence(runs: list[Run]) -> pd.DataFrame:
-    """Hypervolume of every evaluation so far, on the search objectives and on the KPIs.
+    """Hypervolume of every evaluation so far, on the search objectives.
 
-    Long form: ``method``, ``measures`` (``objectives`` or ``kpis``),
-    ``iteration``, ``value``.
+    Long form: ``method``, ``iteration``, ``value``.
     """
     frames = []
     for run in runs:
-        history = with_rates(run.history)
-        for measures, columns in (("objectives", OBJECTIVE_NAMES), ("kpis", EVALUATION_KPIS)):
-            values = history[list(columns)].to_numpy(float)
-            frames.append(
-                pd.DataFrame(
-                    {
-                        "method": run.method,
-                        "measures": measures,
-                        "iteration": history["iteration"].to_numpy(),
-                        "value": [hypervolume(values[: k + 1]) for k in range(len(values))],
-                    }
-                )
+        values = run.history[list(OBJECTIVE_NAMES)].to_numpy(float)
+        frames.append(
+            pd.DataFrame(
+                {
+                    "method": run.method,
+                    "iteration": run.history["iteration"].to_numpy(),
+                    "value": [hypervolume(values[: k + 1]) for k in range(len(values))],
+                }
             )
+        )
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
@@ -505,7 +501,7 @@ def reproducibility(
 def interval_throughput(configurations: Mapping[str, Configuration]) -> pd.DataFrame:
     """Estimated throughput per measurement interval, with the UEs in it.
 
-    Every report counts, an unserved one at 0 Mbit/s, as in the UE KPIs.
+    Every report counts, an unserved one at 0 Mbps, as in the UE KPIs.
 
     Returns:
         One row per configuration and interval: ``t_index``, ``ues``,

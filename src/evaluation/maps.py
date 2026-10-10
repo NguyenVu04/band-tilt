@@ -114,51 +114,6 @@ def change_mask(before: np.ndarray, after: np.ndarray, cfg: DictConfig) -> np.nd
     return np.where(was_hole & ~is_hole, 1, np.where(~was_hole & is_hole, -1, 0))
 
 
-def underserved(
-    rsrp: np.ndarray,
-    counts: np.ndarray,
-    cfg: DictConfig,
-    quantile: float = 0.75,
-) -> np.ndarray:
-    """Tiles carrying real demand that are not well covered.
-
-    Args:
-        rsrp: The radio map.
-        counts: The demand raster, :attr:`src.evaluation.compare.Configuration.demand`.
-        cfg: Composed config; reads ``cfg.kpi``.
-        quantile: Demand quantile, taken over occupied tiles only, above which
-            a tile counts as busy. Over all tiles the empty ones would drag it
-            to zero.
-
-    Returns:
-        Boolean ``[n_rows, n_cols]``. These are the tiles worth fixing, as
-        opposed to the ones that are merely dark.
-    """
-    occupied = counts[counts > 0]
-    if occupied.size == 0:
-        return np.zeros(counts.shape, dtype=bool)
-    busy = counts >= np.quantile(occupied, quantile)
-    return busy & (coverage_class(rsrp, cfg) != GOOD)
-
-
-def tile_median(served: pd.DataFrame, column: str, shape: tuple[int, int]) -> np.ndarray:
-    """Median of one column of the UE reports on each tile, over every interval.
-
-    Args:
-        served: :func:`src.kpi.capacity.serve_intervals` output.
-        column: The column to reduce, e.g. ``estimated_throughput_mbps``.
-        shape: The grid's ``(n_rows, n_cols)``.
-
-    Returns:
-        ``[n_rows, n_cols]``, NaN on a tile with no report or none with a value:
-        "no one here" is not "everyone here got nothing".
-    """
-    median = served.groupby(["tile_row", "tile_col"])[column].median()
-    grid = np.full(shape, np.nan)
-    grid[median.index.get_level_values(0), median.index.get_level_values(1)] = median.to_numpy()
-    return grid
-
-
 def extent_of(radio: dict[str, Any]) -> list[float]:
     """Metric bounds of the grid, as matplotlib's ``imshow`` extent.
 

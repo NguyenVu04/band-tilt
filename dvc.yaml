@@ -1,7 +1,7 @@
 # The reproducible pipeline. `dvc repro` runs what is out of date, in order.
 # Each stage calls the same src/ functions as its notebook.
-# Evaluation (notebook 04, `task evaluate`) has no stage: it reads finished runs
-# and re-traces the configurations it analyses.
+# Evaluation (notebook 04, `task evaluate`) has no stage: it reads finished runs,
+# the stored baseline map, and re-traces the other configurations it analyses.
 # `params` list only the settings that change a stage's output.
 
 stages:
@@ -36,25 +36,21 @@ stages:
       - data/scenes/hanoi/scenario.json
       - data/scenes/hanoi/synthetic.json
 
-  # Ray-trace the inputs' radio map in memory, verify it and the inputs, and
-  # write the typed UE table (notebook 02). Needs a CUDA GPU.
-  preprocessing:
-    cmd: python -m src.data.build
+  # Baseline radio map at the sector table's tilts, one ray-trace per band,
+  # stored with its scene (notebook 00). Needs a CUDA GPU.
+  simulation_radio:
+    cmd: python -m src.simulation.radio
     deps:
-      - src/data/build.py
-      - src/data/load.py
-      - src/data/schema.py
       - src/simulation/radio.py
       - src/simulation/materials.py
       - src/simulation/seeds.py
       - src/simulation/transmitter.py
       - src/simulation/scene.py
-      - src/core
+      - src/core/sector.py
       - data/scenes/hanoi/scene.xml
       - data/scenes/hanoi/mesh
-      - data/external/ue_positions.csv
-      - data/scenes/hanoi/sectors.csv
       - data/scenes/hanoi/scenario.json
+      - data/scenes/hanoi/sectors.csv
     params:
       - configs/config.yaml:
           - seed
@@ -64,6 +60,34 @@ stages:
           - scene
           - radio_map
           - antenna
+          - output
+    outs:
+      - data/scenes/hanoi/radio_map.npz
+
+  # Verify the inputs and the stored radio map, and write the typed UE table
+  # (notebook 02).
+  preprocessing:
+    cmd: python -m src.data.build
+    deps:
+      - src/data/build.py
+      - src/data/load.py
+      - src/data/schema.py
+      - src/simulation/radio.py
+      - src/simulation/seeds.py
+      - src/core
+      - data/external/ue_positions.csv
+      - data/scenes/hanoi/sectors.csv
+      - data/scenes/hanoi/scenario.json
+      - data/scenes/hanoi/radio_map.npz
+    params:
+      - configs/config.yaml:
+          - seed
+      - configs/simulation.yaml:
+          - input
+          - ue
+          - radio_map
+          - antenna
+          - output
     outs:
       - data/processed/ue.parquet
 
@@ -91,6 +115,7 @@ stages:
       - data/scenes/hanoi/mesh
       - data/scenes/hanoi/scenario.json
       - data/scenes/hanoi/sectors.csv
+      - data/scenes/hanoi/radio_map.npz
       - data/processed/ue.parquet
     params:
       - configs/optim/base.yaml:
@@ -119,3 +144,4 @@ stages:
           - scene
           - radio_map
           - antenna
+          - output

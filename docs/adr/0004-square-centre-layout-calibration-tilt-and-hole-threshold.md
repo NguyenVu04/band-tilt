@@ -9,6 +9,9 @@
   from the seven-node UMa hexagon (ISD 500 m) to five nodes on a square and its
   centre at 1732 m, and decisions 5 and 6 were added. The earlier text is in Git
   history.
+- **Amended:** 2026-10-10, at the maintainer's direction: decision 5 changed from
+  storing no radio map to storing the baseline map with its scene, because GPU
+  ray tracing is not bit-reproducible.
 
 ## Context
 
@@ -48,10 +51,14 @@ coverage, co-band interference and capacity, and the configurations that span it
    Annex A defines a coverage hole by the signal level needed for basic
    service without quantifying it, so the threshold is a project choice.
 4. **Three demand hotspots** (`scenario.density.n_hotspots`).
-5. **No stored radio map.** Neither the baseline map nor a run's winner is
-   archived. Preprocessing, the notebooks and the evaluation re-trace the
-   configurations they need (`src.simulation.radio.solve`,
-   `src.optim.evaluator.Evaluator`).
+5. **The baseline radio map is stored with its scene.** `task simulation:radio`
+   traces the map at the sector table's tilts once and writes
+   `simulation.output.radio_map_file`, `data/scenes/<scene_name>/radio_map.npz`
+   (`src.simulation.radio.write`). Preprocessing, the notebooks, every search's
+   incumbent and the evaluation read it (`src.simulation.radio.load`,
+   `src.optim.evaluator.Evaluator`), which refuses a map solved under other
+   settings, tilts or seed. Every other configuration is re-traced; no
+   candidate's map is archived.
 6. **The evaluation reads three KPIs.** Coverage rate, separation rate and
    median estimated throughput,
    with their per-band readings recorded for every evaluation. Each method's
@@ -78,9 +85,9 @@ coverage, co-band interference and capacity, and the configurations that span it
   it: the scenario, and therefore the scenario id, changed.
 - The 1732 m spacing has no 3GPP source; it is wider than the UMa ISD, so the
   absolute hole rate partly measures reach rather than tilt.
-- Preprocessing and the evaluation now need a CUDA GPU, and GPU ray tracing is
-  not bit-reproducible, so a re-traced configuration can differ from the
-  search's own reading of it in the trailing digits.
+- The evaluation needs a CUDA GPU, and GPU ray tracing is not bit-reproducible,
+  so a re-traced candidate can differ from the search's own reading of it in the
+  trailing digits. The incumbent cannot: it is read, not re-traced.
 - The search maximises the objectives of ADR 0003 while the evaluation reads
   three related but different KPIs, so a method can lead on one set and not
   the other.
@@ -107,6 +114,11 @@ reach, whatever the node arrangement.
 **The UMa hexagon, seven nodes at ISD 500 m.** The layout this record first
 chose. Replaced at the maintainer's direction by the square with a centre node.
 
-**Keep archiving the radio maps.** Rejected: every consumer can re-trace a
-configuration in seconds, and an archive only ever held the incumbent and one
-winner, not the front an engineer chooses from.
+**Store no radio map and re-trace the baseline wherever it is needed.** The
+first text of decision 5. Rejected on amendment: each re-trace of the incumbent
+carried its own GPU noise, so the searches and the evaluation did not score the
+same reference configuration.
+
+**Archive every candidate's map.** Rejected: every consumer can re-trace a
+candidate in seconds, and the front an engineer chooses from is in the run
+histories.

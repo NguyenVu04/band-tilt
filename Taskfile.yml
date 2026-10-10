@@ -98,8 +98,13 @@ tasks:
     cmds:
       - uv run python -m {{.PKG}}.scenario.run {{.CLI_ARGS}}
 
+  simulation:radio:
+    desc: 'Stage 2 - ray-trace the baseline radio map once and store it with its scene (needs a CUDA GPU)'
+    cmds:
+      - uv run python -m {{.PKG}}.simulation.radio {{.CLI_ARGS}}
+
   preprocess:
-    desc: 'Ray-trace and verify the simulation inputs, write the processed tables (notebook 02) - needs a GPU'
+    desc: 'Verify the simulation inputs and the stored radio map, write the processed tables (notebook 02)'
     cmds:
       - uv run python -m {{.PKG}}.data.build {{.CLI_ARGS}}
 
@@ -128,6 +133,7 @@ tasks:
     desc: 'Every stage in order: simulation, preprocess, optim, evaluate'
     cmds:
       - task: simulation:scenario
+      - task: simulation:radio
       - task: preprocess
       - task: optim
       - task: evaluate

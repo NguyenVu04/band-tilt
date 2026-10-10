@@ -16,7 +16,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import ListedColormap, LogNorm
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from omegaconf import DictConfig
 
@@ -31,6 +31,14 @@ COLOURS = {
     "morbo": "tab:blue",
     "random": "tab:green",
 }
+
+# Hexagon width of the UE-report maps. Wide enough that a background hexagon
+# pools several reports instead of showing one report as one pixel, narrow
+# enough to separate the demand hotspots.
+HEX_SIZE_M = 150.0
+# Fewest reports a throughput hexagon needs to be drawn: below it the median is
+# one or two reports, not a reading of the area.
+MIN_REPORTS = 5
 
 
 def _overlay(axis: plt.Axes, sectors: pd.DataFrame | None, hotspots: pd.DataFrame | None) -> None:
@@ -126,44 +134,71 @@ def coverage_maps(
     _map_axes(
         axes[2],
         extent,
-        f"Coverage holes: {int((change > 0).sum())} closed, {int((change < 0).sum())} opened",
+        f"Coverage-hole changes\n{int((change > 0).sum())} closed, "
+        f"{int((change < 0).sum())} opened",
     )
-    on = f", {label(band)}" if band else ""
-    figure.suptitle(f"Coverage before and after — {label(name)}{on}")
+    on = f", {label(band).lower() if band == 'all' else label(band)}" if band else ""
+    figure.suptitle(f"Best-server RSRP before and after optimization ({label(name)}){on}")
     return figure
+
+
+def _hexbin(
+    axis: plt.Axes,
+    x: np.ndarray,
+    y: np.ndarray,
+    extent: list[float],
+    values: np.ndarray | None = None,
+    min_reports: int = 1,
+    cmap: Any = None,
+) -> Any:
+    """Draw UE reports on :data:`HEX_SIZE_M` hexagons over ``extent``.
+
+    Counts the reports per hexagon when ``values`` is None, else takes the
+    median of ``values``. The grid depends only on ``extent``, so two calls on
+    one scenario share their hexagons. Returns the hexagon collection.
+    """
+    return axis.hexbin(
+        x,
+        y,
+        C=values,
+        reduce_C_function=np.median,
+        gridsize=max(1, round((extent[1] - extent[0]) / HEX_SIZE_M)),
+        extent=extent,
+        mincnt=min_reports,
+        cmap=cmap,
+        linewidths=0.0,
+    )
 
 
 def demand_signal_maps(
     rsrp: np.ndarray,
-    counts: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
     radio: dict[str, Any],
-    cfg: DictConfig,
     *,
     sectors: pd.DataFrame | None = None,
     hotspots: pd.DataFrame | None = None,
-    quantile: float = 0.75,
+    name: str | None = None,
 ) -> Figure:
-    """Where the demand is, where the signal is, and where the two disagree.
+    """Where the demand is and where the signal is.
 
-    Tiles with no report are blank in the demand panel: "nobody here" is a
-    different statement from "one person here".
+    Args:
+        rsrp: Radio map in dBm, ``[n_band, n_tx, n_rows, n_cols]``.
+        x: Every UE report's x [m].
+        y: Every UE report's y [m].
+        radio: Any radio map of the scenario, for the grid extent.
+        sectors: Optional sector table with ``x`` and ``y``.
+        hotspots: Optional hotspot table with ``x`` and ``y``.
+        name: Key of the configuration ``rsrp`` belongs to, for the title.
     """
     extent = maps.extent_of(radio)
-    figure, axes = plt.subplots(1, 3, figsize=(16.0, 4.8), constrained_layout=True)
+    figure, axes = plt.subplots(1, 2, figsize=(11.5, 4.8), constrained_layout=True)
 
-    occupied = np.where(counts > 0, counts.astype(float), np.nan)
-    # Log scale: a handful of hotspot tiles would otherwise flatten every other tile to one colour.
-    image = axes[0].imshow(
-        occupied,
-        origin="lower",
-        extent=extent,
-        norm=LogNorm(vmin=np.nanmin(occupied), vmax=np.nanmax(occupied))
-        if np.isfinite(occupied).any()
-        else None,
-    )
-    figure.colorbar(image, ax=axes[0], label="UE reports (log scale)")
+    # Hexagons with no report stay blank: "nobody here" is not "one person here".
+    image = _hexbin(axes[0], np.asarray(x), np.asarray(y), extent, cmap="YlOrRd")
+    figure.colorbar(image, ax=axes[0], label="UE reports per hexagon")
     _overlay(axes[0], sectors, hotspots)
-    _map_axes(axes[0], extent, "Traffic demand")
+    _map_axes(axes[0], extent, f"Traffic demand [UE reports per {HEX_SIZE_M:g} m hexagon]")
 
     image = axes[1].imshow(
         max_rsrp(rsrp),
@@ -174,19 +209,70 @@ def demand_signal_maps(
     )
     figure.colorbar(image, ax=axes[1], label="Best-server RSRP [dBm]")
     _overlay(axes[1], sectors, hotspots)
-    _map_axes(axes[1], extent, "Signal strength")
+    _map_axes(axes[1], extent, "Best-server RSRP")
+    of = f" ({label(name)})" if name else ""
+    figure.suptitle(f"Traffic demand and best-server RSRP{of}")
+    return figure
 
-    flagged = maps.underserved(rsrp, counts, cfg, quantile)
-    axes[2].imshow(
-        np.where(flagged, 1.0, np.nan),
-        origin="lower",
-        extent=extent,
-        cmap="Reds",
-        vmin=0,
-        vmax=1,
+
+def throughput_hexbins(
+    panels: dict[str, np.ndarray],
+    x: np.ndarray,
+    y: np.ndarray,
+    radio: dict[str, Any],
+    *,
+    colorbar_label: str,
+    title: str,
+    symmetric: bool = False,
+    sectors: pd.DataFrame | None = None,
+) -> Figure:
+    """Median of a per-report value on :data:`HEX_SIZE_M` hexagons, one panel each, one scale.
+
+    Hexagons with fewer than :data:`MIN_REPORTS` reports are blank.
+
+    Args:
+        panels: Title to one value per UE report, aligned with ``x`` and ``y``.
+        x: Every UE report's x [m].
+        y: Every UE report's y [m].
+        radio: Any radio map of the scenario, for the grid extent.
+        colorbar_label: Colour bar label, with units.
+        title: The figure title.
+        symmetric: Centre the scale on zero with a diverging colormap, for
+            difference maps.
+        sectors: Optional sector table with ``x`` and ``y``.
+    """
+    extent = maps.extent_of(radio)
+    figure, axes = plt.subplots(
+        1,
+        len(panels),
+        figsize=(4.8 * len(panels) + 1.0, 4.6),
+        constrained_layout=True,
+        squeeze=False,
     )
-    _overlay(axes[2], sectors, hotspots)
-    _map_axes(axes[2], extent, f"High demand without good coverage: {int(flagged.sum())} tiles")
+    cmap = "RdBu_r" if symmetric else "viridis"
+    images = []
+    for axis, (panel, values) in zip(axes[0], panels.items(), strict=True):
+        images.append(
+            _hexbin(
+                axis, np.asarray(x), np.asarray(y), extent, np.asarray(values), MIN_REPORTS, cmap
+            )
+        )
+        _overlay(axis, sectors, None)
+        _map_axes(axis, extent, panel)
+    present = np.concatenate([np.asarray(image.get_array()) for image in images])
+    if present.size == 0:
+        present = np.zeros(1)
+    if symmetric:
+        # 99th percentile, as in map_row: hexagons nearest a mast swing hardest.
+        limit = float(np.quantile(np.abs(present), 0.99)) or 1.0
+        low, high = -limit, limit
+        colorbar_label = f"{colorbar_label}, clipped at ±{limit:.1f}"
+    else:
+        low, high = float(present.min()), float(present.max())
+    for image in images:
+        image.set_clim(low, high)
+    figure.colorbar(images[-1], ax=axes[0].tolist(), label=colorbar_label)
+    figure.suptitle(title)
     return figure
 
 
@@ -201,6 +287,7 @@ def map_row(
     cmap: Any = None,
     sectors: pd.DataFrame | None = None,
     hotspots: pd.DataFrame | None = None,
+    title: str | None = None,
 ) -> Figure:
     """One raster per panel, side by side, on one colour scale.
 
@@ -215,6 +302,7 @@ def map_row(
         cmap: Colormap; viridis, or ``RdBu_r`` when ``symmetric``.
         sectors: Optional sector table with ``x`` and ``y``.
         hotspots: Optional hotspot table with ``x`` and ``y``.
+        title: The figure title; none when None.
     """
     extent = maps.extent_of(radio)
     values = [np.where(np.isfinite(panel), panel, np.nan) for panel in panels.values()]
@@ -245,6 +333,8 @@ def map_row(
         _overlay(axis, sectors, hotspots)
         _map_axes(axis, extent, title)
     figure.colorbar(image, ax=axes[0].tolist(), label=colorbar_label)
+    if title:
+        figure.suptitle(title)
     return figure
 
 
@@ -307,37 +397,30 @@ def band_share_bars(summaries: dict[str, dict[str, float]], band_labels: Sequenc
         bottom += heights
     axis.set_ylim(0, 1)
     axis.set_ylabel("Share of UE reports")
-    axis.set_title("Serving frequency band mix")
+    axis.set_title("Share of UE reports by serving band")
     axis.legend(fontsize=8, bbox_to_anchor=(1.01, 1), loc="upper left")
     return figure
 
 
 def convergence_plot(frame: pd.DataFrame) -> Figure:
-    """Hypervolume of every evaluation so far: on the search objectives, and on the KPIs.
+    """Hypervolume of the search objectives over every evaluation so far.
 
     Args:
         frame: :func:`src.evaluation.compare.convergence` output.
     """
-    titles = {
-        "objectives": "Search objectives",
-        "kpis": "Coverage, separation and median throughput",
-    }
-    figure, axes = plt.subplots(1, 2, figsize=(13.0, 4.8), constrained_layout=True)
-    for axis, (measures, title) in zip(axes, titles.items(), strict=True):
-        part = frame[frame["measures"] == measures]
-        for method, group in part.groupby("method", sort=False):
-            axis.plot(
-                group["iteration"],
-                group["value"],
-                lw=1.8,
-                color=COLOURS.get(str(method)),
-                label=label(method),
-            )
-        axis.set_xlabel("Evaluations")
-        axis.set_ylabel("Hypervolume so far (higher is better)")
-        axis.set_title(title)
-        axis.legend()
-    figure.suptitle("Search progress")
+    figure, axis = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
+    for method, group in frame.groupby("method", sort=False):
+        axis.plot(
+            group["iteration"],
+            group["value"],
+            lw=1.8,
+            color=COLOURS.get(str(method)),
+            label=label(method),
+        )
+    axis.set_xlabel("Number of evaluations")
+    axis.set_ylabel("Hypervolume (higher is better)")
+    axis.set_title("Hypervolume of the search objectives versus number of evaluations")
+    axis.legend()
     return figure
 
 
@@ -390,7 +473,7 @@ def tradeoff_scatter(
     axis.scatter([], [], s=30, facecolor="none", edgecolor="0.3", label="On the three-KPI front")
     axis.set_xlabel(f"{label(x)} ({compare.direction(x)})")
     axis.set_ylabel(f"{label(y)} ({compare.direction(y)})")
-    axis.set_title(f"{label(x)} against {label(y)}")
+    axis.set_title(f"{label(x)} versus {label(y).lower()} of all evaluated configurations")
     axis.legend(fontsize=8)
     return figure
 
@@ -419,7 +502,39 @@ def tilt_delta_heatmap(table: pd.DataFrame, name: str) -> Figure:
     axis.set_xticks(range(len(bands)), [label(band) for band in bands])
     axis.set_yticks(range(len(sectors)), sectors)
     figure.colorbar(image, ax=axis, label="Tilt change [°] (negative: uptilt)")
-    axis.set_title(f"Tilt change per sector and band — {label(name)}")
+    axis.set_title(f"Tilt change per sector and band ({label(name)} versus current configuration)")
+    return figure
+
+
+def tilt_change_bars(table: pd.DataFrame, name: str) -> Figure:
+    """Tilt change per sector-band as grouped bars: one group per sector, one bar per band.
+
+    Args:
+        table: :func:`src.evaluation.compare.tilt_table` output.
+        name: Key of the configuration, for the title.
+    """
+    table = table.astype({"sector": str, "band": str})
+    sectors = list(dict.fromkeys(table["sector"]))
+    bands = list(dict.fromkeys(table["band"]))
+    grid = table.pivot(index="sector", columns="band", values="delta_tilt_deg")
+    grid = grid.reindex(index=sectors, columns=bands)
+    width = 0.8 / len(bands)
+    positions = np.arange(len(sectors))
+
+    figure, axis = plt.subplots(figsize=(0.6 * len(sectors) + 3.0, 4.6), constrained_layout=True)
+    for offset, band in enumerate(bands):
+        axis.bar(
+            positions + (offset - (len(bands) - 1) / 2) * width,
+            grid[band].to_numpy(),
+            width=width,
+            label=label(band),
+        )
+    axis.axhline(0.0, color="0.2", lw=0.8)
+    axis.set_xticks(positions, sectors, rotation=90)
+    axis.set_xlabel(label("sector"))
+    axis.set_ylabel("Tilt change [°] (negative: uptilt)")
+    axis.set_title(f"Tilt change per sector-band ({label(name)} versus current configuration)")
+    axis.legend(fontsize=8)
     return figure
 
 
@@ -468,7 +583,7 @@ def coverage_class_maps(
         )
     bar = figure.colorbar(image, ax=axes[0].tolist(), ticks=range(len(maps.COVERAGE_CLASSES)))
     bar.ax.set_yticklabels([name.capitalize() for name in maps.COVERAGE_CLASSES])
-    figure.suptitle("Coverage classes")
+    figure.suptitle("Spatial distribution of coverage classes (hole, weak, good)")
     return figure
 
 
@@ -504,13 +619,21 @@ def band_kpi_panels(table: pd.DataFrame, kpis: Sequence[str]) -> Figure:
             )
         axis.set_xticks(positions, [label(band) for band in bands], fontsize=8)
         axis.set_title(label(name), fontsize=9)
-    flat[0].legend(fontsize=8)
-    figure.suptitle("KPIs per frequency layer")
+    # Outside the panels: inside one, the key covers that panel's bars.
+    figure.legend(
+        *flat[0].get_legend_handles_labels(),
+        loc="outside lower center",
+        ncol=len(keys),
+        fontsize=9,
+    )
+    figure.suptitle("KPIs per band: current and selected configurations")
     return figure
 
 
 def band_tradeoff(frame: pd.DataFrame, band_labels: Sequence[str]) -> Figure:
-    """Coverage rate against separation rate on each band alone, every candidate.
+    """Coverage rate against separation rate on each band alone, every candidate, with its front.
+
+    The dashed line joins the configurations no other beats on that band's pair.
 
     Args:
         frame: :func:`src.evaluation.compare.candidates` output, with the
@@ -547,69 +670,77 @@ def band_tradeoff(frame: pd.DataFrame, band_labels: Sequence[str]) -> Figure:
             zorder=5,
             label=label("incumbent"),
         )
+        front = frame[compare.pareto_front(frame, [x, y])].sort_values(x)
+        axis.plot(front[x], front[y], color="0.2", ls="--", lw=1.0, label="Pareto front")
         axis.set_xlabel(label("coverage_rate"))
         axis.set_ylabel(label("separation_rate"))
         axis.set_title(label(band))
     axes[0, 0].legend(fontsize=8)
-    figure.suptitle("Coverage against separation per frequency layer, every candidate")
+    figure.suptitle("Coverage rate versus separation rate per band, with Pareto fronts")
     return figure
 
 
-def interval_throughput_plot(table: pd.DataFrame, interval_s: float) -> Figure:
-    """p05, median and mean throughput by time of day, with the UEs per interval on a second axis.
+def throughput_by_time_of_day(served: dict[str, pd.DataFrame], interval_s: float) -> Figure:
+    """Quantiles of every UE report's throughput by time of day, with the UEs per interval.
 
-    Intervals are folded onto one day: the line is the mean over days of each
-    time-of-day slot and the band its interquartile range, so the diurnal load
-    cycle reads through the interval-to-interval noise.
+    Every report is placed on its time-of-day slot, the days pooled, and each
+    slot's quantiles are taken over those reports directly: the line is the
+    median, the band the interquartile range, the dotted line the 5th percentile.
 
     Args:
-        table: :func:`src.evaluation.compare.interval_throughput` output.
+        served: Configuration key to its :func:`src.kpi.capacity.serve_intervals`
+            output; every frame holds the same UE reports.
         interval_s: Interval length, from the scenario manifest.
     """
-    statistics = ("throughput_p05_mbps", "throughput_p50_mbps", "throughput_mean_mbps")
-    hours = (table["t_index"] % round(86400.0 / interval_s)) * interval_s / 3600.0
-    figure, axes = plt.subplots(
-        len(statistics), 1, figsize=(12.0, 8.5), sharex=True, constrained_layout=True
-    )
-    ues = table.assign(hour=hours).drop_duplicates("t_index").groupby("hour")["ues"].mean()
-    for axis, name in zip(axes, statistics, strict=True):
-        for key, group in table.assign(hour=hours).groupby("configuration", sort=False):
-            by_slot = group.groupby("hour")[name]
-            colour = COLOURS.get(str(key))
-            axis.plot(by_slot.mean().index, by_slot.mean(), lw=1.6, color=colour, label=label(key))
-            axis.fill_between(
-                by_slot.mean().index,
-                by_slot.quantile(0.25),
-                by_slot.quantile(0.75),
-                color=colour,
-                alpha=0.15,
-                lw=0,
-            )
-        density = axis.twinx()
-        density.plot(ues.index, ues.to_numpy(), color="0.45", lw=1.0, ls="--", label=label("ues"))
-        density.set_ylabel(label("ues"), color="0.4")
-        density.grid(False)
-        axis.set_ylabel(label(name))
-    axes[0].legend(fontsize=8, loc="upper left")
-    figure.legend(
-        [plt.Line2D([], [], color="0.45", ls="--")],
-        [f"{label('ues')} (right axis)"],
-        loc="upper right",
-        fontsize=8,
-    )
-    axes[-1].set_xlabel("Time of day [h]")
-    axes[-1].set_xticks(range(0, 25, 3))
-    figure.suptitle("Estimated throughput by time of day: mean over days, interquartile band")
+    slots_per_day = round(86400.0 / interval_s)
+    figure, axis = plt.subplots(figsize=(12.0, 5.0), constrained_layout=True)
+    handles, names = [], []
+    hour = pd.Series(dtype=float)
+    for key, frame in served.items():
+        hour = (frame["t_index"] % slots_per_day) * interval_s / 3600.0
+        quantiles = (
+            frame["estimated_throughput_mbps"]
+            .groupby(hour)
+            .quantile([0.05, 0.25, 0.5, 0.75])
+            .unstack()
+        )
+        colour = COLOURS.get(str(key))
+        (line,) = axis.plot(quantiles.index, quantiles[0.5], lw=1.6, color=colour)
+        axis.fill_between(
+            quantiles.index, quantiles[0.25], quantiles[0.75], color=colour, alpha=0.15, lw=0
+        )
+        axis.plot(quantiles.index, quantiles[0.05], lw=0.9, ls=":", color=colour)
+        handles.append(line)
+        names.append(label(key))
+    axis.set_xlabel("Time of day [h]")
+    axis.set_xticks(range(0, 25, 3))
+    axis.set_ylabel("Estimated throughput [Mbps]")
+
+    # Every frame holds the same reports, so the last one's slots give the load.
+    t_index = next(reversed(served.values()))["t_index"]
+    ues = t_index.groupby(hour).size() / t_index.groupby(hour).nunique()
+    density = axis.twinx()
+    density.plot(ues.index, ues.to_numpy(), color="0.45", lw=1.0, ls="--")
+    density.set_ylabel("Mean UEs per interval", color="0.4")
+    density.grid(False)
+
+    handles += [
+        plt.Line2D([], [], color="0.3", ls=":"),
+        plt.Line2D([], [], color="0.45", ls="--"),
+    ]
+    names += ["5th percentile", "Mean UEs per interval (right axis)"]
+    axis.legend(handles, names, fontsize=8, loc="upper left")
+    axis.set_title("Estimated UE throughput by time of day")
     return figure
 
 
-def throughput_vs_load(table: pd.DataFrame, statistic: str = "throughput_p50_mbps") -> Figure:
-    """One interval's throughput statistic against the UEs in it, per configuration.
+def throughput_vs_load(table: pd.DataFrame) -> Figure:
+    """Each interval's median throughput against the UEs in it, per configuration.
 
     Args:
         table: :func:`src.evaluation.compare.interval_throughput` output.
-        statistic: The column to draw.
     """
+    statistic = "throughput_p50_mbps"
     figure, axis = plt.subplots(figsize=(8.0, 5.0), constrained_layout=True)
     for key, group in table.groupby("configuration", sort=False):
         means = group.groupby("ues")[statistic].mean()
@@ -620,7 +751,7 @@ def throughput_vs_load(table: pd.DataFrame, statistic: str = "throughput_p50_mbp
         )
     axis.set_xlabel(label("ues"))
     axis.set_ylabel(label(statistic))
-    axis.set_title(f"{label(statistic)} against interval load (line: mean per UE count)")
+    axis.set_title("Median estimated throughput per interval versus number of UEs")
     axis.legend(fontsize=8)
     return figure
 

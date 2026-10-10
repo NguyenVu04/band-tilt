@@ -16,7 +16,7 @@ sector-band is above ``kpi.hole_dbm``.
   the band; a band whose strongest sector is not above ``kpi.hole_dbm`` does not
   cover the tile and contributes 1.
 - Throughput: ``mean_u ln(1 + R_u)`` over every UE report, ``R_u`` its estimated
-  throughput in Mbit/s, 0 when no layer reaches it.
+  throughput in Mbps, 0 when no layer reaches it.
 
 Each objective is maximised. A history is ranked by hypervolume against the
 origin, every objective's natural floor: :func:`best_by_hvc` picks the point with
@@ -209,7 +209,7 @@ def separation_objective(rsrp: np.ndarray, cfg: DictConfig) -> float:
 
 
 def throughput_objective(served: pd.DataFrame) -> float:
-    """``mean_u ln(1 + R_u)`` over every UE report, ``R_u`` in Mbit/s and 0 when unserved.
+    """``mean_u ln(1 + R_u)`` over every UE report, ``R_u`` in Mbps and 0 when unserved.
 
     Args:
         served: :func:`src.kpi.capacity.serve_intervals` output.

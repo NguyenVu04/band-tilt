@@ -22,7 +22,7 @@ from src.simulation.radio import baseline_tilts
 
 _CONFIG = "configs/simulation.yaml"
 _MANIFEST = "scenario.json"
-_MAP = "src/simulation/radio.py"
+_MAP = "radio_map.npz"
 _UE = "ue_positions.csv"
 _SECTORS = "sectors.csv"
 

@@ -6,7 +6,7 @@ sector-bands above ``kpi.hole_dbm``; it joins the one where its equal share of t
 usable PRBs, ``kpi.capacity.max_admission_utilisation`` of ``max_prb`` split over
 the UEs already there plus itself, carries the most throughput. Nobody is
 refused: a UE with no candidate is the only one not served, and it is credited
-0 Mbit/s.
+0 Mbps.
 
 Its estimated throughput is read after the interval's last UE has connected,
 at the equal share of its sector-band's final UE count, so a UE's figure falls as

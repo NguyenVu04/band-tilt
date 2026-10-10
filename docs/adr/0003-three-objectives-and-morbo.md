@@ -38,7 +38,7 @@ sectors above `kpi.hole_dbm`:
   `m = kpi.overlap_margin_db`. Co-band, so the overlap rule of the reported KPIs
   and this objective agree; a band with no server above `kpi.hole_dbm` counts 1,
   leaving holes to coverage.
-- **Throughput** `mean_u ln(1 + R_u)` over every UE report, `R_u` in Mbit/s. A
+- **Throughput** `mean_u ln(1 + R_u)` over every UE report, `R_u` in Mbps. A
   proportional-fair utility: it rewards lifting slow UEs more than fast ones.
 
 Coverage and separation are searched (`OBJECTIVE_NAMES`). Throughput is measured
@@ -48,9 +48,9 @@ and recorded with every candidate, but no search reads it until it is reviewed.
 Each is rounded to 6 significant digits before a search reads it, for the same
 reason `J` was rounded: GPU accumulation order varies the trailing digits.
 
-### 2. Unserved UEs count 0 Mbit/s; the failure rate is removed
+### 2. Unserved UEs count 0 Mbps; the failure rate is removed
 
-The serving rule writes 0 Mbit/s, not NaN, for a UE with no sector-band above
+The serving rule writes 0 Mbps, not NaN, for a UE with no sector-band above
 `kpi.hole_dbm`, so the throughput KPIs and the throughput objective see it. The
 UE service failure rate is dropped: it duplicated the hole rate measured where
 the UEs stand. The reported set is eleven KPIs. While more than 5 % of reports
